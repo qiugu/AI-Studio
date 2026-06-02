@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 本文档为 AI 编码代理（Coding Agents）提供关于 AI-Studio 项目的关键信息，帮助代理在无需大量探索的情况下高效理解和修改本项目。
 
