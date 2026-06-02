@@ -41,8 +41,11 @@ class QuotaService:
         超出配额时抛出 QuotaExceededException（返回 429）。
         """
         tenant = self._get_tenant(tenant_id)
-        # 避免循环依赖，动态导入
-        from app.models.user import User  # noqa: F811 - 占位，后续阶段引入 AIModel 后替换
-        # 阶段一暂无 AIModel，此处仅做 tenant 配额校验框架
-        # 后续阶段：替换为 AIModel 的实际查询
-        _ = tenant.max_models  # 记录字段已就位，待阶段二实装
+        from app.models.ai_model import AIModel
+        current_count = (
+            self.db.query(AIModel)
+            .filter(AIModel.tenant_id == tenant_id)
+            .count()
+        )
+        if current_count >= tenant.max_models:
+            raise QuotaExceededException("models")
