@@ -6,6 +6,10 @@ import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/Layout/AppLayout'
 import Login from '@/pages/Login'
 import Dashboard from '@/pages/Dashboard'
+import ProviderList from '@/pages/AIModels/ProviderList'
+import ProviderForm from '@/pages/AIModels/ProviderForm'
+import ModelList from '@/pages/AIModels/ModelList'
+import ModelForm from '@/pages/AIModels/ModelForm'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
@@ -65,6 +69,13 @@ export default function App() {
               }
             >
               <Route index element={<Dashboard />} />
+              {/* Phase 2: AI 模型管理 */}
+              <Route path="providers" element={<ProviderList />} />
+              <Route path="providers/new" element={<ProviderForm />} />
+              <Route path="providers/:id/edit" element={<ProviderForm />} />
+              <Route path="ai-models" element={<ModelList />} />
+              <Route path="ai-models/new" element={<ModelForm />} />
+              <Route path="ai-models/:id/edit" element={<ModelForm />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
