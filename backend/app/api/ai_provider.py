@@ -21,9 +21,9 @@ def list_providers(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: bool | None = Query(None),
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIProviderService(db, tenant_id)
     items, total = svc.list(page=page, page_size=page_size, status=status)
@@ -40,9 +40,9 @@ def list_providers(
 @router.post("", response_model=ResponseBase)
 def create_provider(
     data: AIProviderCreate,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIProviderService(db, tenant_id)
     provider = svc.create(data)
@@ -54,9 +54,9 @@ def create_provider(
 @router.get("/{provider_id}", response_model=ResponseBase)
 def get_provider(
     provider_id: int,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIProviderService(db, tenant_id)
     provider = svc.get(provider_id)
@@ -67,9 +67,9 @@ def get_provider(
 def update_provider(
     provider_id: int,
     data: AIProviderUpdate,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIProviderService(db, tenant_id)
     provider = svc.update(provider_id, data)
@@ -81,9 +81,9 @@ def update_provider(
 @router.delete("/{provider_id}", response_model=ResponseBase)
 def delete_provider(
     provider_id: int,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIProviderService(db, tenant_id)
     svc.delete(provider_id)
@@ -95,9 +95,9 @@ def delete_provider(
 def test_provider_connectivity(
     provider_id: int,
     data: ConnectivityTestRequest,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIProviderService(db, tenant_id)
     result = svc.test_connectivity(provider_id, data.model_name)

@@ -23,9 +23,9 @@ def list_models(
     model_type: str | None = Query(None),
     provider_id: int | None = Query(None),
     include_public: bool = Query(False),
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     items, total = svc.list(
@@ -48,9 +48,9 @@ def list_models(
 @router.post("", response_model=ResponseBase)
 def create_model(
     data: AIModelCreate,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     model = svc.create(data)
@@ -62,9 +62,9 @@ def create_model(
 @router.get("/{model_id}", response_model=ResponseBase)
 def get_model(
     model_id: int,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     model = svc.get(model_id)
@@ -75,9 +75,9 @@ def get_model(
 def update_model(
     model_id: int,
     data: AIModelUpdate,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     model = svc.update(model_id, data)
@@ -89,9 +89,9 @@ def update_model(
 @router.delete("/{model_id}", response_model=ResponseBase)
 def delete_model(
     model_id: int,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     svc.delete(model_id)
@@ -103,9 +103,9 @@ def delete_model(
 def test_model(
     model_id: int,
     data: ModelTestRequest,
-    tenant_id: int = CurrentTenantId,
+    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user=CurrentUser,
+    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     result = svc.test_model(model_id, data.messages)
