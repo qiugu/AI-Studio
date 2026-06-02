@@ -30,3 +30,7 @@ starlette==1.0.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.47.0
+langchain==0.3.21
+langchain-openai==0.3.11
+langchain-anthropic==0.3.1
+langchain-community==0.3.20
