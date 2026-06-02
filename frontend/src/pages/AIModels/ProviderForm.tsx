@@ -78,9 +78,8 @@ export default function ProviderForm() {
         message.success('创建成功')
       }
       navigate('/providers')
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string } } }
-      message.error(err?.response?.data?.message || (isEdit ? '更新失败' : '创建失败'))
+    } catch {
+      // interceptor handles error toast
     } finally {
       setLoading(false)
     }

@@ -32,7 +32,7 @@ export default function ModelForm() {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [providers, setProviders] = useState<AIProvider[]>([])
-  const [initializing, setInitializing] = useState(true)
+  const [initializing, setInitializing] = useState(isEdit)
 
   useEffect(() => {
     const init = async () => {
@@ -72,8 +72,8 @@ export default function ModelForm() {
         display_name: values.display_name as string,
         model_type: values.model_type as AIModelCreateRequest['model_type'],
         status: values.status as boolean,
-        unit_price_input: values.unit_price_input as string | undefined,
-        unit_price_output: values.unit_price_output as string | undefined,
+        unit_price_input: values.unit_price_input != null ? String(values.unit_price_input) : undefined,
+        unit_price_output: values.unit_price_output != null ? String(values.unit_price_output) : undefined,
         max_context_tokens: values.max_context_tokens as number | undefined,
         max_output_tokens: values.max_output_tokens as number | undefined,
       }
@@ -85,9 +85,8 @@ export default function ModelForm() {
         message.success('创建成功')
       }
       navigate('/ai-models')
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string } } }
-      message.error(err?.response?.data?.message || (isEdit ? '更新失败' : '创建失败'))
+    } catch {
+      // interceptor handles error toast
     } finally {
       setLoading(false)
     }

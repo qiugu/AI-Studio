@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Card,
   Row,
@@ -45,30 +45,29 @@ export default function ProviderList() {
     providerId: 0,
   })
 
-  const fetchProviders = async () => {
+  const fetchProviders = useCallback(async () => {
     setLoading(true)
     try {
       const res = await listProviders({ page: 1, page_size: 100 })
       setProviders(res.data?.items ?? [])
     } catch {
-      message.error('加载供应商列表失败')
+      // interceptor handles error toast
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchProviders()
-  }, [])
+  }, [fetchProviders])
 
   const handleDelete = async (id: number) => {
     try {
       await deleteProvider(id)
       message.success('删除成功')
       fetchProviders()
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string } } }
-      message.error(err?.response?.data?.message || '删除失败')
+    } catch {
+      // interceptor handles error toast
     }
   }
 

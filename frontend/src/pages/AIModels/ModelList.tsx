@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Table,
   Button,
@@ -39,7 +39,7 @@ export default function ModelList() {
     include_public: boolean
   }>({ include_public: false })
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
       const [modelsRes, providersRes] = await Promise.all([
@@ -49,24 +49,23 @@ export default function ModelList() {
       setModels(modelsRes.data?.items ?? [])
       setProviders(providersRes.data?.items ?? [])
     } catch {
-      message.error('加载失败')
+      // interceptor handles error toast
     } finally {
       setLoading(false)
     }
-  }
+  }, [filters])
 
   useEffect(() => {
     fetchAll()
-  }, [filters])
+  }, [fetchAll])
 
   const handleDelete = async (id: number) => {
     try {
       await deleteModel(id)
       message.success('删除成功')
       fetchAll()
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { message?: string } } }
-      message.error(err?.response?.data?.message || '删除失败')
+    } catch {
+      // interceptor handles error toast
     }
   }
 
