@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from app.api.auth import router as auth_router
 from app.api.ai_provider import router as ai_provider_router
 from app.api.ai_model import router as ai_model_router
+from app.api.prompt import router as prompt_router
 from app.core.redis import init_redis, redis_close
 from app.core.exceptions import AppException
 from app.middleware.tenant import TenantMiddleware
@@ -104,6 +105,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth_router, prefix="/auth", tags=["认证"])
 app.include_router(ai_provider_router, prefix="/providers", tags=["AI供应商"])
 app.include_router(ai_model_router, prefix="/ai-models", tags=["AI模型"])
+app.include_router(prompt_router, prefix="/prompts", tags=["Prompt管理"])
 
 
 @app.get("/health", tags=["系统"])
