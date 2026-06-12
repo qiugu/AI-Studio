@@ -10,6 +10,9 @@ import ProviderList from '@/pages/AIModels/ProviderList'
 import ProviderForm from '@/pages/AIModels/ProviderForm'
 import ModelList from '@/pages/AIModels/ModelList'
 import ModelForm from '@/pages/AIModels/ModelForm'
+import PromptList from '@/pages/Prompts/PromptList'
+import PromptEditor from '@/pages/Prompts/PromptEditor'
+import PromptDetail from '@/pages/Prompts/PromptDetail'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
@@ -76,6 +79,11 @@ export default function App() {
               <Route path="ai-models" element={<ModelList />} />
               <Route path="ai-models/new" element={<ModelForm />} />
               <Route path="ai-models/:id/edit" element={<ModelForm />} />
+              {/* Phase 3: Prompt 管理 */}
+              <Route path="prompts" element={<PromptList />} />
+              <Route path="prompts/new" element={<PromptEditor />} />
+              <Route path="prompts/:id/edit" element={<PromptEditor />} />
+              <Route path="prompts/:id" element={<PromptDetail />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
