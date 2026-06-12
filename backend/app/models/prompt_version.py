@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Integer, Text, JSON, Boolean, DateTime, func, ForeignKey
+from sqlalchemy import BigInteger, Integer, Text, JSON, Boolean, DateTime, func, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import mapped_column, Mapped
 
 from app.core.database import Base
@@ -9,6 +9,7 @@ from app.core.database import Base
 
 class PromptVersion(Base):
     __tablename__ = "prompt_versions"
+    __table_args__ = (UniqueConstraint("prompt_id", "version_number", name="uq_prompt_version"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     prompt_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prompts.id", ondelete="CASCADE"), nullable=False, index=True)
