@@ -117,6 +117,7 @@ def create_version(
     user_id = current_user.id if current_user else None
     version = svc.create_version(prompt_id, data, user_id=user_id)
     db.commit()
+    db.refresh(version)
     return ResponseBase.ok(data=PromptVersionOut.model_validate(version).model_dump())
 
 
@@ -131,6 +132,7 @@ def activate_version(
     svc = PromptService(db, tenant_id)
     version = svc.activate_version(prompt_id, version_id)
     db.commit()
+    db.refresh(version)
     return ResponseBase.ok(data=PromptVersionOut.model_validate(version).model_dump())
 
 

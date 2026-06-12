@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.prompt import Prompt
@@ -217,7 +218,10 @@ class PromptService:
 
         model = (
             self.db.query(AIModel)
-            .filter(AIModel.id == data.model_id)
+            .filter(
+                AIModel.id == data.model_id,
+                or_(AIModel.tenant_id == self.tenant_id, AIModel.tenant_id.is_(None)),
+            )
             .first()
         )
         if not model:
@@ -275,4 +279,5 @@ class PromptService:
             )
             self.db.add(err_log)
             self.db.flush()
+            self.db.commit()
             raise

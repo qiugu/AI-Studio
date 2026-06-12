@@ -14,7 +14,7 @@ import {
 } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import CodeEditor from '@/components/CodeEditor'
-import { createPrompt, getPrompt, updatePrompt, createVersion } from '@/api/prompt'
+import { createPrompt, getPrompt, updatePrompt, createVersion, activateVersion } from '@/api/prompt'
 import type { Prompt } from '@/types/prompt'
 
 const { Title, Text } = Typography
@@ -77,8 +77,10 @@ export default function PromptEditor() {
         })
         // if content changed from current version, create new version
         if (prompt?.current_version?.content !== content) {
-          await createVersion(Number(id), { content })
-          message.success('已保存元数据并创建新版本')
+          const vRes = await createVersion(Number(id), { content })
+          // auto-activate the new version so it becomes current
+          await activateVersion(Number(id), vRes.data!.id)
+          message.success('已保存元数据并创建新版本（已激活）')
         } else {
           message.success('Prompt 更新成功')
         }
