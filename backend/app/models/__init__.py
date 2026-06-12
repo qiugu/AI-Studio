@@ -7,6 +7,9 @@ from app.models.role_permission import role_permission
 from app.models.api_key import ApiKey
 from app.models.ai_provider import AIProvider
 from app.models.ai_model import AIModel
+from app.models.prompt import Prompt
+from app.models.prompt_version import PromptVersion
+from app.models.prompt_test_log import PromptTestLog
 
 __all__ = [
     "Tenant",
@@ -18,4 +21,7 @@ __all__ = [
     "ApiKey",
     "AIProvider",
     "AIModel",
+    "Prompt",
+    "PromptVersion",
+    "PromptTestLog",
 ]
