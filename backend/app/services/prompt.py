@@ -197,7 +197,7 @@ class PromptService:
         self.db.query(PromptVersion).filter(
             PromptVersion.prompt_id == prompt_id,
             PromptVersion.is_current.is_(True),
-        ).update({"is_current": False})
+        ).update({"is_current": False}, synchronize_session="evaluate")
         target.is_current = True
         self.db.flush()
         return target
@@ -232,34 +232,47 @@ class PromptService:
             raise NotFoundException("AIProvider", model.provider_id)
 
         api_key = decrypt(provider.api_key_encrypted) if provider.api_key_encrypted else ""
-        raw = llm_utils.invoke_model(
-            provider_type=provider.provider_type,
-            api_key=api_key,
-            api_base_url=provider.api_base_url,
-            model_name=model.name,
-            messages=[{"role": "user", "content": rendered}],
-        )
-
-        log = PromptTestLog(
-            prompt_id=prompt_id,
-            version_id=version.id,
-            tenant_id=self.tenant_id,
-            model_id=data.model_id,
-            input_vars=data.variables,
-            rendered_content=rendered,
-            result_content=raw["content"],
-            prompt_tokens=raw["prompt_tokens"],
-            completion_tokens=raw["completion_tokens"],
-            latency_ms=raw["latency_ms"],
-            status="success",
-        )
-        self.db.add(log)
-        self.db.flush()
-
-        return PromptTestResult(
-            rendered_content=rendered,
-            result_content=raw["content"],
-            prompt_tokens=raw["prompt_tokens"],
-            completion_tokens=raw["completion_tokens"],
-            latency_ms=raw["latency_ms"],
-        )
+        try:
+            raw = llm_utils.invoke_model(
+                provider_type=provider.provider_type,
+                api_key=api_key,
+                api_base_url=provider.api_base_url,
+                model_name=model.name,
+                messages=[{"role": "user", "content": rendered}],
+            )
+            log = PromptTestLog(
+                prompt_id=prompt_id,
+                version_id=version.id,
+                tenant_id=self.tenant_id,
+                model_id=data.model_id,
+                input_vars=data.variables,
+                rendered_content=rendered,
+                result_content=raw["content"],
+                prompt_tokens=raw["prompt_tokens"],
+                completion_tokens=raw["completion_tokens"],
+                latency_ms=raw["latency_ms"],
+                status="success",
+            )
+            self.db.add(log)
+            self.db.flush()
+            return PromptTestResult(
+                rendered_content=rendered,
+                result_content=raw["content"],
+                prompt_tokens=raw["prompt_tokens"],
+                completion_tokens=raw["completion_tokens"],
+                latency_ms=raw["latency_ms"],
+            )
+        except Exception:
+            err_log = PromptTestLog(
+                prompt_id=prompt_id,
+                version_id=version.id,
+                tenant_id=self.tenant_id,
+                model_id=data.model_id,
+                input_vars=data.variables,
+                rendered_content=rendered,
+                result_content=None,
+                status="error",
+            )
+            self.db.add(err_log)
+            self.db.flush()
+            raise

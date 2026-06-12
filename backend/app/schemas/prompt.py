@@ -8,7 +8,7 @@ class PromptVersionOut(BaseModel):
     prompt_id: int
     version_number: int
     content: str
-    variables: Optional[list[str]]
+    variables: Optional[list[str]] = None
     is_current: bool
     created_by: Optional[int]
     created_at: Optional[datetime]
