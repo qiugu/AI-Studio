@@ -18,12 +18,9 @@ class Config(BaseSettings):
     database_password: SecretStr = SecretStr('')
     database_socket: Optional[str] = None
 
-    # PostgreSQL + pgvector
-    vector_db_host: str = 'localhost'
-    vector_db_port: int = 5432
-    vector_db_name: str = 'ai_studio_vector'
-    vector_db_username: str = ''
-    vector_db_password: SecretStr = SecretStr('')
+    # Qdrant
+    qdrant_url: str = 'http://localhost:6333'
+    qdrant_api_key: str = ''   # 本地部署可留空，云端部署时填写
 
     # Redis
     redis_host: str = '127.0.0.1'

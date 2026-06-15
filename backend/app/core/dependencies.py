@@ -1,11 +1,14 @@
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Header, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.vector_db import get_vector_session
+from app.core.vector_db import get_qdrant_client
+
+if TYPE_CHECKING:
+    from qdrant_client import QdrantClient
 from app.core.security import decode_token
 from app.core.exceptions import UnauthorizedException, ForbiddenException
 from app.models.user import User
@@ -103,4 +106,4 @@ SessionDep = Annotated[Session, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentTenantId = Annotated[int, Depends(get_current_tenant)]
 PlatformAdmin = Annotated[User, Depends(require_platform_admin)]
-VectorSessionDep = Annotated[Session, Depends(get_vector_session)]
+QdrantClientDep = Annotated["QdrantClient", Depends(get_qdrant_client)]

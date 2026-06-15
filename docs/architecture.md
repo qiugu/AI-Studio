@@ -6,7 +6,7 @@
 |------|------|------|
 | 后端框架 | FastAPI + SQLAlchemy | 异步高性能，已有基础 |
 | 主数据库 | MySQL | 关系型数据存储 |
-| 向量数据库 | PostgreSQL + pgvector | 独立部署，专用于向量检索 |
+| 向量数据库 | Qdrant | 独立部署，专用于向量检索，HNSW索引，原生多租户 payload 过滤 |
 | 缓存/队列 | Redis | 缓存 + 限流 + Celery Broker |
 | 异步任务 | Celery | 文档处理等CPU密集型任务 |
 | LLM抽象层 | LangChain | 统一多模型调用 |
@@ -51,7 +51,7 @@
    │                   │                    │
    ▼                   ▼                    ▼
 ┌───────┐      ┌──────────────┐      ┌──────────┐
-│ MySQL │      │ PG + pgvector │      │  Redis   │
+│ MySQL │      │   Qdrant     │      │  Redis   │
 │(关系型)│      │  (向量检索)   │      │(缓存/队列)│
 └───────┘      └──────────────┘      └──────────┘
 ```
@@ -66,7 +66,7 @@ backend/
 │   ├── core/
 │   │   ├── config.py                   # 配置(扩展)
 │   │   ├── database.py                 # MySQL引擎(完善)
-│   │   ├── vector_db.py               # pgvector连接管理
+│   │   ├── vector_db.py               # Qdrant客户端管理
 │   │   ├── security.py                # JWT/密码哈希/RBAC
 │   │   ├── dependencies.py            # 通用Depends
 │   │   ├── exceptions.py              # 自定义异常体系
@@ -98,7 +98,7 @@ backend/
 | 决策点 | 方案 | 原因 |
 |--------|------|------|
 | 主数据库 | MySQL (保留) | 已有基础，团队熟悉 |
-| 向量数据库 | PostgreSQL + pgvector (独立) | 成熟稳定，专用检索 |
+| 向量数据库 | Qdrant (独立) | HNSW索引，原生多租户payload过滤，无需pgvector扩展 |
 | 异步任务 | Celery + Redis | 文档处理/向量化是CPU密集型 |
 | 流式响应 | SSE (Server-Sent Events) | LLM流式输出的标准方案 |
 | 工作流可视化 | @xyflow/react (React Flow) | 成熟开源流程图库 |
@@ -141,8 +141,7 @@ langchain-community==0.3.20
 langchain-experimental==0.3.4
 
 # 向量数据库
-psycopg2-binary==2.9.10
-pgvector==0.4.0
+qdrant-client==1.14.2
 ```
 
 ### 前端核心依赖

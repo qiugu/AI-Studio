@@ -303,7 +303,7 @@ class QuotaService:
     │
     └─ 注销 → deleted_at=now()（软删除）
               触发 Celery 异步任务 cleanup_tenant_data:
-                1. 删除 pgvector 中该 tenant_id 的所有向量记录
+                1. 删除 Qdrant 中该 tenant_id 的所有向量 Point
                 2. 删除文件系统/OSS 中 uploads/{tenant_id}/ 目录
                 3. 级联软删除业务数据：
                    users / ai_providers / knowledge_bases /
@@ -460,7 +460,7 @@ def fernet_decrypt(ciphertext: str) -> str:
             ├── 解析文档(python-docx/pypdf2/bs4)
             ├── 文本分割(RecursiveCharacterTextSplitter)
             ├── Embedding向量化(EmbeddingClient)
-            ├── 存入pgvector
+            ├── 存入Qdrant（upsert points，content存于payload）
             └── 更新文档状态
 ```
 
@@ -519,56 +519,86 @@ class DocumentChunker:
         return self.splitter.split_text(text)
 ```
 
-### 3.3 pgvector连接管理
+### 3.3 Qdrant客户端管理
 
 ```python
 # app/core/vector_db.py
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from pgvector.sqlalchemy import Vector
+import logging
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, HnswConfigDiff
 from app.core.config import config
 
-VECTOR_DB_URL = (
-    f"postgresql+psycopg2://{config.vector_db_username}:{config.vector_db_password}"
-    f"@{config.vector_db_host}:{config.vector_db_port}/{config.vector_db_name}"
-)
+logger = logging.getLogger(__name__)
 
-vector_engine = create_engine(VECTOR_DB_URL, pool_size=5, pool_pre_ping=True)
-VectorSession = sessionmaker(bind=vector_engine, autocommit=False, autoflush=False)
+_qdrant_client: QdrantClient | None = None
 
-def get_vector_session():
-    session = VectorSession()
+def get_qdrant_client() -> QdrantClient:
+    global _qdrant_client
+    if _qdrant_client is None:
+        _qdrant_client = QdrantClient(
+            url=config.qdrant_url,
+            api_key=config.qdrant_api_key or None,
+            timeout=30,
+        )
+    return _qdrant_client
+
+def init_vector_db() -> None:
+    """应用启动时验证Qdrant连通性"""
     try:
-        yield session
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+        client = get_qdrant_client()
+        client.get_collections()
+        logger.info("Qdrant connection verified")
+    except Exception as e:
+        logger.warning("Could not connect to Qdrant: %s", e)
+
+def get_or_create_collection(kb_id: int, vector_size: int = 1536) -> str:
+    """确保知识库对应的Collection存在，返回collection_name"""
+    collection_name = f"kb_{kb_id}"
+    client = get_qdrant_client()
+    existing = {c.name for c in client.get_collections().collections}
+    if collection_name not in existing:
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+            hnsw_config=HnswConfigDiff(m=16, ef_construct=100),
+        )
+        logger.info("Created Qdrant collection: %s", collection_name)
+    return collection_name
 ```
 
 ### 3.4 知识库检索
 
 ```python
 # app/services/knowledge.py (检索部分)
-from sqlalchemy import text
-from app.core.vector_db import get_vector_session
+from qdrant_client.models import Filter, FieldCondition, MatchValue, ScoredPoint
+from app.core.vector_db import get_qdrant_client
 
-async def search_knowledge(kb_id: int, query: str, embedding: list[float], top_k: int = 5, score_threshold: float = 0.7):
-    session = next(get_vector_session())
-    result = session.execute(
-        text("""
-            SELECT kv.chunk_id, kc.content, kc.metadata, kv.embedding <=> :embedding AS distance
-            FROM knowledge_vectors kv
-            JOIN knowledge_chunks kc ON kv.chunk_id = kc.id
-            WHERE kv.kb_id = :kb_id
-            ORDER BY kv.embedding <=> :embedding
-            LIMIT :top_k
-        """),
-        {"embedding": str(embedding), "kb_id": kb_id, "top_k": top_k}
+async def search_knowledge(
+    kb_id: int,
+    embedding: list[float],
+    top_k: int = 5,
+    score_threshold: float = 0.7,
+) -> list[dict]:
+    client = get_qdrant_client()
+    collection_name = f"kb_{kb_id}"
+
+    results: list[ScoredPoint] = client.search(
+        collection_name=collection_name,
+        query_vector=embedding,
+        limit=top_k,
+        score_threshold=score_threshold,   # Qdrant原生过滤，减少传输
+        with_payload=True,                 # payload中含content和metadata，无需二次查MySQL
     )
-    rows = result.fetchall()
-    return [row for row in rows if (1 - row.distance) >= score_threshold]
+
+    return [
+        {
+            "chunk_id": r.payload["chunk_id"],
+            "content": r.payload["content"],
+            "metadata": r.payload.get("metadata", {}),
+            "score": r.score,
+        }
+        for r in results
+    ]
 ```
 
 ---
@@ -875,12 +905,9 @@ class Config(BaseSettings):
     database_username: str = ''
     database_password: SecretStr = SecretStr('')
 
-    # PostgreSQL + pgvector (新增)
-    vector_db_host: str = 'localhost'
-    vector_db_port: int = 5432
-    vector_db_name: str = 'ai_studio_vector'
-    vector_db_username: str = ''
-    vector_db_password: SecretStr = SecretStr('')
+    # Qdrant (新增)
+    qdrant_url: str = 'http://localhost:6333'
+    qdrant_api_key: str = ''   # 本地部署可留空，云端部署时填写
 
     # Redis (新增)
     redis_host: str = 'localhost'

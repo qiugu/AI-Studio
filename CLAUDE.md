@@ -181,7 +181,7 @@ frontend/src/
 - 所有租户相关表均包含 `tenant_id` 字段，且必须通过 `BaseRepository` 查询
 - 软删除统一使用 `deleted_at` 字段（`NULL` 表示未删除）
 - 平台公共资源（公共 AI 模型、公共插件）的 `tenant_id` 为 `NULL`
-- 向量数据存储在独立的 PostgreSQL + pgvector 实例中（`app/core/vector_db.py`）
+- 向量数据存储在独立的 Qdrant 实例中（`app/core/vector_db.py`），每个知识库对应一个 Collection（命名规则：`kb_{kb_id}`）
 - 审计日志和 Token 用量记录永久保留，其他业务数据软删除后 90 天可物理清除
 
 ## 运行与测试

@@ -248,23 +248,33 @@
 | content | Text | 分块文本内容 |
 | metadata | JSON | 元数据(页码、标题层级、来源等) |
 | token_count | Integer | token数量 |
-| pg_vector_id | String(36) | pgvector中的向量UUID |
+| qdrant_point_id | String(36) | Qdrant中的向量Point UUID |
 | created_at | DateTime | 创建时间 |
 
-**索引**: (kb_id), (document_id), (pg_vector_id)
+**索引**: (kb_id), (document_id), (qdrant_point_id)
 
-pgvector中对应向量表:
+Qdrant中对应向量Collection设计:
 
-```sql
-CREATE TABLE knowledge_vectors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    chunk_id BIGINT REFERENCES knowledge_chunks(id),
-    tenant_id BIGINT,
-    kb_id BIGINT,
-    embedding vector(1536),  -- 维度随embedding模型调整
-    created_at TIMESTAMP DEFAULT NOW()
-);
-CREATE INDEX ON knowledge_vectors USING ivfflat (embedding vector_cosine_ops);
+```
+Collection命名规则: kb_{kb_id}  (每个知识库独立Collection)
+
+Collection配置:
+  vectors:
+    size: 1536          # 维度随embedding模型调整
+    distance: Cosine    # 余弦相似度
+  hnsw_config:
+    m: 16               # HNSW邻居数
+    ef_construct: 100   # 构建时搜索宽度
+
+Point结构:
+  id: UUID              # 对应 knowledge_chunks.qdrant_point_id
+  vector: [float...]    # embedding向量
+  payload:
+    chunk_id: int       # 关联MySQL的chunk主键
+    tenant_id: int      # 租户ID（用于批量清理）
+    kb_id: int          # 知识库ID
+    content: str        # 分块文本内容（直接存储，避免二次查库）
+    metadata: dict      # 元数据(页码、标题层级等)
 ```
 
 ---

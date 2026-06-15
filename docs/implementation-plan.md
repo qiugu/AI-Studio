@@ -13,7 +13,7 @@
 ### 后端任务
 
 1. **完善配置系统**
-   - 扩展 `app/core/config.py`，增加JWT、Redis、pgvector、文件上传、Celery配置项
+   - 扩展 `app/core/config.py`，增加JWT、Redis、Qdrant、文件上传、Celery配置项
    - 更新 `.env` 文件
 
 2. **安全模块** `app/core/security.py`
@@ -25,7 +25,7 @@
    - `get_current_user` - 获取当前用户
    - `get_current_tenant` - 获取当前租户
    - `require_permission(resource, action)` - 权限检查装饰器
-   - `get_vector_session` - pgvector session
+   - `get_qdrant_client` - Qdrant client
 
 4. **异常体系** `app/core/exceptions.py`
    - AppException基类
@@ -237,20 +237,20 @@
 
 ## 阶段四：知识库
 
-**目标**: KB CRUD + 文档上传/解析/分块 + pgvector集成 + 检索API
+**目标**: KB CRUD + 文档上传/解析/分块 + Qdrant集成 + 检索API
 
 ### 后端任务
 
-1. **pgvector连接** `app/core/vector_db.py`
-   - PostgreSQL连接管理
+1. **Qdrant客户端** `app/core/vector_db.py`
+   - Qdrant client初始化与Collection管理
 
 2. **新增模型**
    - `app/models/knowledge_base.py`
    - `app/models/knowledge_document.py`
    - `app/models/knowledge_chunk.py`
 
-3. **向量表DDL** (pgvector)
-   - knowledge_vectors 表创建
+3. **Qdrant Collection初始化**
+   - 知识库创建时自动创建对应Collection（HNSW索引，余弦相似度）
 
 4. **文档解析** `app/utils/document.py`
    - PDF/Word/TXT/MD解析
@@ -268,13 +268,13 @@
    - 语义检索
 
 8. **知识库处理** `app/services/knowledge_processor.py`
-   - Celery任务: 文档解析 → 分块 → Embedding → 存入pgvector
+   - Celery任务: 文档解析 → 分块 → Embedding → 存入Qdrant
 
 9. **API路由** `app/api/knowledge.py`
 
 10. **文件上传中间件/依赖**
 
-11. **Alembic迁移** + pgvector建表
+11. **Alembic迁移** + Qdrant Collection初始化脚本
 
 ### 前端任务
 
@@ -513,7 +513,7 @@
    - 平台公共模型 CRUD（`tenant_id=NULL` 的 ai_models）
 
 8. **租户数据清理 Celery 任务** `app/services/tenant_cleanup.py`
-   - 删除 pgvector 中该租户的向量数据
+   - 删除 Qdrant 中该租户的向量数据（按 tenant_id 过滤删除所有 Point）
    - 删除文件存储中该租户的上传文件
    - 级联软删除: users / ai_providers / knowledge_bases / workflows / agents / conversations
    - 保留: audit_logs / token_usages（合规 & 计费依据）

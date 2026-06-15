@@ -1,74 +1,64 @@
 import logging
-from collections.abc import Generator
-from contextlib import contextmanager
-from typing import Optional
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker, Session
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, HnswConfigDiff, VectorParams
 
 from app.core.config import config
 
 logger = logging.getLogger(__name__)
 
-
-def _build_vector_db_url() -> str:
-    password = config.vector_db_password.get_secret_value()
-    return (
-        f"postgresql+psycopg2://{config.vector_db_username}:{password}"
-        f"@{config.vector_db_host}:{config.vector_db_port}/{config.vector_db_name}"
-    )
+_qdrant_client: QdrantClient | None = None
 
 
-VECTOR_DATABASE_URL = _build_vector_db_url()
-
-vector_engine = create_engine(
-    url=VECTOR_DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=1800,
-    pool_use_lifo=True,
-    echo=False,
-    connect_args={
-        "connect_timeout": 10,
-        "keepalives": 1,
-        "keepalives_idle": 30,
-        "keepalives_interval": 10,
-        "keepalives_count": 5,
-    },
-)
-
-VectorSession = sessionmaker(bind=vector_engine, autocommit=False, autoflush=False)
-
-
-def check_vector_extension() -> bool:
-    try:
-        with vector_engine.connect() as conn:
-            result = conn.execute(text("SELECT * FROM pg_extension WHERE extname = 'vector'"))
-            return result.fetchone() is not None
-    except SQLAlchemyError as e:
-        logger.warning("Failed to check pgvector extension: %s", e)
-        return False
+def get_qdrant_client() -> QdrantClient:
+    global _qdrant_client
+    if _qdrant_client is None:
+        _qdrant_client = QdrantClient(
+            url=config.qdrant_url,
+            api_key=config.qdrant_api_key or None,
+            timeout=30,
+        )
+    return _qdrant_client
 
 
 def init_vector_db() -> None:
+    """应用启动时验证 Qdrant 连通性"""
     try:
-        with vector_engine.connect() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            conn.commit()
-            logger.info("pgvector extension ensured")
-    except SQLAlchemyError as e:
-        logger.warning("Could not create pgvector extension: %s", e)
+        client = get_qdrant_client()
+        client.get_collections()
+        logger.info("Qdrant connection verified")
+    except Exception as e:
+        logger.warning("Could not connect to Qdrant: %s", e)
 
 
-def get_vector_session() -> Generator[Session, None, None]:
-    session = VectorSession()
-    try:
-        yield session
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+def get_or_create_collection(kb_id: int, vector_size: int = 1536) -> str:
+    """确保知识库对应的 Collection 存在，返回 collection_name"""
+    collection_name = f"kb_{kb_id}"
+    client = get_qdrant_client()
+    existing = {c.name for c in client.get_collections().collections}
+    if collection_name not in existing:
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+            hnsw_config=HnswConfigDiff(m=16, ef_construct=100),
+        )
+        logger.info("Created Qdrant collection: %s", collection_name)
+    return collection_name
+
+
+def delete_tenant_vectors(tenant_id: int) -> None:
+    """删除指定租户的所有向量数据（租户注销时调用）"""
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    client = get_qdrant_client()
+    collections = [c.name for c in client.get_collections().collections]
+    for collection_name in collections:
+        try:
+            client.delete(
+                collection_name=collection_name,
+                points_selector=Filter(
+                    must=[FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id))]
+                ),
+            )
+        except Exception as e:
+            logger.warning("Failed to delete vectors for tenant %s in %s: %s", tenant_id, collection_name, e)
