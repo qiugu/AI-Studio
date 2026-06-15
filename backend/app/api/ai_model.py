@@ -19,7 +19,7 @@ router = APIRouter()
 @router.get("", response_model=ResponseBase)
 def list_models(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     model_type: str | None = Query(None),
     provider_id: int | None = Query(None),
     include_public: bool = Query(False),
