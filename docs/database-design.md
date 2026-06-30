@@ -198,7 +198,7 @@
 
 ---
 
-## 4. 知识库（新增）
+## 4. 知识库（已实现）
 
 ### knowledge_bases 知识库表
 
@@ -208,74 +208,97 @@
 | tenant_id | BigInteger FK | 所属租户 |
 | name | String(255) | 知识库名称 |
 | description | Text | 描述 |
-| embedding_model_id | BigInteger FK | 使用的Embedding模型 |
-| chunk_strategy | JSON | 分块策略配置(chunk_size, chunk_overlap, separator) |
-| retrieval_config | JSON | 检索配置(top_k, score_threshold, rerank) |
-| doc_count | Integer | 文档数量(冗余) |
-| total_chunks | Integer | 总分块数(冗余) |
-| total_tokens | BigInteger | 总token数(冗余) |
-| status | String(20) | 状态(active/processing/error) |
-| created_by | BigInteger FK | 创建人 |
+| embedding_model | String(100) | 使用的向量模型（如 text-embedding-3-small） |
+| document_count | Integer | 文档数量（冗余字段） |
+| chunk_count | Integer | 总分块数（冗余字段） |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
+| deleted_at | DateTime | 软删除时间 |
+
+**说明**：实际实现中 `embedding_model` 为字符串类型，存储模型名称而非外键引用。每个知识库对应一个独立的 Qdrant Collection（命名规则：`kb_{kb_id}`）。
 
 ### knowledge_documents 知识库文档表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | BigInteger PK | 主键 |
+| tenant_id | BigInteger FK | 所属租户 |
 | kb_id | BigInteger FK | 所属知识库 |
-| title | String(500) | 文档标题 |
-| source_type | String(20) | 来源类型(upload/url/crawl/api) |
-| file_path | String(500) | 文件存储路径 |
-| file_size | BigInteger | 文件大小(字节) |
-| mime_type | String(100) | 文件MIME类型 |
+| file_name | String(255) | 文件名 |
+| file_type | String(20) | 文件类型（pdf/docx/txt/md） |
+| file_size | BigInteger | 文件大小（字节） |
+| file_url | String(500) | 文件存储URL（如 S3） |
+| original_content | Text | 解析后的原始文本内容 |
 | chunk_count | Integer | 分块数量 |
-| total_tokens | BigInteger | 文档总token数 |
-| processing_error | Text | 处理错误信息 |
-| status | String(20) | 状态(pending/processing/completed/failed) |
+| status | Enum | 状态（pending/processing/completed/failed） |
+| error_message | Text | 处理失败时的错误信息 |
+| processed_at | DateTime | 处理完成时间 |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
+| deleted_at | DateTime | 软删除时间 |
+
+**状态流转**：
+- `pending` → 初始状态，文档已上传但未处理
+- `processing` → Celery 任务正在处理（解析 → 分块 → 向量化）
+- `completed` → 处理成功，向量已存入 Qdrant
+- `failed` → 处理失败，`error_message` 字段记录错误详情
 
 ### knowledge_chunks 知识库分块表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | BigInteger PK | 主键 |
-| document_id | BigInteger FK | 所属文档 |
-| kb_id | BigInteger FK | 所属知识库(冗余,加速查询) |
-| chunk_index | Integer | 分块序号 |
+| tenant_id | BigInteger FK | 所属租户 |
+| kb_id | BigInteger FK | 所属知识库（冗余，加速查询） |
+| doc_id | BigInteger FK | 所属文档 |
 | content | Text | 分块文本内容 |
-| metadata | JSON | 元数据(页码、标题层级、来源等) |
-| token_count | Integer | token数量 |
-| qdrant_point_id | String(36) | Qdrant中的向量Point UUID |
+| chunk_index | Integer | 分块序号（从 0 开始） |
+| source_page | Integer | PDF 页码（可选） |
+| vector_id | String(36) | Qdrant 中的 Point UUID |
 | created_at | DateTime | 创建时间 |
+| updated_at | DateTime | 更新时间 |
+| deleted_at | DateTime | 软删除时间 |
 
-**索引**: (kb_id), (document_id), (qdrant_point_id)
+**索引**：`(kb_id)`、`(doc_id)`、`(vector_id)`（唯一）
 
-Qdrant中对应向量Collection设计:
+**Qdrant Collection 配置**：
 
 ```
 Collection命名规则: kb_{kb_id}  (每个知识库独立Collection)
 
 Collection配置:
   vectors:
-    size: 1536          # 维度随embedding模型调整
+    size: 根据模型动态调整（OpenAI text-embedding-3-small 为 1536，BAAI bge-m3 为 1024）
     distance: Cosine    # 余弦相似度
   hnsw_config:
     m: 16               # HNSW邻居数
     ef_construct: 100   # 构建时搜索宽度
 
 Point结构:
-  id: UUID              # 对应 knowledge_chunks.qdrant_point_id
+  id: UUID              # 对应 knowledge_chunks.vector_id
   vector: [float...]    # embedding向量
   payload:
     chunk_id: int       # 关联MySQL的chunk主键
-    tenant_id: int      # 租户ID（用于批量清理）
+    doc_id: int         # 文档ID
     kb_id: int          # 知识库ID
+    tenant_id: int      # 租户ID（用于批量清理）
     content: str        # 分块文本内容（直接存储，避免二次查库）
-    metadata: dict      # 元数据(页码、标题层级等)
+    source_page: int    # 页码（可选）
 ```
+
+**已实现功能**（阶段4）：
+- ✅ 知识库 CRUD（创建、列表、详情、更新、删除）
+- ✅ 文档上传（支持 PDF/Word/Markdown/TXT）
+- ✅ 文档状态追踪（pending → processing → completed/failed）
+- ✅ 向量检索（语义搜索，返回相似度评分）
+- ⏳ Celery 异步任务（待完成，用于自动处理文档）
+
+**权限**：
+- `knowledge.create` - 创建知识库
+- `knowledge.read` - 查看知识库
+- `knowledge.update` - 编辑知识库
+- `knowledge.delete` - 删除知识库和文档
+- `knowledge.upload` - 上传文档
 
 ---
 

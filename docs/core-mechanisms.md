@@ -456,13 +456,23 @@ def fernet_decrypt(ciphertext: str) -> str:
 
 ```
 文档上传 → 文件存储(本地/OSS)
-         → Celery异步任务
-            ├── 解析文档(python-docx/pypdf2/bs4)
+         → 创建文档记录(status=PENDING)
+         → Celery异步任务触发
+            ├── 解析文档(python-docx/pypdf2)
             ├── 文本分割(RecursiveCharacterTextSplitter)
             ├── Embedding向量化(EmbeddingClient)
             ├── 存入Qdrant（upsert points，content存于payload）
-            └── 更新文档状态
+            └── 更新文档状态(status=COMPLETED/FAILED)
 ```
+
+**当前实现状态**（阶段4）：
+- ✅ 文档上传接口已实现（`POST /knowledge/knowledge-bases/{kb_id}/documents/upload`）
+- ✅ 文档解析工具已实现（`DocumentParser` 支持 PDF/Word/Markdown/TXT）
+- ✅ 文本分块工具已实现（`TextSplitter` 使用 LangChain 的 `RecursiveCharacterTextSplitter`）
+- ✅ 向量化客户端已实现（`EmbeddingClient` 支持 OpenAI/Azure/Ollama）
+- ✅ Qdrant Collection 管理已实现
+- ⏳ Celery 异步任务集成待完成（文档处理任务需配置 worker）
+- ⏳ 文件持久化存储待完成（当前使用临时目录）
 
 ### 3.2 文档解析工具
 
@@ -472,24 +482,27 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import docx, PyPDF2, os
 
 class DocumentParser:
+    """文档解析器，支持多种格式文档转文本"""
+
+    SUPPORTED_TYPES = ["pdf", "docx", "txt", "md"]
+
     @staticmethod
     def parse(file_path: str) -> str:
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == ".pdf":
-            return DocumentParser._parse_pdf(file_path)
-        elif ext in (".docx", ".doc"):
-            return DocumentParser._parse_docx(file_path)
-        elif ext == ".txt":
-            return DocumentParser._parse_txt(file_path)
-        elif ext == ".md":
-            return DocumentParser._parse_md(file_path)
-        elif ext in (".html", ".htm"):
-            return DocumentParser._parse_html(file_path)
-        else:
+        """解析文档并返回纯文本内容"""
+        ext = os.path.splitext(file_path)[1].lower().lstrip(".")
+        if ext not in DocumentParser.SUPPORTED_TYPES:
             raise ValueError(f"Unsupported file type: {ext}")
+
+        if ext == "pdf":
+            return DocumentParser._parse_pdf(file_path)
+        elif ext == "docx":
+            return DocumentParser._parse_docx(file_path)
+        elif ext in ("txt", "md"):
+            return DocumentParser._parse_txt(file_path)
 
     @staticmethod
     def _parse_pdf(path: str) -> str:
+        """PDF 解析（使用 PyPDF2）"""
         text = []
         with open(path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
@@ -499,24 +512,43 @@ class DocumentParser:
 
     @staticmethod
     def _parse_docx(path: str) -> str:
+        """Word 文档解析（使用 python-docx）"""
         doc = docx.Document(path)
         return "\n".join([para.text for para in doc.paragraphs])
 
     @staticmethod
     def _parse_txt(path: str) -> str:
+        """文本文件解析"""
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
-class DocumentChunker:
+class TextSplitter:
+    """文本分块器，使用递归策略分割长文本"""
+
     def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             separators=["\n\n", "\n", "。", "！", "？", ".", " ", ""],
+            length_function=len,
         )
 
     def split(self, text: str) -> list[str]:
+        """将文本分割为多个块"""
         return self.splitter.split_text(text)
+```
+
+**使用示例**：
+```python
+from app.utils.document import DocumentParser, TextSplitter
+
+# 解析文档
+parser = DocumentParser()
+text = parser.parse("/path/to/document.pdf")
+
+# 分块处理
+splitter = TextSplitter(chunk_size=500, chunk_overlap=50)
+chunks = splitter.split(text)  # 返回 list[str]
 ```
 
 ### 3.3 Qdrant客户端管理
@@ -566,40 +598,204 @@ def get_or_create_collection(kb_id: int, vector_size: int = 1536) -> str:
     return collection_name
 ```
 
-### 3.4 知识库检索
+### 3.4 Embedding 向量化客户端
+
+```python
+# app/utils/embedding.py
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from app.core.config import config
+
+class EmbeddingClient:
+    """Embedding 客户端，支持多个向量模型提供商"""
+
+    def __init__(self, provider_type: str, model_name: str, api_key: str = None, api_base: str = None):
+        self.provider_type = provider_type
+        self.model_name = model_name
+        self.api_key = api_key
+        self.api_base = api_base
+        self.embedder = self._build()
+
+    def _build(self):
+        """构建对应的 Embeddings 实例"""
+        if self.provider_type == "openai":
+            return OpenAIEmbeddings(
+                model=self.model_name,
+                openai_api_key=self.api_key,
+                openai_api_base=self.api_base,
+            )
+        elif self.provider_type == "azure":
+            return OpenAIEmbeddings(
+                model=self.model_name,
+                openai_api_key=self.api_key,
+                openai_api_base=self.api_base,
+                openai_api_type="azure",
+            )
+        elif self.provider_type == "ollama":
+            return HuggingFaceEmbeddings(
+                model_name=self.model_name,
+            )
+        else:
+            raise ValueError(f"Unsupported embedding provider: {self.provider_type}")
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """批量向量化文本列表"""
+        return self.embedder.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        """向量化单个查询文本"""
+        return self.embedder.embed_query(text)
+
+def get_embedding_client() -> EmbeddingClient:
+    """获取配置的 Embedding 客户端实例"""
+    return EmbeddingClient(
+        provider_type=config.embedding_provider,
+        model_name=config.embedding_model,
+        api_key=config.embedding_api_key,
+        api_base=config.embedding_api_base,
+    )
+```
+
+**常用向量模型及维度**：
+- OpenAI `text-embedding-3-small`: 1536 维
+- OpenAI `text-embedding-3-large`: 3072 维
+- BAAI `bge-m3`: 1024 维
+- Azure OpenAI `text-embedding-ada-002`: 1536 维
+
+### 3.5 知识库检索
 
 ```python
 # app/services/knowledge.py (检索部分)
 from qdrant_client.models import Filter, FieldCondition, MatchValue, ScoredPoint
 from app.core.vector_db import get_qdrant_client
+from app.utils.embedding import get_embedding_client
 
-async def search_knowledge(
+def search(
+    self,
     kb_id: int,
-    embedding: list[float],
+    query_text: str,
     top_k: int = 5,
     score_threshold: float = 0.7,
 ) -> list[dict]:
+    """语义检索知识库内容"""
+    # 1. 查询文本向量化
+    embedding_client = get_embedding_client()
+    query_vector = embedding_client.embed_query(query_text)
+
+    # 2. 在 Qdrant 中搜索
     client = get_qdrant_client()
     collection_name = f"kb_{kb_id}"
 
     results: list[ScoredPoint] = client.search(
         collection_name=collection_name,
-        query_vector=embedding,
+        query_vector=query_vector,
         limit=top_k,
         score_threshold=score_threshold,   # Qdrant原生过滤，减少传输
-        with_payload=True,                 # payload中含content和metadata，无需二次查MySQL
+        with_payload=True,                 # payload中含content和metadata
     )
 
+    # 3. 格式化返回结果
     return [
         {
-            "chunk_id": r.payload["chunk_id"],
-            "content": r.payload["content"],
-            "metadata": r.payload.get("metadata", {}),
+            "chunk_id": r.payload.get("chunk_id"),
+            "doc_id": r.payload.get("doc_id"),
+            "content": r.payload.get("content"),
+            "source_page": r.payload.get("source_page"),
             "score": r.score,
         }
         for r in results
     ]
 ```
+
+**检索流程**：
+1. 用户输入查询文本
+2. 通过 Embedding 客户端向量化查询文本
+3. 在对应的 Qdrant Collection 中进行相似度搜索
+4. 返回最相关的 top_k 个结果（包含相似度评分）
+
+**返回结果结构**：
+```json
+{
+  "chunk_id": 123,
+  "doc_id": 45,
+  "content": "文档片段内容...",
+  "source_page": 5,
+  "score": 0.85  // 相似度评分（0-1）
+}
+```
+
+### 3.6 Celery 异步任务（待完成）
+
+```python
+# app/services/knowledge_processor.py (待实现)
+from celery import shared_task
+from app.utils.document import DocumentParser, TextSplitter
+from app.utils.embedding import get_embedding_client
+from app.core.vector_db import get_qdrant_client
+from app.repositories.knowledge import KnowledgeDocumentRepository, KnowledgeChunkRepository
+from app.models.knowledge_document import DocumentStatus
+
+@shared_task
+def process_document_task(doc_id: int, file_path: str, tenant_id: int):
+    """
+    异步文档处理任务
+    流程：解析 → 分块 → 向量化 → 存入 Qdrant → 更新状态
+    """
+    try:
+        # 1. 解析文档
+        parser = DocumentParser()
+        text = parser.parse(file_path)
+
+        # 2. 文本分块
+        splitter = TextSplitter(chunk_size=500, chunk_overlap=50)
+        chunks = splitter.split(text)
+
+        # 3. 向量化
+        embedding_client = get_embedding_client()
+        vectors = embedding_client.embed_documents(chunks)
+
+        # 4. 存入 Qdrant
+        client = get_qdrant_client()
+        collection_name = f"kb_{kb_id}"
+
+        points = [
+            PointStruct(
+                id=str(uuid.uuid4()),
+                vector=vector,
+                payload={
+                    "chunk_id": chunk_id,
+                    "doc_id": doc_id,
+                    "content": chunk,
+                    "tenant_id": tenant_id,
+                }
+            )
+            for chunk_id, (chunk, vector) in enumerate(zip(chunks, vectors))
+        ]
+
+        client.upsert(collection_name=collection_name, points=points)
+
+        # 5. 更新文档状态为 COMPLETED
+        doc_repo = KnowledgeDocumentRepository(db=db, tenant_id=tenant_id)
+        doc_repo.update(doc_id, status=DocumentStatus.COMPLETED)
+
+    except Exception as e:
+        # 更新文档状态为 FAILED，记录错误信息
+        doc_repo.update(doc_id, status=DocumentStatus.FAILED, error_message=str(e))
+```
+
+**Celery 配置**（待完成）：
+```bash
+# 启动 Celery worker
+celery -A app.core.celery_app worker --loglevel=info
+
+# 启动 Celery beat（定时任务调度器，可选）
+celery -A app.core.celery_app beat --loglevel=info
+```
+
+**注意事项**：
+- Celery broker 需配置 Redis（`config.redis_url`）
+- Worker 进程需独立运行，不依赖 FastAPI 主进程
+- 任务失败时会记录 `error_message` 到文档记录，便于排查
 
 ---
 

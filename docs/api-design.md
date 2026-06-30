@@ -151,22 +151,63 @@
 
 ---
 
-## 9. 知识库 `/api/knowledge-bases`
+## 9. 知识库 `/api/knowledge`（已实现）
+
+实际 API 路径前缀为 `/api/knowledge`（而非 `/api/knowledge-bases`），共实现 13 个端点。
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| GET | /knowledge-bases | 知识库列表 | kb:read |
-| POST | /knowledge-bases | 创建知识库 | kb:create |
-| GET | /knowledge-bases/{id} | 知识库详情 | kb:read |
-| PUT | /knowledge-bases/{id} | 更新知识库 | kb:update |
-| DELETE | /knowledge-bases/{id} | 删除知识库 | kb:delete |
-| POST | /knowledge-bases/{id}/documents | 上传文档(multipart) | kb:update |
-| GET | /knowledge-bases/{id}/documents | 文档列表 | kb:read |
-| GET | /knowledge-bases/{id}/documents/{doc_id} | 文档详情 | kb:read |
-| DELETE | /knowledge-bases/{id}/documents/{doc_id} | 删除文档 | kb:update |
-| POST | /knowledge-bases/{id}/documents/{doc_id}/reprocess | 重新处理文档 | kb:execute |
-| POST | /knowledge-bases/{id}/search | 知识库语义检索 | kb:execute |
-| GET | /knowledge-bases/{id}/documents/{doc_id}/chunks | 查看文档分块 | kb:read |
+| GET | /knowledge/knowledge-bases | 知识库列表（分页） | 无 |
+| POST | /knowledge/knowledge-bases | 创建知识库 | knowledge.create |
+| GET | /knowledge/knowledge-bases/{kb_id} | 知识库详情 | 无 |
+| PUT | /knowledge/knowledge-bases/{kb_id} | 更新知识库 | knowledge.update |
+| DELETE | /knowledge/knowledge-bases/{kb_id} | 删除知识库（软删除） | knowledge.delete |
+| POST | /knowledge/knowledge-bases/{kb_id}/documents/upload | 上传文档（multipart） | knowledge.upload |
+| GET | /knowledge/knowledge-bases/{kb_id}/documents | 文档列表 | 无 |
+| GET | /knowledge/documents/{doc_id} | 文档详情 | 无 |
+| DELETE | /knowledge/documents/{doc_id} | 删除文档（软删除） | knowledge.delete |
+| GET | /knowledge/documents/{doc_id}/chunks | 查看文档分块列表 | 无 |
+| POST | /knowledge/knowledge-bases/{kb_id}/search | 语义检索 | 无 |
+
+**已实现功能**（阶段4）：
+- ✅ 知识库 CRUD（5个端点）
+- ✅ 文档管理（4个端点）
+- ✅ 分块查询（1个端点）
+- ✅ 语义检索（1个端点）
+- ⏳ 重新处理文档（待实现 Celery 任务）
+
+**文档上传接口详解**：
+```
+POST /api/knowledge/knowledge-bases/{kb_id}/documents/upload
+Content-Type: multipart/form-data
+
+参数：
+- file: 上传的文件（支持 pdf/docx/txt/md）
+- 返回：文档记录（状态为 pending）
+```
+
+**语义检索接口详解**：
+```
+POST /api/knowledge/knowledge-bases/{kb_id}/search
+Content-Type: application/json
+
+请求体：
+{
+  "query": "查询文本",
+  "top_k": 5,
+  "score_threshold": 0.7
+}
+
+返回：
+[
+  {
+    "chunk_id": 123,
+    "doc_id": 45,
+    "content": "相关文档片段...",
+    "score": 0.85
+  }
+]
+```
 
 ---
 

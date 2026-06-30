@@ -60,6 +60,41 @@ backend/app/
 6. 在 `app/main.py` 注册路由
 7. 生成 Alembic 迁移：`alembic revision --autogenerate -m "描述"`
 
+**知识库功能**
+
+知识库模块提供文档上传、解析、向量化存储和语义检索能力：
+
+```python
+# 知识库 CRUD（app/services/knowledge.py）
+service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+kb = service.create_knowledge_base(name, description, embedding_model)
+docs = service.upload_document(kb_id, file_path, file_name, file_type)
+chunks = service.get_chunks(doc_id)
+results = service.search(kb_id, query_text, top_k=5)
+
+# 文档解析与分块（app/utils/document.py）
+from app.utils.document import DocumentParser, TextSplitter
+parser = DocumentParser()
+text = parser.parse(file_path)
+splitter = TextSplitter(chunk_size=500, chunk_overlap=50)
+chunks = splitter.split(text)
+
+# 向量检索（集成 Qdrant）
+from app.core.vector_db import get_or_create_collection, get_qdrant_client
+collection_name = get_or_create_collection(kb_id=kb.id, vector_size=1536)
+client = get_qdrant_client()
+results = client.search(collection_name, query_vector, limit=top_k)
+```
+
+关键组件：
+- `app/models/knowledge_base.py` - 知识库模型
+- `app/models/knowledge_document.py` - 文档模型（含状态：pending/processing/completed/failed）
+- `app/models/knowledge_chunk.py` - 文档分块模型
+- `app/utils/document.py` - 文档解析器（PDF/Word/Markdown）
+- `app/utils/embedding.py` - 向量化客户端（支持 OpenAI/Azure/Ollama）
+- `app/core/vector_db.py` - Qdrant 客户端管理
+- `app/services/knowledge_processor.py` - Celery 异步任务（文档处理流程）
+
 **权限守卫**
 
 ```python
@@ -176,6 +211,25 @@ frontend/src/
 
 使用 Ant Design 6.x + `@ant-design/x`（AI 对话组件）。聊天界面优先使用 `@ant-design/x` 的 Bubble、Sender 等组件。
 
+**知识库页面**
+
+知识库模块包含两个主要页面：
+
+- `src/pages/Knowledge/KnowledgeList.tsx` - 知识库列表，卡片式展示，支持创建、编辑、删除
+- `src/pages/Knowledge/KnowledgeDetail.tsx` - 知识库详情，包含文档管理（上传、列表、状态）和语义检索功能
+
+路由配置：
+```typescript
+<Route path="knowledge" element={<KnowledgeList />} />
+<Route path="knowledge/:kbId" element={<KnowledgeDetail />} />
+```
+
+文档上传流程：
+1. 用户拖拽或选择文件上传
+2. 后端接收文件并创建文档记录（状态为 `pending`）
+3. Celery 异步任务处理文档（解析 → 分块 → 向量化 → 存入 Qdrant）
+4. 前端通过状态指示器显示处理进度（pending → processing → completed/failed）
+
 ## 数据库设计要点
 
 - 所有租户相关表均包含 `tenant_id` 字段，且必须通过 `BaseRepository` 查询
@@ -228,6 +282,30 @@ A: 在 `backend/app/services/workflow_engine.py` 的 `_execute_node()` 方法中
 **Q: 前端如何接入一个新的 SSE 接口？**
 
 A: 使用 `src/hooks/useSSE.ts` Hook，传入目标 URL，监听 `message` 事件并解析 `data` 字段，判断 `done: true` 时停止。
+
+**Q: 如何添加知识库功能？**
+
+A: 知识库功能已在阶段4实现完整，包括：
+- 知识库 CRUD：通过 `KnowledgeBaseService` 实现
+- 文档上传：调用 `/knowledge/knowledge-bases/{kb_id}/documents/upload` 接口
+- 文档处理：Celery 异步任务自动处理（解析 → 分块 → 向量化）
+- 向量检索：使用 Qdrant 进行语义搜索，返回相似度评分
+
+**Q: 知识库文档处理失败怎么办？**
+
+A: 检查以下几点：
+1. Celery worker 是否正常运行（`celery -A app.core.celery_app worker --loglevel=info`）
+2. Embedding 客户端配置是否正确（检查 `config.embedding_provider` 和 `config.embedding_model`）
+3. Qdrant 连接是否正常（检查 `config.qdrant_url` 和 `config.qdrant_api_key`）
+4. 文档格式是否支持（目前支持 PDF、Word、Markdown、TXT）
+5. 查看 `knowledge_documents.error_message` 字段获取错误详情
+
+**Q: 如何更改知识库的向量模型？**
+
+A: 在创建知识库时指定 `embedding_model` 参数（如 `text-embedding-3-small` 或 `BAAI/bge-m3`），注意：
+- 不同向量模型的向量维度不同（如 OpenAI text-embedding-3-small 为 1536，BAAI/bge-m3 为 1024）
+- Qdrant Collection 的 `vector_size` 必须与向量模型匹配
+- 已创建的知识库无法更改向量模型（需删除重建）
 
 ## 参考文档
 
