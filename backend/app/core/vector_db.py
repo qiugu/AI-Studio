@@ -16,7 +16,8 @@ def get_qdrant_client() -> QdrantClient:
         _qdrant_client = QdrantClient(
             url=config.qdrant_url,
             api_key=config.qdrant_api_key or None,
-            timeout=30,
+            timeout=3600,
+            check_compatibility=False
         )
     return _qdrant_client
 
@@ -31,7 +32,27 @@ def init_vector_db() -> None:
         logger.warning("Could not connect to Qdrant: %s", e)
 
 
-def get_or_create_collection(kb_id: int, vector_size: int = 1536) -> str:
+def get_vector_size_for_model(model_name: str) -> int:
+    """根据 embedding 模型名称返回向量维度"""
+    if not model_name or not model_name.strip():
+        raise ValueError("Embedding model name cannot be empty")
+
+    model_name = model_name.strip().lower()
+    model_dimensions = {
+        "BAAI/bge-m3": 1024,
+        "BAAI/bge-large-zh-v1.5": 1024
+    }
+
+    if model_name in model_dimensions:
+        return model_dimensions[model_name]
+
+    if model_name.startswith("baai/bge-") or model_name.startswith("bge-"):
+        return 1024
+
+    raise ValueError(f"Unsupported embedding model for vector size lookup: {model_name}")
+
+
+def get_or_create_collection(kb_id: int, vector_size: int = 1024) -> str:
     """确保知识库对应的 Collection 存在，返回 collection_name"""
     collection_name = f"kb_{kb_id}"
     client = get_qdrant_client()

@@ -8,6 +8,7 @@ from app.schemas.user import UserOut
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.models.role import Role
+from app.models.role_permission import role_permission
 from app.models.user_role import user_role
 from app.core.security import hash_password
 from app.core.exceptions import ConflictException, NotFoundException
@@ -36,6 +37,20 @@ def _init_builtin_roles(db: Session, tenant_id: int) -> tuple[Role, Role]:
     db.add(admin_role)
     db.add(member_role)
     db.flush()
+
+    # 将 knowledge 相关权限绑定到内置角色
+    from app.models.permission import Permission
+    knowledge_perms = (
+        db.query(Permission)
+        .filter(Permission.resource == "knowledge")
+        .all()
+    )
+    if knowledge_perms:
+        for perm in knowledge_perms:
+            db.execute(role_permission.insert().values(role_id=admin_role.id, permission_id=perm.id))
+            db.execute(role_permission.insert().values(role_id=member_role.id, permission_id=perm.id))
+        db.flush()
+
     return admin_role, member_role
 
 

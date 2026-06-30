@@ -45,6 +45,12 @@ class Config(BaseSettings):
     celery_broker_url: str = 'redis://localhost:6379/1'
     celery_result_backend: str = 'redis://localhost:6379/2'
 
+    # embedding
+    embedding_provider: str = 'openai'
+    embedding_model: str = 'text-embedding-3-small'
+    embedding_api_key: SecretStr = SecretStr('')
+    embedding_api_base: str = ''
+
     model_config = {'env_file': str(BASE_DIR / '.env')}
 
 

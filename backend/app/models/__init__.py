@@ -10,6 +10,9 @@ from app.models.ai_model import AIModel
 from app.models.prompt import Prompt
 from app.models.prompt_version import PromptVersion
 from app.models.prompt_test_log import PromptTestLog
+from app.models.knowledge_base import KnowledgeBase
+from app.models.knowledge_document import KnowledgeDocument, DocumentStatus
+from app.models.knowledge_chunk import KnowledgeChunk
 
 __all__ = [
     "Tenant",
@@ -24,4 +27,8 @@ __all__ = [
     "Prompt",
     "PromptVersion",
     "PromptTestLog",
+    "KnowledgeBase",
+    "KnowledgeDocument",
+    "DocumentStatus",
+    "KnowledgeChunk",
 ]

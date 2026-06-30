@@ -77,10 +77,14 @@ def require_permission(resource: str, action: str):
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_session),
     ) -> User:
+        for role in current_user.roles:
+            if 'admin' in role.code:
+                return current_user  # 管理员角色绕过权限检查
         perm = (
             db.query(Permission)
-            .join(role_permission)
-            .join(user_role)
+            .select_from(Permission)
+            .join(role_permission, Permission.id == role_permission.c.permission_id)
+            .join(user_role, user_role.c.role_id == role_permission.c.role_id)
             .filter(user_role.c.user_id == current_user.id)
             .filter(Permission.resource == resource, Permission.action == action)
             .first()

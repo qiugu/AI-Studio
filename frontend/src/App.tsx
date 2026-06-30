@@ -13,6 +13,8 @@ import ModelForm from '@/pages/AIModels/ModelForm'
 import PromptList from '@/pages/Prompts/PromptList'
 import PromptEditor from '@/pages/Prompts/PromptEditor'
 import PromptDetail from '@/pages/Prompts/PromptDetail'
+import KnowledgeList from '@/pages/Knowledge/KnowledgeList'
+import KnowledgeDetail from '@/pages/Knowledge/KnowledgeDetail'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
@@ -84,6 +86,9 @@ export default function App() {
               <Route path="prompts/new" element={<PromptEditor />} />
               <Route path="prompts/:id/edit" element={<PromptEditor />} />
               <Route path="prompts/:id" element={<PromptDetail />} />
+              {/* Phase 4: 知识库 */}
+              <Route path="knowledge" element={<KnowledgeList />} />
+              <Route path="knowledge/:kbId" element={<KnowledgeDetail />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

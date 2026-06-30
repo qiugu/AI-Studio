@@ -513,7 +513,7 @@
    - 平台公共模型 CRUD（`tenant_id=NULL` 的 ai_models）
 
 8. **租户数据清理 Celery 任务** `app/services/tenant_cleanup.py`
-   - 删除 Qdrant 中该租户的向量数据（按 tenant_id 过滤删除所有 Point）
+   - 删除 pgvector 中该租户的向量数据
    - 删除文件存储中该租户的上传文件
    - 级联软删除: users / ai_providers / knowledge_bases / workflows / agents / conversations
    - 保留: audit_logs / token_usages（合规 & 计费依据）
