@@ -123,6 +123,7 @@
 | status | Boolean | 状态 |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
+| deleted_at | DateTime | 软删除时间（NULL=正常，非空=已删除） |
 
 ### ai_models AI模型配置表
 
@@ -142,6 +143,7 @@
 | status | Boolean | 状态 |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
+| deleted_at | DateTime | 软删除时间（NULL=正常，非空=已删除） |
 
 ---
 

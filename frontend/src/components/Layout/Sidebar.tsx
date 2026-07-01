@@ -62,15 +62,6 @@ export default function Sidebar() {
       collapsible
       collapsed={collapsed}
       width={220}
-      style={{
-        overflow: 'auto',
-        height: '100vh',
-        position: 'fixed',
-        left: 0,
-        top: 0,
-        bottom: 0,
-        zIndex: 100,
-      }}
     >
       <div
         style={{

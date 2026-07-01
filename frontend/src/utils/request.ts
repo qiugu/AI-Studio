@@ -30,7 +30,10 @@ export function setupResponseInterceptor(instance: AxiosInstance, onRefreshFail?
   instance.interceptors.response.use(
     (response: AxiosResponse) => response,
     async (error: AxiosError) => {
-      const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+      const originalRequest = error.config as InternalAxiosRequestConfig & { 
+        _retry?: boolean
+        _suppressErrorMessage?: boolean  // 是否禁用全局错误消息弹窗
+      }
 
       if (error.response?.status === 401 && !originalRequest._retry) {
         const refreshToken = getRefreshToken()
@@ -74,9 +77,9 @@ export function setupResponseInterceptor(instance: AxiosInstance, onRefreshFail?
         }
       }
 
-      // 对于非 401 错误，统一弹出后端错误提示
-      // 401 错误（token 过期/无效）由上方 refresh 逻辑处理，不在此弹窗
-      if (error.response?.status !== 401) {
+      // 对于非 401 错误，检查是否需要弹出全局错误提示
+      // 如果请求配置了 _suppressErrorMessage，则不弹出错误消息
+      if (error.response?.status !== 401 && !originalRequest._suppressErrorMessage) {
         const msg = getErrorMessage(error)
         message.error(msg)
       }

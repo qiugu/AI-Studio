@@ -34,3 +34,4 @@ class AIModel(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

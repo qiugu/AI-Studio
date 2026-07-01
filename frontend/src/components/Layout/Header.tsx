@@ -49,11 +49,6 @@ export default function Header() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginLeft: collapsed ? 80 : 220,
-        transition: 'margin-left 0.2s',
-        position: 'sticky',
-        top: 0,
-        zIndex: 99,
         boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
       }}
     >

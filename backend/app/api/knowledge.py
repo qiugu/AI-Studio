@@ -227,10 +227,8 @@ async def list_documents(
             page=page,
             page_size=page_size,
         )
-        return {
-            "code": 0,
-            "message": "success",
-            "data": {
+        return ResponseBase.ok(
+            data={
                 "items": [
                     {
                         "id": doc.id,
@@ -249,8 +247,8 @@ async def list_documents(
                 "total": total,
                 "page": page,
                 "page_size": page_size,
-            },
-        }
+            }
+        )
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -288,7 +286,7 @@ async def delete_document(
     try:
         service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
         service.delete_document(doc_id)
-        return {"code": 0, "message": "success", "data": None}
+        return ResponseBase.ok()
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -310,10 +308,8 @@ async def get_document_chunks(
     try:
         service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
         chunks, total = service.get_chunks(doc_id=doc_id, page=page, page_size=page_size)
-        return {
-            "code": 0,
-            "message": "success",
-            "data": {
+        return ResponseBase.ok(
+            data={
                 "items": [
                     {
                         "id": chunk.id,
@@ -327,8 +323,8 @@ async def get_document_chunks(
                 "total": total,
                 "page": page,
                 "page_size": page_size,
-            },
-        }
+            }
+        )
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -355,10 +351,8 @@ async def search_knowledge_base(
             top_k=top_k,
             score_threshold=score_threshold,
         )
-        return {
-            "code": 0,
-            "message": "success",
-            "data": results,
-        }
+        return ResponseBase.ok(
+            data=results
+        )
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

@@ -15,6 +15,10 @@ import PromptEditor from '@/pages/Prompts/PromptEditor'
 import PromptDetail from '@/pages/Prompts/PromptDetail'
 import KnowledgeList from '@/pages/Knowledge/KnowledgeList'
 import KnowledgeDetail from '@/pages/Knowledge/KnowledgeDetail'
+import AgentList from '@/pages/Agents/AgentList'
+import AgentForm from '@/pages/Agents/AgentForm'
+import AgentChat from '@/pages/Agents/AgentChat'
+import './styles/global.css'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
@@ -89,6 +93,11 @@ export default function App() {
               {/* Phase 4: 知识库 */}
               <Route path="knowledge" element={<KnowledgeList />} />
               <Route path="knowledge/:kbId" element={<KnowledgeDetail />} />
+              {/* Phase 5: Agent */}
+              <Route path="agents" element={<AgentList />} />
+              <Route path="agents/create" element={<AgentForm />} />
+              <Route path="agents/:agentId/edit" element={<AgentForm />} />
+              <Route path="agents/:agentId/chat" element={<AgentChat />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

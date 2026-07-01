@@ -986,7 +986,7 @@ class AgentService:
 
 ```python
 # app/api/agent.py (流式端点)
-from sse_starlette.sse import EventSourceResponse
+from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
 @router.post("/{agent_id}/chat")
 async def chat_stream(agent_id: int, request: ChatRequest, db: Session = Depends(get_session)):
@@ -994,8 +994,14 @@ async def chat_stream(agent_id: int, request: ChatRequest, db: Session = Depends
 
     async def event_generator():
         async for chunk in agent_service.chat_stream(request.conversation_id, request.message):
-            yield {"data": json.dumps({"content": chunk.content, "role": "assistant"})}
-        yield {"data": json.dumps({"done": True})}
+            yield ServerSentEvent(
+                event="message",
+                data=json.dumps({"content": chunk.content, "role": "assistant"})
+            )
+        yield ServerSentEvent(
+            event="done",
+            data=json.dumps({"done": True})
+        )
 
     return EventSourceResponse(event_generator())
 ```

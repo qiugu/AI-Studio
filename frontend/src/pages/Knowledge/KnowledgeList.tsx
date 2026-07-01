@@ -94,7 +94,7 @@ export default function KnowledgeList() {
   };
 
   return (
-    <div style={{ padding: "24px" }}>
+    <>
       <div style={{ marginBottom: "24px" }}>
         <Space>
           <h2>知识库管理</h2>
@@ -212,6 +212,6 @@ export default function KnowledgeList() {
           )}
         </Form>
       </Modal>
-    </div>
+    </>
   );
 }

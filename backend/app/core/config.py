@@ -51,6 +51,9 @@ class Config(BaseSettings):
     embedding_api_key: SecretStr = SecretStr('')
     embedding_api_base: str = ''
 
+    # Ollama
+    ollama_base_url: str = 'http://localhost:11434'
+
     model_config = {'env_file': str(BASE_DIR / '.env')}
 
 

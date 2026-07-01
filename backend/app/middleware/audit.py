@@ -43,13 +43,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         try:
-            user_id: int | None = None
-            tenant_id: int | None = None
-            if hasattr(request.state, "user"):
-                user_id = getattr(request.state.user, "id", None)
-                tenant_id = getattr(request.state.user, "tenant_id", None)
-            elif hasattr(request.state, "tenant_id"):
-                tenant_id = request.state.tenant_id
+            user_id: int | None = getattr(request.state, "user_id", None)
+            tenant_id: int | None = getattr(request.state, "tenant_id", None)
 
             logger.info(
                 "AUDIT | method=%s path=%s status=%d user_id=%s tenant_id=%s duration_ms=%d",

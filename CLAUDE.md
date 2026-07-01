@@ -154,14 +154,20 @@ async for chunk in llm_client.astream(messages):   # 流式调用
 **SSE 流式响应**
 
 ```python
-from sse_starlette.sse import EventSourceResponse
+from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
 @router.post("/{agent_id}/chat")
 async def chat_stream(agent_id: int, ...):
     async def event_generator():
         async for chunk in agent_service.chat_stream(...):
-            yield {"data": json.dumps({"content": chunk.content})}
-        yield {"data": json.dumps({"done": True})}
+            yield ServerSentEvent(
+                event="message",
+                data=json.dumps({"content": chunk.content})
+            )
+        yield ServerSentEvent(
+            event="done",
+            data=json.dumps({"done": True})
+        )
     return EventSourceResponse(event_generator())
 ```
 

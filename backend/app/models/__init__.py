@@ -13,6 +13,11 @@ from app.models.prompt_test_log import PromptTestLog
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument, DocumentStatus
 from app.models.knowledge_chunk import KnowledgeChunk
+from app.models.agent import Agent
+from app.models.agent_tool import AgentTool
+from app.models.conversation import Conversation
+from app.models.message import Message
+from app.models.token_usage import TokenUsage
 
 __all__ = [
     "Tenant",
@@ -31,4 +36,9 @@ __all__ = [
     "KnowledgeDocument",
     "DocumentStatus",
     "KnowledgeChunk",
+    "Agent",
+    "AgentTool",
+    "Conversation",
+    "Message",
+    "TokenUsage",
 ]

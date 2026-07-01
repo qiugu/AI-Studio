@@ -60,7 +60,8 @@ async def get_current_user(
         raise UnauthorizedException("User is disabled")
 
     # 将用户信息存入 request.state 供中间件使用
-    request.state.user = user
+    # 注意：只存储需要的信息，避免 Session 关闭后访问 detached 对象
+    request.state.user_id = user.id
     request.state.tenant_id = user.tenant_id
 
     return user

@@ -15,6 +15,7 @@ import { createProvider, getProvider, updateProvider } from '@/api/ai-model'
 import type { AIProviderCreateRequest } from '@/types/ai-model'
 
 const { Title } = Typography
+const { Password } = Input
 
 const PROVIDER_TYPES = [
   { value: 'openai', label: 'OpenAI' },
@@ -33,6 +34,8 @@ export default function ProviderForm() {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(isEdit)
+  const providerType = Form.useWatch('provider_type', form)
+  const isOllama = providerType === 'ollama'
 
   useEffect(() => {
     if (!isEdit || !id) return
@@ -107,9 +110,10 @@ export default function ProviderForm() {
           <Form.Item
             name="api_key"
             label={isEdit ? 'API Key（留空保持不变）' : 'API Key'}
-            rules={isEdit ? [] : [{ required: true, message: '请输入 API Key' }]}
+            rules={isEdit || isOllama ? [] : [{ required: true, message: '请输入 API Key' }]}
+            extra={isOllama ? 'Ollama 本地部署无需 API Key' : undefined}
           >
-            <Input.Password placeholder="sk-..." />
+            <Password placeholder={isOllama ? 'Ollama 不需要 API Key' : 'sk-...'} disabled={isOllama} />
           </Form.Item>
 
           <Form.Item name="config" label="额外配置（JSON 格式，可选）">

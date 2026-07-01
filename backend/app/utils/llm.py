@@ -3,8 +3,11 @@ LangChain LLM 客户端封装。
 根据供应商类型动态构建 BaseChatModel。
 """
 import time
+import json
 from typing import Any
+from dataclasses import asdict
 
+from app.schemas.stream import StreamChunk
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
@@ -55,9 +58,16 @@ def build_chat_model(
 
     elif provider_type == "ollama":
         from langchain_community.chat_models import ChatOllama
+        from app.core.config import config
+
+        # 优先使用传入的 api_base_url，其次使用配置文件中的 ollama_base_url
+        ollama_url = api_base_url or config.ollama_base_url
+        # Ollama 本地推理较慢，设置较长的超时时间（默认 5 分钟）
+        # 首次调用还需加载模型，可能需要更长时间
+        kwargs.setdefault("timeout", 600)
         return ChatOllama(
             model=model_name,
-            base_url=api_base_url or "http://localhost:11434",
+            base_url=ollama_url,
             **kwargs,
         )
 
@@ -98,7 +108,18 @@ def test_connectivity(
         return {"success": True, "latency_ms": latency_ms, "error": None}
     except Exception as e:
         latency_ms = int((time.monotonic() - start) * 1000)
-        return {"success": False, "latency_ms": latency_ms, "error": str(e)}
+        error_msg = str(e)
+
+        # 为 Ollama 404 错误提供更友好的提示
+        if "Ollama" in error_msg and "404" in error_msg:
+            error_msg = (
+                f"Ollama service returned 404. Please check: "
+                f"1) Ollama service is running at the specified endpoint; "
+                f"2) Model '{model_name}' is available (run 'ollama list' to verify); "
+                f"3) Base URL is correct. Original error: {error_msg}"
+            )
+
+        return {"success": False, "latency_ms": latency_ms, "error": error_msg}
 
 
 def invoke_model(
@@ -145,3 +166,8 @@ def invoke_model(
         }
     except Exception as e:
         raise LLMException(str(e))
+
+
+def encode(chunk: StreamChunk):
+    """生成标准 SSE 格式：event: xxx\ndata: xxx\n\n"""
+    return f"event: {chunk.event}\ndata: {chunk.data}\n\n"
