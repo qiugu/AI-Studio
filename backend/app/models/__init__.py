@@ -18,6 +18,7 @@ from app.models.agent_tool import AgentTool
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.token_usage import TokenUsage
+from app.models.workflow import Workflow
 
 __all__ = [
     "Tenant",
@@ -41,4 +42,5 @@ __all__ = [
     "Conversation",
     "Message",
     "TokenUsage",
+    "Workflow",
 ]
