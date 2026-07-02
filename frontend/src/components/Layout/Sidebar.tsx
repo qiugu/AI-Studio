@@ -11,6 +11,7 @@ import {
   TeamOutlined,
   SafetyOutlined,
   FileTextOutlined,
+  BranchesOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/stores/app'
@@ -30,7 +31,15 @@ const menuItems = [
   },
   { key: '/prompts', icon: <CodeOutlined />, label: 'Prompt 管理' },
   { key: '/knowledge', icon: <DatabaseOutlined />, label: '知识库' },
-  { key: '/workflows', icon: <ApartmentOutlined />, label: '工作流' },
+  {
+    key: 'workflows-group',
+    icon: <BranchesOutlined />,
+    label: '工作流',
+    children: [
+      { key: '/workflows', label: '工作流列表' },
+      { key: '/workflows/create', label: '创建工作流' },
+    ],
+  },
   { key: '/agents', icon: <ThunderboltOutlined />, label: 'Agent' },
   { key: '/plugins', icon: <PluginOutlined />, label: '插件' },
   {
@@ -83,7 +92,7 @@ export default function Sidebar() {
         theme="dark"
         mode="inline"
         selectedKeys={[location.pathname]}
-        defaultOpenKeys={['ai-group', 'system-group']}
+        // defaultOpenKeys={['ai-group', 'system-group']}
         items={menuItems}
         onClick={handleMenuClick}
       />

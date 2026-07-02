@@ -18,6 +18,10 @@ import KnowledgeDetail from '@/pages/Knowledge/KnowledgeDetail'
 import AgentList from '@/pages/Agents/AgentList'
 import AgentForm from '@/pages/Agents/AgentForm'
 import AgentChat from '@/pages/Agents/AgentChat'
+import WorkflowList from '@/pages/Workflows/WorkflowList'
+import WorkflowForm from '@/pages/Workflows/WorkflowForm'
+import WorkflowEditor from '@/pages/Workflows/WorkflowEditor'
+import WorkflowExecution from '@/pages/Workflows/WorkflowExecution'
 import './styles/global.css'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
@@ -98,6 +102,12 @@ export default function App() {
               <Route path="agents/create" element={<AgentForm />} />
               <Route path="agents/:agentId/edit" element={<AgentForm />} />
               <Route path="agents/:agentId/chat" element={<AgentChat />} />
+              {/* Phase 6: Workflow */}
+              <Route path="workflows" element={<WorkflowList />} />
+              <Route path="workflows/create" element={<WorkflowForm />} />
+              <Route path="workflows/:workflowId" element={<WorkflowEditor />} />
+              <Route path="workflows/:workflowId/edit" element={<WorkflowEditor />} />
+              <Route path="workflows/:workflowId/execute" element={<WorkflowExecution />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
