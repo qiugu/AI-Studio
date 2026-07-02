@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 import json
 
-from app.core.database import get_db
+from app.core.database import get_session
 from app.core.dependencies import get_current_user, get_current_tenant, require_permission
 from app.schemas.common import ResponseBase, PaginatedResponse
 from app.schemas.workflow import (
@@ -31,7 +31,7 @@ router = APIRouter(tags=["Workflow"])
 )
 async def create_workflow(
     data: WorkflowCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user=Depends(get_current_user),
     current_tenant=Depends(get_current_tenant),
 ):
@@ -48,7 +48,7 @@ async def create_workflow(
 )
 async def get_workflow(
     workflow_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_tenant=Depends(get_current_tenant),
 ):
     """获取工作流详情"""
@@ -66,7 +66,7 @@ async def list_workflows(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_tenant=Depends(get_current_tenant),
 ):
     """列出工作流"""
@@ -91,7 +91,7 @@ async def list_workflows(
 async def update_workflow(
     workflow_id: int,
     data: WorkflowUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_tenant=Depends(get_current_tenant),
 ):
     """更新工作流"""
@@ -107,7 +107,7 @@ async def update_workflow(
 )
 async def delete_workflow(
     workflow_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_tenant=Depends(get_current_tenant),
 ):
     """删除工作流"""
@@ -125,7 +125,7 @@ async def delete_workflow(
 )
 async def publish_workflow(
     workflow_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_tenant=Depends(get_current_tenant),
 ):
     """发布工作流"""
@@ -141,7 +141,7 @@ async def publish_workflow(
 )
 async def archive_workflow(
     workflow_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_tenant=Depends(get_current_tenant),
 ):
     """归档工作流"""
@@ -160,7 +160,7 @@ async def archive_workflow(
 async def execute_workflow(
     workflow_id: int,
     data: WorkflowExecutionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user=Depends(get_current_user),
     current_tenant=Depends(get_current_tenant),
 ):
@@ -189,7 +189,7 @@ async def execute_workflow(
 async def execute_workflow_stream(
     workflow_id: int,
     data: WorkflowExecutionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_user=Depends(get_current_user),
     current_tenant=Depends(get_current_tenant),
 ):
@@ -217,7 +217,7 @@ async def execute_workflow_stream(
 )
 async def validate_workflow(
     workflow_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     current_tenant=Depends(get_current_tenant),
 ):
     """验证工作流DAG结构"""

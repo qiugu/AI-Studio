@@ -162,14 +162,20 @@ async def chat_stream(agent_id: int, ...):
         async for chunk in agent_service.chat_stream(...):
             yield ServerSentEvent(
                 event="message",
-                data=json.dumps({"content": chunk.content})
+                data=json.dumps({"content": chunk.content}, ensure_ascii=False)  # 保留中文
             )
         yield ServerSentEvent(
             event="done",
-            data=json.dumps({"done": True})
+            data=json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)
         )
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), media_type="text/event-stream")
 ```
+
+**关键约定**：
+- SSE 响应必须使用标准格式：`event: message\ndata: {...}\n\n`
+- JSON 序列化必须使用 `ensure_ascii=False` 以保留 Unicode 字符
+- Media Type 必须设置为 `text/event-stream`（不要使用 `application/octet-stream`）
+- 前端解析期望：`message` 事件包含 `content` 字段，`done` 事件包含 `conversation_id` 字段
 
 **中间件执行顺序**（后注册先执行）
 
@@ -206,7 +212,17 @@ frontend/src/
 
 **SSE 流式对话**
 
-使用 `src/hooks/useSSE.ts` Hook 订阅 SSE 事件，前端需处理 `done: true` 标志位以结束流式渲染。
+使用 `src/hooks/useSSE.ts` Hook 订阅 SSE 事件，前端需处理 `done` 事件标志位以结束流式渲染。
+
+**SSE 解析关键点**：
+- 使用 `createStreamRequest` 工具函数（基于 fetch + ReadableStream）
+- 正确解析 SSE 消息边界：以 `\n\n`（双换行符）分隔
+- 处理三种事件类型：
+  - `message` 事件：包含 `content` 字段（AI 输出的文本块）
+  - `done` 事件：包含 `conversation_id` 字段（对话 ID）
+  - `error` 事件：包含 `error` 和 `error_code` 字段
+- 支持用户中断（AbortController）
+- Buffer 处理：保留跨数据块的不完整消息
 
 **路由守卫**
 
@@ -216,6 +232,27 @@ frontend/src/
 **UI 组件库**
 
 使用 Ant Design 6.x + `@ant-design/x`（AI 对话组件）。聊天界面优先使用 `@ant-design/x` 的 Bubble、Sender 等组件。
+
+**关键前端组件**：
+- `MarkdownRenderer.tsx` - Markdown 渲染组件：
+  - 使用 `react-markdown` + `remark-gfm` + `rehype-highlight` + `rehype-raw`
+  - 支持 GitHub Flavored Markdown (GFM)
+  - 代码高亮（highlight.js，github-dark 主题）
+  - 表格滚动包装器
+  - 链接新窗口打开
+- `ConversationList.tsx` - 对话历史列表：
+  - 时间分组导航（今天、昨天、本周、更早）
+  - 相对时间显示（使用 dayjs）
+  - 消息预览（截断 50 字符）+ 消息计数徽标
+  - 悬停操作菜单（重命名、删除）
+  - 性能优化（React.memo、useMemo）
+- `MessageBubble.tsx` - 消息气泡：
+  - 用户消息：蓝色背景（`bg-blue-500`）、右对齐、UserOutlined 图标、胶囊形状
+  - AI 消息：灰色背景（`bg-gray-100`）、左对齐、RobotOutlined 图标、圆角矩形
+  - 12px 气泡间距
+- `ChatContainer.tsx` - 对话容器：
+  - 基于 `@ant-design/x` 的 `Bubble.List`，支持虚拟滚动（超过 50 条消息自动启用）
+  - 流式渲染状态管理
 
 **知识库页面**
 
@@ -235,6 +272,51 @@ frontend/src/
 2. 后端接收文件并创建文档记录（状态为 `pending`）
 3. Celery 异步任务处理文档（解析 → 分块 → 向量化 → 存入 Qdrant）
 4. 前端通过状态指示器显示处理进度（pending → processing → completed/failed）
+
+**工作流引擎**
+
+工作流模块提供基于 DAG 的可视化工作流编排和执行能力：
+
+```python
+# 工作流 CRUD（app/services/workflow.py）
+service = WorkflowService(db=db, tenant_id=current_user.tenant_id)
+workflow = service.create_workflow(name, description, nodes, edges)
+workflow = service.publish_workflow(workflow_id)
+service.validate_workflow_dag(workflow_id)
+
+# 工作流执行（app/services/workflow_engine.py）
+engine = WorkflowEngine(db=db, tenant_id=current_tenant.id)
+execution = await engine.execute(workflow_id=workflow.id, input_data={"key": "value"}, user_id=current_user.id)
+
+# 流式执行（SSE）
+async for event in engine.execute_stream(workflow_id=workflow.id, input_data={}, user_id=current_user.id):
+    yield event
+```
+
+关键组件：
+- `app/models/workflow.py` - 工作流模型
+- `app/models/workflow_node.py` - 工作流节点模型（支持 start、end、llm、condition、knowledge、code、tool、loop、input、output 类型）
+- `app/models/workflow_edge.py` - 工作流边模型
+- `app/models/workflow_execution.py` - 工作流执行记录
+- `app/models/node_execution.py` - 节点执行记录
+- `app/services/workflow.py` - 工作流 CRUD 服务
+- `app/services/workflow_engine.py` - 工作流执行引擎（DAG 拓扑排序、节点执行器分发、上下文传递）
+- `app/api/workflow.py` - 工作流 API 路由（含 SSE 流式执行）
+- `src/pages/Workflows/WorkflowList.tsx` - 工作流列表页面
+- `src/pages/Workflows/WorkflowEditor.tsx` - 工作流编辑器（React Flow 画布）
+- `src/pages/Workflows/WorkflowExecution.tsx` - 工作流执行面板
+
+工作流节点类型：
+- `start` - 开始节点
+- `end` - 结束节点
+- `llm` - LLM 节点（调用大语言模型）
+- `condition` - 条件节点（条件判断路由）
+- `knowledge` - 知识库节点（向量检索）
+- `code` - 代码节点（沙盒执行受限 Python）
+- `tool` - 工具节点（调用 Agent 工具）
+- `loop` - 循环节点（循环/迭代）
+- `input` - 输入节点
+- `output` - 输出节点
 
 ## 数据库设计要点
 
@@ -284,6 +366,21 @@ A: 在 `backend/app/utils/llm.py` 的 `LLMClient._build_chain()` 方法中增加
 **Q: 工作流节点如何新增类型？**
 
 A: 在 `backend/app/services/workflow_engine.py` 的 `_execute_node()` 方法中添加新分支，实现 `_execute_xxx_node()` 执行器方法。
+
+**Q: 如何调试工作流执行问题？**
+
+A: 检查以下几点：
+1. 查看工作流执行记录（`workflow_executions` 表）和节点执行记录（`node_executions` 表）
+2. 检查节点配置是否正确（如 LLM 节点的 model_id 和 prompt_template）
+3. 验证 DAG 结构是否有效（调用 `validate_workflow_dag()` 方法）
+4. 查看执行日志中的错误信息和堆栈跟踪
+
+**Q: 工作流执行支持哪些输入输出格式？**
+
+A: 工作流输入输出使用 JSON 格式：
+- 输入数据：`{"input_data": {"key": "value"}}`
+- 输出数据：`{"output_data": {"result": "value"}, "status": "completed"}`
+- 流式执行通过 SSE 返回节点级别的执行日志
 
 **Q: 前端如何接入一个新的 SSE 接口？**
 
