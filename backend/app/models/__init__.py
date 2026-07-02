@@ -19,6 +19,7 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.token_usage import TokenUsage
 from app.models.workflow import Workflow
+from app.models.workflow_node import WorkflowNode
 
 __all__ = [
     "Tenant",
@@ -43,4 +44,5 @@ __all__ = [
     "Message",
     "TokenUsage",
     "Workflow",
+    "WorkflowNode",
 ]
