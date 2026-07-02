@@ -12,6 +12,7 @@ from app.api.ai_model import router as ai_model_router
 from app.api.prompt import router as prompt_router
 from app.api.knowledge import router as knowledge_router
 from app.api.agent import router as agent_router
+from app.api.workflow import router as workflow_router
 from app.core.redis import init_redis, redis_close
 from app.core.exceptions import AppException
 from app.middleware.tenant import TenantMiddleware
@@ -110,6 +111,7 @@ app.include_router(ai_model_router, prefix="/ai-models", tags=["AI模型"])
 app.include_router(prompt_router, prefix="/prompts", tags=["Prompt管理"])
 app.include_router(knowledge_router, prefix="/knowledge", tags=["知识库"])
 app.include_router(agent_router, prefix="/agent", tags=["Agent"])
+app.include_router(workflow_router, prefix="/workflows", tags=["工作流"])
 
 
 @app.get("/health", tags=["系统"])
