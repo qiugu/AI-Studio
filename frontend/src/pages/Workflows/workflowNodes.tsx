@@ -1,7 +1,6 @@
 import React, { memo } from 'react'
 import { Handle, Position } from 'reactflow'
 import type { NodeProps } from 'reactflow'
-import { Card, Tag, Button } from 'antd'
 import {
   PlayCircleOutlined,
   StopOutlined,
@@ -16,6 +15,7 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons'
 import type { NodeType } from '../../types/workflow'
+import './WorkflowEditor.css'
 
 interface CustomNodeData {
   name: string
@@ -25,66 +25,88 @@ interface CustomNodeData {
 }
 
 const nodeStyleConfig: Record<NodeType, { color: string; icon: React.ReactNode }> = {
-  start: { color: '#52c41a', icon: <PlayCircleOutlined /> },
-  end: { color: '#ff4d4f', icon: <StopOutlined /> },
-  llm: { color: '#1890ff', icon: <RobotOutlined /> },
-  condition: { color: '#faad14', icon: <BranchesOutlined /> },
-  knowledge: { color: '#722ed1', icon: <BookOutlined /> },
-  code: { color: '#13c2c2', icon: <CodeOutlined /> },
-  tool: { color: '#eb2f96', icon: <ToolOutlined /> },
-  loop: { color: '#fa8c16', icon: <ReloadOutlined /> },
-  variable: { color: '#a0d911', icon: <ControlOutlined /> },
+  start: { color: 'var(--wf-node-start)', icon: <PlayCircleOutlined /> },
+  end: { color: 'var(--wf-node-end)', icon: <StopOutlined /> },
+  llm: { color: 'var(--wf-node-llm)', icon: <RobotOutlined /> },
+  condition: { color: 'var(--wf-node-condition)', icon: <BranchesOutlined /> },
+  knowledge: { color: 'var(--wf-node-knowledge)', icon: <BookOutlined /> },
+  code: { color: 'var(--wf-node-code)', icon: <CodeOutlined /> },
+  tool: { color: 'var(--wf-node-tool)', icon: <ToolOutlined /> },
+  loop: { color: 'var(--wf-node-loop)', icon: <ReloadOutlined /> },
+  variable: { color: 'var(--wf-node-variable)', icon: <ControlOutlined /> },
+}
+
+/**
+ * 智能连接桩配置系统
+ * 根据节点类型提供合适的连接桩布局，支持多方向工作流设计
+ */
+const getHandleConfig = (nodeType: NodeType) => {
+  const configs: Record<NodeType, { sources: Position[]; targets: Position[] }> = {
+    // 流向型节点：主要方向（水平）+ 辅助方向（垂直）
+    start: { sources: [Position.Right, Position.Bottom, Position.Top], targets: [] },
+    end: { sources: [], targets: [Position.Left, Position.Top, Position.Bottom] },
+
+    // 处理型节点：四方向，水平方向为主（鼓励左右布局）
+    llm: { sources: [Position.Right, Position.Bottom], targets: [Position.Left, Position.Top] },
+    knowledge: { sources: [Position.Right, Position.Bottom], targets: [Position.Left, Position.Top] },
+    code: { sources: [Position.Right, Position.Bottom], targets: [Position.Left, Position.Top] },
+    tool: { sources: [Position.Right, Position.Bottom], targets: [Position.Left, Position.Top] },
+    variable: { sources: [Position.Right, Position.Bottom], targets: [Position.Left, Position.Top] },
+
+    // 分支型节点：多输出，支持条件分支
+    condition: {
+      sources: [Position.Right, Position.Bottom, Position.Top],
+      targets: [Position.Left]
+    },
+
+    // 循环型节点：右侧继续循环，底部退出循环
+    loop: {
+      sources: [Position.Right, Position.Bottom],
+      targets: [Position.Left, Position.Top]
+    },
+  }
+
+  return configs[nodeType]
 }
 
 const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> = memo(
-  ({ id, data, nodeType }) => {
+  ({ id, data, nodeType, selected }) => {
     const style = nodeStyleConfig[nodeType]
+    const handleConfig = getHandleConfig(nodeType)
 
     return (
-      <Card
-        size="small"
-        style={{
-          width: 200,
-          borderColor: style.color,
-          borderWidth: 2,
-        }}
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: style.color }}>{style.icon}</span>
-            <span>{data.name}</span>
-            <Tag color={style.color} style={{ marginLeft: 'auto' }}>
-              {nodeType}
-            </Tag>
-          </div>
-        }
-        extra={
-          <div style={{ display: 'flex', gap: 4 }}>
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => data.onEdit?.(id)}
-            />
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => data.onDelete?.(id)}
-            />
-          </div>
-        }
+      <div
+        className={`workflow-node ${selected ? 'selected' : ''}`}
+        data-type={nodeType}
       >
-        {/* Handle for connections */}
-        {nodeType !== 'end' && (
-          <Handle type="source" position={Position.Bottom} style={{ background: style.color }} />
-        )}
-        {nodeType !== 'start' && (
-          <Handle type="target" position={Position.Top} style={{ background: style.color }} />
-        )}
+        {/* Node header */}
+        <div className="workflow-node-header">
+          <div className="workflow-node-icon" style={{ color: style.color }}>
+            {style.icon}
+          </div>
+          <div className="workflow-node-label">{data.name}</div>
+
+          {/* Action buttons - only visible on hover */}
+          <div className="workflow-node-actions">
+            <button
+              className="workflow-node-action-btn"
+              onClick={() => data.onEdit?.(id)}
+              title="编辑节点"
+            >
+              <EditOutlined />
+            </button>
+            <button
+              className="workflow-node-action-btn danger"
+              onClick={() => data.onDelete?.(id)}
+              title="删除节点"
+            >
+              <DeleteOutlined />
+            </button>
+          </div>
+        </div>
 
         {/* Node content preview */}
-        <div style={{ fontSize: 12, color: '#666' }}>
+        <div className="workflow-node-content">
           {nodeType === 'llm' && data.config?.model_id && (
             <div>模型ID: {data.config.model_id}</div>
           )}
@@ -95,12 +117,37 @@ const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> =
             <div>条件数: {data.config.conditions.length}</div>
           )}
           {nodeType === 'code' && data.config?.code && (
-            <div style={{ maxHeight: 60, overflow: 'hidden' }}>
-              <pre style={{ fontSize: 10 }}>{data.config.code.substring(0, 100)}</pre>
+            <div>
+              <pre>{data.config.code.substring(0, 100)}</pre>
             </div>
           )}
+          {nodeType === 'loop' && data.config?.iterations && (
+            <div>迭代次数: {data.config.iterations}</div>
+          )}
         </div>
-      </Card>
+
+        {/* Smart Connection Handles - Multi-directional */}
+        {handleConfig.sources.map((position, index) => (
+          <Handle
+            key={`source-${index}`}
+            type="source"
+            position={position}
+            id={`source-${position}`}
+            style={{ background: style.color }}
+            className={`handle-${position}`}
+          />
+        ))}
+        {handleConfig.targets.map((position, index) => (
+          <Handle
+            key={`target-${index}`}
+            type="target"
+            position={position}
+            id={`target-${position}`}
+            style={{ background: style.color }}
+            className={`handle-${position}`}
+          />
+        ))}
+      </div>
     )
   }
 )

@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class AIModelCreate(BaseModel):
-    provider_id: int
+    provider_id: str
     name: str = Field(..., max_length=255, description="模型标识，如 gpt-4o")
     display_name: str = Field(..., max_length=255)
     model_type: str = Field(..., max_length=50, description="chat/embedding/image/audio/rerank")
@@ -30,9 +30,9 @@ class AIModelUpdate(BaseModel):
 
 
 class AIModelOut(BaseModel):
-    id: int
-    tenant_id: Optional[int]
-    provider_id: int
+    id: str
+    tenant_id: Optional[str]
+    provider_id: str
     name: str
     display_name: str
     model_type: str

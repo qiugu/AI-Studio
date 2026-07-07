@@ -10,8 +10,8 @@ export type ProviderType =
   | 'custom'
 
 export interface AIProvider {
-  id: number
-  tenant_id: number
+  id: string
+  tenant_id: string
   name: string
   provider_type: ProviderType
   api_base_url: string | null
@@ -55,9 +55,9 @@ export interface ConnectivityTestResult {
 export type ModelType = 'chat' | 'embedding' | 'image' | 'audio' | 'rerank'
 
 export interface AIModel {
-  id: number
-  tenant_id: number | null
-  provider_id: number
+  id: string
+  tenant_id: string | null
+  provider_id: string
   name: string
   display_name: string
   model_type: ModelType
@@ -72,7 +72,7 @@ export interface AIModel {
 }
 
 export interface AIModelCreateRequest {
-  provider_id: number
+  provider_id: string
   name: string
   display_name: string
   model_type: ModelType

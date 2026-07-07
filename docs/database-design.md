@@ -6,7 +6,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
+| id | String(36) PK | 主键 |
 | name | String(255) | 租户名称 |
 | description | String(500) | 租户描述 |
 | plan | String(50) | 套餐计划(free/pro/enterprise) |
@@ -22,8 +22,8 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
 | email | String(255) UNIQUE | 邮箱 |
 | password_hash | String(255) | 密码哈希 |
 | nickname | String(255) | 昵称 |
@@ -41,8 +41,8 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
 | name | String(100) | 角色名称 |
 | code | String(100) UNIQUE | 角色编码 |
 | description | String(500) | 角色描述 |
@@ -55,7 +55,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
+| id | String(36) PK | 主键 |
 | resource | String(100) | 资源标识(user/model/prompt/kb/workflow/agent/plugin/audit) |
 | action | String(100) | 操作标识(create/read/update/delete/execute/export) |
 | description | String(255) | 权限描述 |
@@ -65,23 +65,23 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| user_id | BigInteger FK PK | 用户ID |
-| role_id | BigInteger FK PK | 角色ID |
+| user_id | String(36) FK PK | 用户ID |
+| role_id | String(36) FK PK | 角色ID |
 
 ### role_permissions 角色权限关联表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| role_id | BigInteger FK PK | 角色ID |
-| permission_id | BigInteger FK PK | 权限ID |
+| role_id | String(36) FK PK | 角色ID |
+| permission_id | String(36) FK PK | 权限ID |
 
 ### api_keys API密钥表（新增）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
-| user_id | BigInteger FK | 所属用户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
+| user_id | String(36) FK | 所属用户 |
 | name | String(255) | 密钥名称 |
 | key_hash | String(255) | 密钥哈希 |
 | key_prefix | String(20) | 密钥前缀(用于辨识) |
@@ -113,8 +113,8 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
 | name | String(255) | 供应商显示名称 |
 | provider_type | String(50) | 供应商类型(openai/anthropic/azure/zhipu/baichuan/ollama/custom) |
 | api_base_url | String(500) | API基础URL |
@@ -129,9 +129,9 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
-| provider_id | BigInteger FK | 所属供应商 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
+| provider_id | String(36) FK | 所属供应商 |
 | name | String(255) | 模型标识(gpt-4o, claude-3-sonnet等) |
 | display_name | String(255) | 显示名称 |
 | model_type | String(50) | 模型类型(chat/embedding/image/audio/rerank) |
@@ -153,16 +153,16 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
 | name | String(255) | 模板名称 |
 | description | Text | 模板描述 |
-| model_id | BigInteger FK | 关联模型(可选) |
+| model_id | String(36) FK | 关联模型(可选) |
 | category | String(100) | 分类标签 |
 | tags | JSON | 标签列表 |
 | current_version | Integer | 当前版本号 |
 | status | String(20) | 状态(draft/published/archived) |
-| created_by | BigInteger FK | 创建人 |
+| created_by | String(36) FK | 创建人 |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
 
@@ -170,13 +170,13 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| prompt_id | BigInteger FK | 所属Prompt |
+| id | String(36) PK | 主键 |
+| prompt_id | String(36) FK | 所属Prompt |
 | version | Integer | 版本号 |
 | content | Text | Prompt内容 |
 | variables | JSON | 变量定义(名称、类型、默认值、描述) |
 | change_note | String(500) | 变更说明 |
-| created_by | BigInteger FK | 创建人 |
+| created_by | String(36) FK | 创建人 |
 | created_at | DateTime | 创建时间 |
 
 **唯一约束**: (prompt_id, version)
@@ -185,12 +185,12 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| prompt_version_id | BigInteger FK | 测试的Prompt版本 |
-| user_id | BigInteger FK | 测试人 |
+| id | String(36) PK | 主键 |
+| prompt_version_id | String(36) FK | 测试的Prompt版本 |
+| user_id | String(36) FK | 测试人 |
 | input_variables | JSON | 输入变量值 |
 | output | Text | 模型输出内容 |
-| model_id | BigInteger FK | 使用的模型 |
+| model_id | String(36) FK | 使用的模型 |
 | prompt_tokens | Integer | 输入token数 |
 | completion_tokens | Integer | 输出token数 |
 | latency_ms | Integer | 响应耗时(毫秒) |
@@ -206,8 +206,8 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
 | name | String(255) | 知识库名称 |
 | description | Text | 描述 |
 | embedding_model | String(100) | 使用的向量模型（如 text-embedding-3-small） |
@@ -223,12 +223,12 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
-| kb_id | BigInteger FK | 所属知识库 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
+| kb_id | String(36) FK | 所属知识库 |
 | file_name | String(255) | 文件名 |
 | file_type | String(20) | 文件类型（pdf/docx/txt/md） |
-| file_size | BigInteger | 文件大小（字节） |
+| file_size | Integer | 文件大小（字节） |
 | file_url | String(500) | 文件存储URL（如 S3） |
 | original_content | Text | 解析后的原始文本内容 |
 | chunk_count | Integer | 分块数量 |
@@ -249,10 +249,10 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
-| kb_id | BigInteger FK | 所属知识库（冗余，加速查询） |
-| doc_id | BigInteger FK | 所属文档 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
+| kb_id | String(36) FK | 所属知识库（冗余，加速查询） |
+| doc_id | String(36) FK | 所属文档 |
 | content | Text | 分块文本内容 |
 | chunk_index | Integer | 分块序号（从 0 开始） |
 | source_page | Integer | PDF 页码（可选） |
@@ -310,14 +310,14 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
 | name | String(255) | 工作流名称 |
 | description | Text | 描述 |
 | icon | String(50) | 图标标识 |
 | version | Integer | 版本号 |
 | status | String(20) | 状态(draft/published/archived) |
-| created_by | BigInteger FK | 创建人 |
+| created_by | String(36) FK | 创建人 |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
 
@@ -325,8 +325,8 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| workflow_id | BigInteger FK | 所属工作流 |
+| id | String(36) PK | 主键 |
+| workflow_id | String(36) FK | 所属工作流 |
 | node_type | String(50) | 节点类型(start/end/llm/condition/code/tool/input/output/knowledge/loop/subflow/variable) |
 | name | String(255) | 节点名称 |
 | config | JSON | 节点配置(模型ID、Prompt、条件表达式等) |
@@ -337,10 +337,10 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| workflow_id | BigInteger FK | 所属工作流 |
-| source_id | BigInteger FK | 源节点ID |
-| target_id | BigInteger FK | 目标节点ID |
+| id | String(36) PK | 主键 |
+| workflow_id | String(36) FK | 所属工作流 |
+| source_id | String(36) FK | 源节点ID |
+| target_id | String(36) FK | 目标节点ID |
 | source_handle | String(50) | 源端口标识(条件分支用) |
 | target_handle | String(50) | 目标端口标识 |
 | condition | JSON | 条件表达式(条件节点用) |
@@ -351,9 +351,9 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| workflow_id | BigInteger FK | 工作流ID |
-| tenant_id | BigInteger FK | 租户ID |
+| id | String(36) PK | 主键 |
+| workflow_id | String(36) FK | 工作流ID |
+| tenant_id | String(36) FK | 租户ID |
 | status | String(20) | 状态(pending/running/success/failed/cancelled) |
 | inputs | JSON | 输入参数 |
 | outputs | JSON | 输出结果 |
@@ -361,16 +361,16 @@ Point结构:
 | total_tokens | Integer | 消耗总token |
 | started_at | DateTime | 开始时间 |
 | completed_at | DateTime | 完成时间 |
-| created_by | BigInteger FK | 执行人 |
+| created_by | String(36) FK | 执行人 |
 | created_at | DateTime | 创建时间 |
 
 ### node_executions 节点执行记录表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| execution_id | BigInteger FK | 所属工作流执行 |
-| node_id | BigInteger FK | 节点ID |
+| id | String(36) PK | 主键 |
+| execution_id | String(36) FK | 所属工作流执行 |
+| node_id | String(36) FK | 节点ID |
 | node_type | String(50) | 节点类型 |
 | status | String(20) | 状态(pending/running/success/failed/skipped) |
 | inputs | JSON | 节点输入 |
@@ -389,19 +389,19 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户 |
 | name | String(255) | Agent名称 |
 | description | Text | 描述 |
 | avatar | String(500) | 头像图标 |
 | system_prompt | Text | 系统Prompt |
-| model_id | BigInteger FK | 使用的模型 |
+| model_id | String(36) FK | 使用的模型 |
 | temperature | Float | 温度参数 |
 | max_tokens | Integer | 最大输出token |
 | response_mode | String(20) | 响应模式(stream/block) |
 | knowledge_ids | JSON | 关联知识库ID列表 |
 | status | String(20) | 状态(draft/published/archived) |
-| created_by | BigInteger FK | 创建人 |
+| created_by | String(36) FK | 创建人 |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
 
@@ -409,8 +409,8 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| agent_id | BigInteger FK | Agent ID |
+| id | String(36) PK | 主键 |
+| agent_id | String(36) FK | Agent ID |
 | tool_type | String(50) | 工具类型(function/knowledge/api/workflow/plugin) |
 | name | String(255) | 工具名称 |
 | description | String(500) | 工具描述 |
@@ -422,10 +422,10 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| agent_id | BigInteger FK | Agent ID |
-| user_id | BigInteger FK | 用户ID |
-| tenant_id | BigInteger FK | 租户ID |
+| id | String(36) PK | 主键 |
+| agent_id | String(36) FK | Agent ID |
+| user_id | String(36) FK | 用户ID |
+| tenant_id | String(36) FK | 租户ID |
 | title | String(255) | 对话标题 |
 | summary | Text | 对话摘要 |
 | total_tokens | Integer | 总消耗token |
@@ -436,13 +436,13 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| conversation_id | BigInteger FK | 所属对话 |
+| id | String(36) PK | 主键 |
+| conversation_id | String(36) FK | 所属对话 |
 | role | String(20) | 角色(user/assistant/system/tool) |
 | content | Text | 消息内容 |
 | tokens | Integer | 消耗token数 |
 | metadata | JSON | 元数据(工具调用信息、引用来源等) |
-| parent_id | BigInteger FK | 父消息ID(分支对话) |
+| parent_id | String(36) FK | 父消息ID(分支对话) |
 | created_at | DateTime | 创建时间 |
 
 ---
@@ -453,8 +453,8 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 所属租户(公共插件为NULL) |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 所属租户(公共插件为NULL) |
 | name | String(255) | 插件名称 |
 | plugin_type | String(50) | 插件类型(tool/provider/processor/connector) |
 | version | String(20) | 版本号 |
@@ -473,9 +473,9 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| plugin_id | BigInteger FK | 插件ID |
-| tenant_id | BigInteger FK | 租户ID(租户级配置) |
+| id | String(36) PK | 主键 |
+| plugin_id | String(36) FK | 插件ID |
+| tenant_id | String(36) FK | 租户ID(租户级配置) |
 | name | String(255) | 配置名称 |
 | value | JSON | 配置值(按config_schema校验) |
 | created_at | DateTime | 创建时间 |
@@ -487,8 +487,8 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| plugin_id | BigInteger FK | 插件ID |
+| id | String(36) PK | 主键 |
+| plugin_id | String(36) FK | 插件ID |
 | endpoint | String(500) | API端点路径 |
 | method | String(10) | HTTP方法(GET/POST/PUT/DELETE) |
 | headers | JSON | 请求头 |
@@ -505,12 +505,12 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 租户ID(索引) |
-| user_id | BigInteger FK | 操作用户 |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 租户ID(索引) |
+| user_id | String(36) FK | 操作用户 |
 | action | String(50) | 操作类型(create/read/update/delete/execute/login/export/import) |
 | resource_type | String(50) | 资源类型(user/role/model/provider/prompt/kb/workflow/agent/plugin/api_key) |
-| resource_id | BigInteger | 资源ID |
+| resource_id | String(36) | 资源ID |
 | details | JSON | 操作详情 |
 | ip_address | String(50) | IP地址 |
 | user_agent | String(500) | User-Agent |
@@ -522,15 +522,15 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 租户ID(索引) |
-| user_id | BigInteger FK | 用户ID |
-| model_id | BigInteger FK | 模型ID |
-| agent_id | BigInteger FK | Agent ID(可空) |
-| workflow_execution_id | BigInteger FK | 工作流执行ID(可空) |
-| prompt_test_id | BigInteger FK | Prompt测试ID(可空) |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 租户ID(索引) |
+| user_id | String(36) FK | 用户ID |
+| model_id | String(36) FK | 模型ID |
+| agent_id | String(36) FK | Agent ID(可空) |
+| workflow_execution_id | String(36) FK | 工作流执行ID(可空) |
+| prompt_test_id | String(36) FK | Prompt测试ID(可空) |
 | source_type | String(20) | 来源类型(agent/workflow/prompt/api) |
-| source_id | BigInteger | 来源ID |
+| source_id | String(36) | 来源ID |
 | prompt_tokens | Integer | 输入token数 |
 | completion_tokens | Integer | 输出token数 |
 | total_tokens | Integer | 总token数 |
@@ -543,12 +543,12 @@ Point结构:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | BigInteger PK | 主键 |
-| tenant_id | BigInteger FK | 租户ID |
-| user_id | BigInteger FK | 用户ID |
-| model_id | BigInteger FK | 模型ID |
+| id | String(36) PK | 主键 |
+| tenant_id | String(36) FK | 租户ID |
+| user_id | String(36) FK | 用户ID |
+| model_id | String(36) FK | 模型ID |
 | source_type | String(20) | 来源类型(prompt/agent/workflow/api) |
-| source_id | BigInteger | 来源ID |
+| source_id | String(36) | 来源ID |
 | request | JSON | 请求内容 |
 | response | JSON | 响应内容 |
 | prompt_tokens | Integer | 输入token |

@@ -40,7 +40,7 @@ export default function ModelForm() {
         const providersRes = await listProviders({ page: 1, page_size: 100 })
         setProviders(providersRes.data?.items ?? [])
         if (isEdit && id) {
-          const modelRes = await getModel(Number(id))
+          const modelRes = await getModel(id)
           const m = modelRes.data
           form.setFieldsValue({
             provider_id: m.provider_id,
@@ -67,7 +67,7 @@ export default function ModelForm() {
     setLoading(true)
     try {
       const payload: AIModelCreateRequest = {
-        provider_id: values.provider_id as number,
+        provider_id: values.provider_id as string,
         name: values.name as string,
         display_name: values.display_name as string,
         model_type: values.model_type as AIModelCreateRequest['model_type'],
@@ -78,7 +78,7 @@ export default function ModelForm() {
         max_output_tokens: values.max_output_tokens as number | undefined,
       }
       if (isEdit && id) {
-        await updateModel(Number(id), payload)
+        await updateModel(id, payload)
         message.success('更新成功')
       } else {
         await createModel(payload)

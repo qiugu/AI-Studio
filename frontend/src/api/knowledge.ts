@@ -38,14 +38,14 @@ export const listKnowledgeBases = (page = 1, pageSize = 20) => {
 };
 
 // 获取知识库详情
-export const getKnowledgeBase = (kbId: number) => {
+export const getKnowledgeBase = (kbId: string) => {
   return client.get<KnowledgeBase>(
     `/knowledge/knowledge-bases/${kbId}`
   );
 };
 
 // 更新知识库
-export const updateKnowledgeBase = (kbId: number, params: UpdateKnowledgeBaseParams) => {
+export const updateKnowledgeBase = (kbId: string, params: UpdateKnowledgeBaseParams) => {
   const queryParams = new URLSearchParams();
   if (params.name) queryParams.append("name", params.name);
   if (params.description) queryParams.append("description", params.description);
@@ -56,7 +56,7 @@ export const updateKnowledgeBase = (kbId: number, params: UpdateKnowledgeBasePar
 };
 
 // 删除知识库
-export const deleteKnowledgeBase = (kbId: number) => {
+export const deleteKnowledgeBase = (kbId: string) => {
   return client.delete(`/knowledge/knowledge-bases/${kbId}`);
 };
 
@@ -65,7 +65,7 @@ export const deleteKnowledgeBase = (kbId: number) => {
  */
 
 // 上传文档
-export const uploadDocument = (kbId: number, file: File) => {
+export const uploadDocument = (kbId: string, file: File) => {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -81,7 +81,7 @@ export const uploadDocument = (kbId: number, file: File) => {
 };
 
 // 列出文档
-export const listDocuments = (kbId: number, status?: string, page = 1, pageSize = 20) => {
+export const listDocuments = (kbId: string, status?: string, page = 1, pageSize = 20) => {
   let url = `/knowledge/knowledge-bases/${kbId}/documents?page=${page}&page_size=${pageSize}`;
   if (status) url += `&status=${status}`;
 
@@ -89,14 +89,14 @@ export const listDocuments = (kbId: number, status?: string, page = 1, pageSize 
 };
 
 // 获取文档详情
-export const getDocument = (docId: number) => {
+export const getDocument = (docId: string) => {
   return client.get<ApiResponse<KnowledgeDocument>>(
     `/knowledge/documents/${docId}`
   );
 };
 
 // 删除文档
-export const deleteDocument = (docId: number) => {
+export const deleteDocument = (docId: string) => {
   return client.delete(`/knowledge/documents/${docId}`);
 };
 
@@ -105,7 +105,7 @@ export const deleteDocument = (docId: number) => {
  */
 
 // 获取文档分块
-export const getDocumentChunks = (docId: number, page = 1, pageSize = 20) => {
+export const getDocumentChunks = (docId: string, page = 1, pageSize = 20) => {
   return client.get<{
     items: KnowledgeChunk[];
     total: number;
@@ -121,7 +121,7 @@ export const getDocumentChunks = (docId: number, page = 1, pageSize = 20) => {
  */
 
 // 检索知识库
-export const searchKnowledgeBase = (kbId: number, params: SearchParams) => {
+export const searchKnowledgeBase = (kbId: string, params: SearchParams) => {
   const queryParams = new URLSearchParams();
   queryParams.append("query", params.query);
   if (params.top_k !== undefined) queryParams.append("top_k", params.top_k.toString());

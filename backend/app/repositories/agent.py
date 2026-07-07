@@ -10,10 +10,10 @@ from app.models.agent_tool import AgentTool
 class AgentRepository(BaseRepository[Agent]):
     """Agent Repository"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         super().__init__(Agent, db, tenant_id)
 
-    def get_with_tools(self, agent_id: int) -> Optional[Agent]:
+    def get_with_tools(self, agent_id: str) -> Optional[Agent]:
         """获取Agent及其工具"""
         return (
             self.db.query(Agent)
@@ -42,10 +42,10 @@ class AgentRepository(BaseRepository[Agent]):
 class AgentToolRepository(BaseRepository[AgentTool]):
     """AgentTool Repository"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         super().__init__(AgentTool, db, tenant_id)
 
-    def list_by_agent(self, agent_id: int) -> List[AgentTool]:
+    def list_by_agent(self, agent_id: str) -> List[AgentTool]:
         """获取Agent的所有工具"""
         return (
             self.db.query(AgentTool)
@@ -53,7 +53,7 @@ class AgentToolRepository(BaseRepository[AgentTool]):
             .all()
         )
 
-    def delete_by_agent(self, agent_id: int) -> None:
+    def delete_by_agent(self, agent_id: str) -> None:
         """删除Agent的所有工具"""
         self.db.query(AgentTool).filter(
             and_(AgentTool.tenant_id == self.tenant_id, AgentTool.agent_id == agent_id)

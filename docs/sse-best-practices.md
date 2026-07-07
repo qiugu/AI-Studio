@@ -1,5 +1,7 @@
 # SSE 流式对话最佳实践指南
 
+> **AI-Studio 实战经验总结**：本文档结合了 AI-Studio 项目（阶段 5 Agent 系统）的实际开发经验，记录了 SSE 流式对话实现中的关键问题和解决方案。
+
 ## 一、为什么选择 SSE而非 WebSocket？
 
 根据 OpenAI、Claude、通义千问等主流 LLM API 的实践，**SSE 是 AI 流式输出的最佳选择**：
@@ -362,7 +364,169 @@ if (msg.status === 'error') {
 }
 ```
 
-## 七、参考资料
+## 七、实战问题与解决方案（AI-Studio 经验）
+
+### 7.1 Unicode 字符编码问题
+
+**问题描述**：前端接收到的 SSE 数据中，中文等 Unicode 字符显示为乱码或转义序列（如 `\u4e2d\u6587`）。
+
+**根本原因**：Python 的 `json.dumps()` 默认使用 `ensure_ascii=True`，会将非 ASCII 字符转义。
+
+**解决方案**：
+```python
+# 后端 SSE 数据序列化时，必须使用 ensure_ascii=False
+yield encode_sse("message", {
+    "content": chunk.content
+}, ensure_ascii=False)  # 关键：保留 Unicode 字符
+
+# encode_sse 函数实现
+def encode_sse(event: str, data: dict, ensure_ascii: bool = False) -> str:
+    data_json = json.dumps(data, ensure_ascii=ensure_ascii)
+    return f"event: {event}\ndata: {data_json}\n\n"
+```
+
+**验证方法**：在前端解析后，检查中文是否正常显示。
+
+### 7.2 SSE 响应格式不标准导致前端解析失败
+
+**问题描述**：前端使用 EventSource 或自定义 SSE 解析器时，无法正确提取消息内容，或前端报错"Unexpected token"。
+
+**根本原因**：
+1. 后端使用了单行 JSON 格式（如 `data: {"content": "你好"}` 没有换行符）
+2. Media Type 设置错误（使用了 `application/octet-stream` 而非 `text/event-stream`）
+3. 消息分隔符不正确（缺少 `\n\n`）
+
+**解决方案**：
+```python
+# 1. 使用标准 SSE 格式（event + data + \n\n）
+from sse_starlette.sse import ServerSentEvent
+
+yield ServerSentEvent(
+    event="message",  # 必须指定 event 字段
+    data=json.dumps({"content": chunk.content}, ensure_ascii=False)
+)
+
+# 2. 正确设置 Media Type
+from sse_starlette.sse import EventSourceResponse
+
+return EventSourceResponse(
+    event_generator(),
+    media_type="text/event-stream"  # 关键：不要使用 application/octet-stream
+)
+
+# 3. 手动构建 SSE 格式（如果不使用 sse_starlette）
+def encode_sse(event: str, data: dict) -> str:
+    data_json = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {data_json}\n\n"  # 必须以 \n\n 结尾
+```
+
+**前端解析示例**：
+```typescript
+// 正确解析 SSE 消息边界
+let buffer = ''
+while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    
+    buffer += decoder.decode(value, { stream: true })
+    
+    // SSE 消息以 \n\n 分隔
+    const messages = buffer.split('\n\n')
+    buffer = messages.pop() || ''  // 保留最后一个不完整的消息
+    
+    for (const message of messages) {
+        if (!message.trim()) continue
+        
+        // 解析 event 和 data 行
+        const lines = message.split('\n')
+        let eventType = ''
+        let dataStr = ''
+        
+        for (const line of lines) {
+            if (line.startsWith('event: ')) {
+                eventType = line.substring(7).trim()
+            } else if (line.startsWith('data: ')) {
+                dataStr = line.substring(6).trim()
+            }
+        }
+        
+        if (dataStr) {
+            const data = JSON.parse(dataStr)
+            if (eventType === 'message') {
+                // 提取 content 字段
+                onContent(data.content)
+            } else if (eventType === 'done') {
+                // 提取 conversation_id 字段
+                onComplete(data.conversation_id)
+            }
+        }
+    }
+}
+```
+
+### 7.3 前端期望的字段名不匹配
+
+**问题描述**：前端解析 SSE 数据后，无法找到期望的字段（如 `content` 或 `conversation_id`）。
+
+**根本原因**：后端和前端对 SSE 数据结构的约定不一致。
+
+**解决方案**：
+```python
+# 后端：明确约定字段名
+yield ServerSentEvent(
+    event="message",
+    data=json.dumps({
+        "content": chunk.content  # 前端期望 content 字段
+    }, ensure_ascii=False)
+)
+
+yield ServerSentEvent(
+    event="done",
+    data=json.dumps({
+        "conversation_id": conversation_id  # 前端期望 conversation_id 字段
+    }, ensure_ascii=False)
+)
+```
+
+**约定文档化**：
+- `message` 事件：包含 `content` 字段（AI 输出的文本块）
+- `done` 事件：包含 `conversation_id` 字段（对话 ID）+ `usage` 字段（可选）
+- `error` 事件：包含 `error` 字段（错误消息）+ `error_code` 字段（错误码）
+
+### 7.4 性能优化：虚拟滚动和渲染性能
+
+**问题描述**：长对话历史（超过 100 条消息）导致页面卡顿，滚动不流畅。
+
+**解决方案**：
+```typescript
+// 使用 @ant-design/x 的 Bubble.List 组件，支持虚拟滚动
+import { Bubble } from '@ant-design/x'
+
+<Bubble.List
+    items={messages}
+    auto={messages.length > 50}  // 超过 50 条自动启用虚拟滚动
+    style={{ height: '100%' }}
+/>
+
+// 或者手动实现虚拟滚动
+import { VirtualList } from 'rc-virtual-list'
+
+<VirtualList
+    data={messages}
+    height={600}
+    itemHeight={80}  // 预估消息高度
+    itemKey="id"
+>
+    {(message) => <MessageBubble message={message} />}
+</VirtualList>
+```
+
+**其他优化**：
+- 使用 `React.memo` 包装消息组件
+- 使用 `useMemo` 缓存消息列表计算结果
+- 使用 `requestAnimationFrame` 优化流式渲染更新
+
+## 八、参考资料
 
 - [SSE 还是 WebSocket？从 AI 流式输出聊到实时通信选型](https://juejin.cn/post/7641598418105040959)
 - [Streaming vs Non-streaming API Responses](https://stackviv.ai/blog/streaming-vs-non-streaming-api)

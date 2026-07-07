@@ -11,7 +11,7 @@ class QuotaService:
     def __init__(self, db: Session):
         self.db = db
 
-    def _get_tenant(self, tenant_id: int) -> Tenant:
+    def _get_tenant(self, tenant_id: str) -> Tenant:
         tenant = (
             self.db.query(Tenant)
             .filter(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
@@ -21,7 +21,7 @@ class QuotaService:
             raise NotFoundException("Tenant", tenant_id)
         return tenant
 
-    def check_user_quota(self, tenant_id: int) -> None:
+    def check_user_quota(self, tenant_id: str) -> None:
         """
         检查用户配额。
         超出配额时抛出 QuotaExceededException（返回 429）。
@@ -35,7 +35,7 @@ class QuotaService:
         if current_count >= tenant.max_users:
             raise QuotaExceededException("users")
 
-    def check_model_quota(self, tenant_id: int) -> None:
+    def check_model_quota(self, tenant_id: str) -> None:
         """
         检查 AI 模型配额。
         超出配额时抛出 QuotaExceededException（返回 429）。

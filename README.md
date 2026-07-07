@@ -18,6 +18,7 @@
 AI-Studio 是一个面向企业的 AI 应用平台，提供以下核心能力：
 
 - **多租户隔离**：基于 `BaseRepository` 租户过滤基类，从数据层根本防止跨租户数据泄漏
+- **统一主键规范**：所有核心实体的业务 ID 已统一为字符串 UUID v4，并持久化为 `varchar(36)`，前后端接口与页面调用已同步适配
 - **RBAC 权限管理**：细粒度的资源+操作权限矩阵，支持角色定制
 - **AI 模型管理**：统一管理多家 AI 供应商（OpenAI、Anthropic、Azure、Ollama 等），API Key 双层加密存储
 - **知识库 (RAG)**：文档上传、解析、分块、向量化，基于 pgvector 语义检索
@@ -35,7 +36,7 @@ AI-Studio 是一个面向企业的 AI 应用平台，提供以下核心能力：
 | Web 框架 | FastAPI + Uvicorn |
 | ORM | SQLAlchemy 2.0 |
 | 主数据库 | MySQL + PyMySQL |
-| 向量数据库 | PostgreSQL + pgvector |
+| 向量数据库 | Qdrant |
 | 缓存/队列 | Redis |
 | 异步任务 | Celery |
 | LLM 抽象层 | LangChain |
@@ -88,21 +89,32 @@ AI-Studio 是一个面向企业的 AI 应用平台，提供以下核心能力：
 
 ## 功能模块
 
+### 最近更新
+
+- 已将后端模型、Alembic 迁移和前端类型/接口调用统一切换为字符串 UUID（`varchar(36)`）方案
+- 已完成相关数据库迁移，当前主键与外键字段在 MySQL 中以字符串 UUID 形式落库
+- 前端页面已同步移除对数字 ID 的强依赖，避免 `Number()` / `parseInt()` 引入的兼容问题
+
 ### 已实现
 
 - [x] 基础架构：FastAPI 入口、CORS、全局异常处理
 - [x] 中间件：租户隔离、审计日志、限流（Redis）
 - [x] 认证 API：登录、注册（含租户初始化）、Token 刷新、登出
+- [x] RBAC 权限管理：基于角色的访问控制，细粒度权限矩阵
+- [x] AI 模型管理：供应商和模型 CRUD，LangChain 集成，连通性测试
+- [x] Prompt 管理：版本控制、变量渲染、测试运行
+- [x] 知识库：文档上传/解析/分块、Qdrant 向量检索
+- [x] Agent 系统：ReAct Agent、工具绑定、SSE 流式对话、Markdown 渲染
 
 ### 开发中（分阶段实施）
 
 | 阶段 | 模块 | 状态 |
 |------|------|------|
-| 一 | 基础架构完善（RBAC、中间件、异常体系） | 进行中 |
-| 二 | AI 模型管理（供应商、模型 CRUD、LangChain 集成） | 待开始 |
-| 三 | Prompt 管理（版本控制、变量渲染、测试运行） | 待开始 |
-| 四 | 知识库（文档上传/解析/分块、pgvector 检索） | 待开始 |
-| 五 | Agent 系统（ReAct Agent、工具绑定、SSE 流式对话） | 待开始 |
+| 一 | 基础架构完善（RBAC、中间件、异常体系） | 已完成 |
+| 二 | AI 模型管理（供应商、模型 CRUD、LangChain 集成） | 已完成 |
+| 三 | Prompt 管理（版本控制、变量渲染、测试运行） | 已完成 |
+| 四 | 知识库（文档上传/解析/分块、Qdrant 检索） | 已完成 |
+| 五 | Agent 系统（ReAct Agent、工具绑定、SSE 流式对话） | 已完成 |
 | 六 | 工作流引擎（DAG 执行、React Flow 可视化编辑器） | 待开始 |
 | 七 | 插件系统（OpenAPI 解析、插件调用沙盒） | 待开始 |
 | 八 | 监控审计（审计日志、Token 统计、Dashboard） | 待开始 |

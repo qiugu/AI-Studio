@@ -56,7 +56,7 @@ def create_prompt(
 
 @router.get("/{prompt_id}", response_model=ResponseBase)
 def get_prompt(
-    prompt_id: int,
+    prompt_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -68,7 +68,7 @@ def get_prompt(
 
 @router.put("/{prompt_id}", response_model=ResponseBase)
 def update_prompt(
-    prompt_id: int,
+    prompt_id: str,
     data: PromptUpdate,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
@@ -82,7 +82,7 @@ def update_prompt(
 
 @router.delete("/{prompt_id}", response_model=ResponseBase)
 def delete_prompt(
-    prompt_id: int,
+    prompt_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -95,7 +95,7 @@ def delete_prompt(
 
 @router.get("/{prompt_id}/versions", response_model=ResponseBase)
 def list_versions(
-    prompt_id: int,
+    prompt_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -107,7 +107,7 @@ def list_versions(
 
 @router.post("/{prompt_id}/versions", response_model=ResponseBase)
 def create_version(
-    prompt_id: int,
+    prompt_id: str,
     data: PromptVersionCreate,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
@@ -123,8 +123,8 @@ def create_version(
 
 @router.put("/{prompt_id}/versions/{version_id}/activate", response_model=ResponseBase)
 def activate_version(
-    prompt_id: int,
-    version_id: int,
+    prompt_id: str,
+    version_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -138,7 +138,7 @@ def activate_version(
 
 @router.post("/{prompt_id}/test", response_model=ResponseBase)
 def test_prompt(
-    prompt_id: int,
+    prompt_id: str,
     data: PromptTestRequest,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),

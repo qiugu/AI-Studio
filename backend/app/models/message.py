@@ -1,23 +1,25 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, String, Text, DateTime, JSON, func
+from sqlalchemy import String, Text, DateTime, JSON, func
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 from sqlalchemy import ForeignKey
 
 from app.core.database import Base
+
+import uuid
 
 
 class Message(Base):
     """消息模型"""
     __tablename__ = "messages"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
 
     # 关联对话
-    conversation_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    conversation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
 
     # 消息角色：user | assistant | system | tool

@@ -53,7 +53,7 @@ def create_provider(
 
 @router.get("/{provider_id}", response_model=ResponseBase)
 def get_provider(
-    provider_id: int,
+    provider_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -65,7 +65,7 @@ def get_provider(
 
 @router.put("/{provider_id}", response_model=ResponseBase)
 def update_provider(
-    provider_id: int,
+    provider_id: str,
     data: AIProviderUpdate,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
@@ -80,7 +80,7 @@ def update_provider(
 
 @router.delete("/{provider_id}", response_model=ResponseBase)
 def delete_provider(
-    provider_id: int,
+    provider_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -93,7 +93,7 @@ def delete_provider(
 
 @router.post("/{provider_id}/test", response_model=ResponseBase)
 def test_provider_connectivity(
-    provider_id: int,
+    provider_id: str,
     data: ConnectivityTestRequest,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),

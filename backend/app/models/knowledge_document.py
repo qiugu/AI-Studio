@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, func, ForeignKey, Enum
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import mapped_column, Mapped, relationship
 from datetime import datetime
 import enum
+import uuid
 
 from app.core.database import Base
 
@@ -18,9 +19,9 @@ class KnowledgeDocument(Base):
     """知识库文档"""
     __tablename__ = "knowledge_documents"
 
-    id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
-    kb_id = Column(Integer, ForeignKey("knowledge_bases.id"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    kb_id: Mapped[str] = mapped_column(String(36), ForeignKey("knowledge_bases.id"), nullable=False, index=True)
     
     # 文件信息
     file_name = Column(String(255), nullable=False)

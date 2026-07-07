@@ -32,9 +32,9 @@ class AgentToolUpdate(BaseModel):
 
 class AgentToolResponse(AgentToolBase):
     """Agent工具响应"""
-    id: int
-    agent_id: int
-    tenant_id: int
+    id: str
+    agent_id: str
+    tenant_id: str
     created_at: datetime
     updated_at: datetime
 
@@ -50,7 +50,7 @@ class AgentBase(BaseModel):
     description: Optional[str] = Field(None, description="Agent描述")
     avatar: Optional[str] = Field(None, description="头像URL")
     system_prompt: Optional[str] = Field(None, description="系统提示词")
-    model_id: int = Field(..., description="关联的AI模型ID")
+    model_id: str = Field(..., description="关联的AI模型ID")
     temperature: float = Field(0.7, ge=0.0, le=2.0, description="温度参数")
     max_tokens: int = Field(2000, ge=1, le=32000, description="最大Token数")
 
@@ -67,7 +67,7 @@ class AgentUpdate(BaseModel):
     description: Optional[str] = None
     avatar: Optional[str] = None
     system_prompt: Optional[str] = None
-    model_id: Optional[int] = None
+    model_id: Optional[str] = None
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(None, ge=1, le=32000)
     status: Optional[str] = None
@@ -76,10 +76,10 @@ class AgentUpdate(BaseModel):
 
 class AgentResponse(AgentBase):
     """Agent响应"""
-    id: int
-    tenant_id: int
+    id: str
+    tenant_id: str
     status: str
-    created_by: Optional[int]
+    created_by: Optional[str]
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]

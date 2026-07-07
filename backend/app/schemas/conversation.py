@@ -25,9 +25,9 @@ class MessageCreate(MessageBase):
 
 class MessageResponse(MessageBase):
     """消息响应"""
-    id: int
-    conversation_id: int
-    tenant_id: int
+    id: str
+    conversation_id: str
+    tenant_id: str
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -49,7 +49,7 @@ class ConversationBase(BaseModel):
 
 class ConversationCreate(ConversationBase):
     """创建对话"""
-    agent_id: int = Field(..., description="Agent ID")
+    agent_id: str = Field(..., description="Agent ID")
 
 
 class ConversationUpdate(BaseModel):
@@ -59,10 +59,10 @@ class ConversationUpdate(BaseModel):
 
 class ConversationResponse(ConversationBase):
     """对话响应"""
-    id: int
-    tenant_id: int
-    agent_id: int
-    created_by: Optional[int]
+    id: str
+    tenant_id: str
+    agent_id: str
+    created_by: Optional[str]
     created_at: datetime
     updated_at: datetime
     messages: List[MessageResponse] = Field(default_factory=list)
@@ -84,7 +84,7 @@ class ConversationListResponse(BaseModel):
 class ChatRequest(BaseModel):
     """聊天请求"""
     message: str = Field(..., min_length=1, description="用户消息")
-    conversation_id: Optional[int] = Field(None, description="对话ID，不传则创建新对话")
+    conversation_id: Optional[str] = Field(None, description="对话ID，不传则创建新对话")
     stream: bool = Field(True, description="是否使用流式响应")
     messages: Optional[List[MessageBase]] = Field(
         None,
@@ -94,5 +94,5 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """聊天响应（非流式）"""
-    conversation_id: int
+    conversation_id: str
     message: MessageResponse

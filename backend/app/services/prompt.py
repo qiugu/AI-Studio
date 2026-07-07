@@ -26,7 +26,7 @@ _VAR_RE = re.compile(r"\{\{(\w+)\}\}")
 
 
 class PromptService:
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         self.db = db
         self.tenant_id = tenant_id
 
@@ -41,13 +41,13 @@ class PromptService:
             )
         )
 
-    def _get_or_404(self, prompt_id: int) -> Prompt:
+    def _get_or_404(self, prompt_id: str) -> Prompt:
         p = self._base_query().filter(Prompt.id == prompt_id).first()
         if not p:
             raise NotFoundException("Prompt", prompt_id)
         return p
 
-    def _get_version_or_404(self, prompt_id: int, version_id: int) -> PromptVersion:
+    def _get_version_or_404(self, prompt_id: str, version_id: str) -> PromptVersion:
         v = (
             self.db.query(PromptVersion)
             .filter(
@@ -76,7 +76,7 @@ class PromptService:
             result = result.replace(f"{{{{{k}}}}}", v)
         return result
 
-    def _current_version(self, prompt_id: int) -> PromptVersion | None:
+    def _current_version(self, prompt_id: str) -> PromptVersion | None:
         return (
             self.db.query(PromptVersion)
             .filter(
@@ -107,12 +107,12 @@ class PromptService:
             p.current_version = self._current_version(p.id)
         return items, total
 
-    def get(self, prompt_id: int) -> Prompt:
+    def get(self, prompt_id: str) -> Prompt:
         p = self._get_or_404(prompt_id)
         p.current_version = self._current_version(prompt_id)
         return p
 
-    def create(self, data: PromptCreate, user_id: int | None = None) -> Prompt:
+    def create(self, data: PromptCreate, user_id: str | None = None) -> Prompt:
         prompt = Prompt(
             tenant_id=self.tenant_id,
             name=data.name,
@@ -139,7 +139,7 @@ class PromptService:
         prompt.current_version = version
         return prompt
 
-    def update(self, prompt_id: int, data: PromptUpdate) -> Prompt:
+    def update(self, prompt_id: str, data: PromptUpdate) -> Prompt:
         p = self._get_or_404(prompt_id)
         update_fields = data.model_dump(exclude_none=True)
         for k, v in update_fields.items():
@@ -148,14 +148,14 @@ class PromptService:
         p.current_version = self._current_version(prompt_id)
         return p
 
-    def delete(self, prompt_id: int) -> None:
+    def delete(self, prompt_id: str) -> None:
         p = self._get_or_404(prompt_id)
         p.deleted_at = datetime.now(timezone.utc)
         self.db.flush()
 
     # ── versioning ────────────────────────────────────────────────────────────
 
-    def list_versions(self, prompt_id: int) -> list[PromptVersion]:
+    def list_versions(self, prompt_id: str) -> list[PromptVersion]:
         self._get_or_404(prompt_id)
         return (
             self.db.query(PromptVersion)
@@ -166,9 +166,9 @@ class PromptService:
 
     def create_version(
         self,
-        prompt_id: int,
+        prompt_id: str,
         data: PromptVersionCreate,
-        user_id: int | None = None,
+        user_id: str | None = None,
     ) -> PromptVersion:
         self._get_or_404(prompt_id)
         last = (
@@ -191,7 +191,7 @@ class PromptService:
         self.db.flush()
         return version
 
-    def activate_version(self, prompt_id: int, version_id: int) -> PromptVersion:
+    def activate_version(self, prompt_id: str, version_id: str) -> PromptVersion:
         self._get_or_404(prompt_id)
         target = self._get_version_or_404(prompt_id, version_id)
         # deactivate all versions for this prompt
@@ -205,7 +205,7 @@ class PromptService:
 
     # ── test run ──────────────────────────────────────────────────────────────
 
-    def test_run(self, prompt_id: int, data: PromptTestRequest) -> PromptTestResult:
+    def test_run(self, prompt_id: str, data: PromptTestRequest) -> PromptTestResult:
         self._get_or_404(prompt_id)
         if data.version_id:
             version = self._get_version_or_404(prompt_id, data.version_id)

@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional, List
+import uuid
 
-from sqlalchemy import BigInteger, String, Text, DateTime, Float, JSON, func, ForeignKey
+from sqlalchemy import String, Text, DateTime, Float, JSON, func, ForeignKey
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 
 from app.core.database import Base
@@ -11,11 +12,11 @@ class WorkflowNode(Base):
     """工作流节点模型"""
     __tablename__ = "workflow_nodes"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    workflow_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workflow_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
 
     # 节点信息
     node_type: Mapped[str] = mapped_column(String(50), nullable=False)  # start | end | llm | condition | knowledge | code | tool | loop | variable

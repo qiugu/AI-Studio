@@ -1,17 +1,19 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, String, Text, JSON, Boolean, DateTime, func
+from sqlalchemy import String, Text, JSON, Boolean, DateTime, func
 from sqlalchemy.orm import mapped_column, Mapped
 
 from app.core.database import Base
+
+import uuid
 
 
 class AIProvider(Base):
     __tablename__ = "ai_providers"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     provider_type: Mapped[str] = mapped_column(String(50), nullable=False)
     api_base_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

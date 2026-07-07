@@ -29,7 +29,7 @@ from app.utils.embedding import get_embedding_client
 class KnowledgeBaseService:
     """知识库服务"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         self.db = db
         self.tenant_id = tenant_id
         self.kb_repo = KnowledgeBaseRepository(db=db, tenant_id=tenant_id)
@@ -61,7 +61,7 @@ class KnowledgeBaseService:
         self.db.commit()
         return kb
 
-    def get_knowledge_base(self, kb_id: int) -> KnowledgeBase:
+    def get_knowledge_base(self, kb_id: str) -> KnowledgeBase:
         """获取知识库详情"""
         kb = self.kb_repo.get_by_id(kb_id)
         if not kb:
@@ -145,7 +145,7 @@ class KnowledgeBaseService:
         self.kb_repo.update(kb, document_count=kb.document_count + 1)
 
         # 将上传文件持久化到配置目录
-        dest_dir = Path(config.upload_dir) / str(self.tenant_id) / str(kb_id) / str(doc.id)
+        dest_dir = Path(config.upload_dir) / self.tenant_id / kb_id / str(doc.id)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_path = dest_dir / Path(file_name).name
         try:

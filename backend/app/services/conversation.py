@@ -14,7 +14,7 @@ from app.schemas.conversation import ConversationCreate, ConversationUpdate
 class ConversationService:
     """对话服务"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         self.db = db
         self.tenant_id = tenant_id
         self.conv_repo = ConversationRepository(db=db, tenant_id=tenant_id)
@@ -25,7 +25,7 @@ class ConversationService:
     def create_conversation(
         self,
         data: ConversationCreate,
-        user_id: int,
+        user_id: str,
     ) -> Conversation:
         """创建对话"""
         conv = self.conv_repo.create(
@@ -36,7 +36,7 @@ class ConversationService:
         self.db.commit()
         return conv
 
-    def get_conversation(self, conversation_id: int) -> Conversation:
+    def get_conversation(self, conversation_id: str) -> Conversation:
         """获取对话详情"""
         conv = self.conv_repo.get_with_messages(conversation_id)
         if not conv:
@@ -45,7 +45,7 @@ class ConversationService:
 
     def list_conversations(
         self,
-        agent_id: int,
+        agent_id: str,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[List[Conversation], int]:
@@ -56,7 +56,7 @@ class ConversationService:
 
     def update_conversation(
         self,
-        conversation_id: int,
+        conversation_id: str,
         data: ConversationUpdate,
     ) -> Conversation:
         """更新对话"""
@@ -67,7 +67,7 @@ class ConversationService:
         self.db.commit()
         return conv
 
-    def delete_conversation(self, conversation_id: int) -> None:
+    def delete_conversation(self, conversation_id: str) -> None:
         """删除对话"""
         conv = self.get_conversation(conversation_id)
         self.conv_repo.delete(conv)
@@ -77,7 +77,7 @@ class ConversationService:
 
     def add_message(
         self,
-        conversation_id: int,
+        conversation_id: str,
         role: str,
         content: str,
         prompt_tokens: int = 0,
@@ -110,7 +110,7 @@ class ConversationService:
 
     def get_messages(
         self,
-        conversation_id: int,
+        conversation_id: str,
         page: int = 1,
         page_size: int = 50,
     ) -> tuple[List[Message], int]:
@@ -121,7 +121,7 @@ class ConversationService:
         total = self.msg_repo.count_by_conversation(conversation_id=conversation_id)
         return messages, total
 
-    def get_conversation_history(self, conversation_id: int) -> List[dict]:
+    def get_conversation_history(self, conversation_id: str) -> List[dict]:
         """获取对话历史（用于LLM上下文）"""
         messages = self.msg_repo.list_by_conversation(conversation_id=conversation_id, page=1, page_size=100)
         return [

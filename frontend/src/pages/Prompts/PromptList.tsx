@@ -52,7 +52,7 @@ export default function PromptList() {
     fetchAll()
   }, [fetchAll])
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     try {
       await deletePrompt(id)
       message.success('删除成功')

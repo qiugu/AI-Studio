@@ -29,7 +29,7 @@ const { Title, Text } = Typography
 
 export default function PromptDetail() {
   const { id } = useParams<{ id: string }>()
-  const promptId = Number(id)
+  const promptId = id || ''
   const navigate = useNavigate()
 
   const [prompt, setPrompt] = useState<Prompt | null>(null)
@@ -58,7 +58,7 @@ export default function PromptDetail() {
     load()
   }, [load])
 
-  const handleActivate = async (versionId: number) => {
+  const handleActivate = async (versionId: string) => {
     try {
       await activateVersion(promptId, versionId)
       message.success('版本已激活')

@@ -6,7 +6,7 @@ import { memo, useMemo } from 'react'
 
 interface ConversationListProps {
   conversations: Conversation[]
-  currentConversationId?: number
+  currentConversationId?: string
   onSelect: (conversation: Conversation) => void
   onCreateNew: () => void
   onDelete?: (conversation: Conversation) => void

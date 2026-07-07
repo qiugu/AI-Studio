@@ -2,19 +2,21 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import BigInteger, String, JSON, Boolean, DateTime, func, Integer, Numeric
+from sqlalchemy import String, JSON, Boolean, DateTime, func, Integer, Numeric
 from sqlalchemy.orm import mapped_column, Mapped
 
 from app.core.database import Base
+
+import uuid
 
 
 class AIModel(Base):
     __tablename__ = "ai_models"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # tenant_id 为 NULL 表示平台预置公共模型
-    tenant_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, index=True)
-    provider_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    provider_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     model_type: Mapped[str] = mapped_column(String(50), nullable=False)

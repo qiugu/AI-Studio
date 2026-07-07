@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional
+import uuid
 
-from sqlalchemy import BigInteger, String, Text, DateTime, JSON, func, ForeignKey
+from sqlalchemy import String, Text, DateTime, JSON, func, ForeignKey
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 
 from app.core.database import Base
@@ -11,18 +12,18 @@ class WorkflowEdge(Base):
     """工作流边（连线）模型"""
     __tablename__ = "workflow_edges"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    workflow_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workflow_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
 
     # 边信息
-    source_node_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False
+    source_node_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False
     )
-    target_node_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False
+    target_node_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False
     )
 
     # 条件配置（用于条件分支）

@@ -113,8 +113,8 @@ async def refresh(
     if payload.get("type") != "refresh":
         raise UnauthorizedException("Invalid token type")
 
-    user_id = int(payload.get("sub", 0))
-    if user_id == 0:
+    user_id = payload.get("sub", "0")
+    if user_id == "0":
         raise UnauthorizedException("Invalid token payload")
 
     # 验证用户是否还存在且有效

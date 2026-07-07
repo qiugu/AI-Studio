@@ -41,7 +41,7 @@ export default function AgentForm() {
   const loadAgent = async () => {
     setLoading(true)
     try {
-      const { data } = await agentApi.getAgent(Number(agentId))
+      const { data } = await agentApi.getAgent(agentId || '')
       form.setFieldsValue({
         name: data.name,
         description: data.description,
@@ -74,7 +74,7 @@ export default function AgentForm() {
           max_tokens: values.max_tokens,
           status: values.status,
         }
-        await agentApi.updateAgent(Number(agentId), updateData)
+        await agentApi.updateAgent(agentId || '', updateData)
         message.success('Agent已更新')
       } else {
         const createData: AgentCreateRequest = {

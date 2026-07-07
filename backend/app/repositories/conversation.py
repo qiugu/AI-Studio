@@ -10,10 +10,10 @@ from app.models.message import Message
 class ConversationRepository(BaseRepository[Conversation]):
     """Conversation Repository"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         super().__init__(Conversation, db, tenant_id)
 
-    def get_with_messages(self, conversation_id: int) -> Optional[Conversation]:
+    def get_with_messages(self, conversation_id: str) -> Optional[Conversation]:
         """获取对话及其消息"""
         return (
             self.db.query(Conversation)
@@ -22,7 +22,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         )
 
     def list_by_agent(
-        self, agent_id: int, page: int = 1, page_size: int = 20
+        self, agent_id: str, page: int = 1, page_size: int = 20
     ) -> List[Conversation]:
         """获取Agent的所有对话"""
         query = (
@@ -33,7 +33,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         offset = (page - 1) * page_size
         return query.offset(offset).limit(page_size).all()
 
-    def count_by_agent(self, agent_id: int) -> int:
+    def count_by_agent(self, agent_id: str) -> int:
         """统计Agent的对话数量"""
         return (
             self.db.query(Conversation)
@@ -45,11 +45,11 @@ class ConversationRepository(BaseRepository[Conversation]):
 class MessageRepository(BaseRepository[Message]):
     """Message Repository"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         super().__init__(Message, db, tenant_id)
 
     def list_by_conversation(
-        self, conversation_id: int, page: int = 1, page_size: int = 50
+        self, conversation_id: str, page: int = 1, page_size: int = 50
     ) -> List[Message]:
         """获取对话的所有消息"""
         query = (
@@ -60,7 +60,7 @@ class MessageRepository(BaseRepository[Message]):
         offset = (page - 1) * page_size
         return query.offset(offset).limit(page_size).all()
 
-    def count_by_conversation(self, conversation_id: int) -> int:
+    def count_by_conversation(self, conversation_id: str) -> int:
         """统计对话的消息数量"""
         return (
             self.db.query(Message)
@@ -68,7 +68,7 @@ class MessageRepository(BaseRepository[Message]):
             .count()
         )
 
-    def get_last_message(self, conversation_id: int) -> Optional[Message]:
+    def get_last_message(self, conversation_id: str) -> Optional[Message]:
         """获取对话的最后一条消息"""
         return (
             self.db.query(Message)

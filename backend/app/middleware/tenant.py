@@ -39,7 +39,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 尝试从 Authorization header 解析 tenant_id
-        tenant_id: int | None = None
+        tenant_id: str | None = None
         authorization = request.headers.get("Authorization", "")
         if authorization.startswith("Bearer "):
             token = authorization.removeprefix("Bearer ").strip()

@@ -48,8 +48,8 @@ async def get_current_user(
     if payload.get("type") != "access":
         raise UnauthorizedException("Invalid token type")
 
-    user_id = int(payload.get("sub", 0))
-    if user_id == 0:
+    user_id = payload.get("sub", "0")
+    if user_id == "0":
         raise UnauthorizedException("Invalid token payload")
 
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
@@ -69,7 +69,7 @@ async def get_current_user(
 
 async def get_current_tenant(
     current_user: User = Depends(get_current_user),
-) -> int:
+) -> str:
     return current_user.tenant_id
 
 
@@ -109,6 +109,6 @@ async def require_platform_admin(
 # 类型别名，简化路由参数声明
 SessionDep = Annotated[Session, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
-CurrentTenantId = Annotated[int, Depends(get_current_tenant)]
+CurrentTenantId = Annotated[str, Depends(get_current_tenant)]
 PlatformAdmin = Annotated[User, Depends(require_platform_admin)]
 QdrantClientDep = Annotated["QdrantClient", Depends(get_qdrant_client)]

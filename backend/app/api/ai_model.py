@@ -21,7 +21,7 @@ def list_models(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     model_type: str | None = Query(None),
-    provider_id: int | None = Query(None),
+    provider_id: str | None = Query(None),
     include_public: bool = Query(False),
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
@@ -61,7 +61,7 @@ def create_model(
 
 @router.get("/{model_id}", response_model=ResponseBase)
 def get_model(
-    model_id: int,
+    model_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -73,7 +73,7 @@ def get_model(
 
 @router.put("/{model_id}", response_model=ResponseBase)
 def update_model(
-    model_id: int,
+    model_id: str,
     data: AIModelUpdate,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
@@ -88,7 +88,7 @@ def update_model(
 
 @router.delete("/{model_id}", response_model=ResponseBase)
 def delete_model(
-    model_id: int,
+    model_id: str,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
     _current_user: CurrentUser = None,
@@ -101,7 +101,7 @@ def delete_model(
 
 @router.post("/{model_id}/test", response_model=ResponseBase)
 def test_model(
-    model_id: int,
+    model_id: str,
     data: ModelTestRequest,
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),

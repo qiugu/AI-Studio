@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Table, Button, Space, Tag, Modal, message, Popconfirm, Card } from 'antd'
+import { Table, Button, Space, Tag, message, Popconfirm, Card } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, CheckOutlined, InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
@@ -10,7 +10,7 @@ import { usePagination } from '../../hooks/usePagination'
 const WorkflowList: React.FC = () => {
   const navigate = useNavigate()
   const [statusFilter, setStatusFilter] = useState<WorkflowStatus | undefined>()
-  const { pagination, data, loading, setData, setLoading, onChange, total, current, pageSize } = usePagination<Workflow>()
+  const { data, loading, setData, setLoading, onChange, total, current, pageSize } = usePagination<Workflow>()
 
   const fetchWorkflows = async () => {
     setLoading(true)
@@ -32,7 +32,7 @@ const WorkflowList: React.FC = () => {
     fetchWorkflows()
   }, [current, pageSize, statusFilter])
 
-  const handleDelete = async (workflowId: number) => {
+  const handleDelete = async (workflowId: string) => {
     try {
       await deleteWorkflow(workflowId)
       message.success('工作流已删除')
@@ -42,7 +42,7 @@ const WorkflowList: React.FC = () => {
     }
   }
 
-  const handlePublish = async (workflowId: number) => {
+  const handlePublish = async (workflowId: string) => {
     try {
       await publishWorkflow(workflowId)
       message.success('工作流已发布')
@@ -52,7 +52,7 @@ const WorkflowList: React.FC = () => {
     }
   }
 
-  const handleArchive = async (workflowId: number) => {
+  const handleArchive = async (workflowId: string) => {
     try {
       await archiveWorkflow(workflowId)
       message.success('工作流已归档')

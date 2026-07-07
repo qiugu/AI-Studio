@@ -13,7 +13,7 @@ class BaseRepository(Generic[ModelType]):
     所有业务 Repository 应继承此类。
     """
 
-    def __init__(self, model: Type[ModelType], db: Session, tenant_id: int):
+    def __init__(self, model: Type[ModelType], db: Session, tenant_id: str):
         self.model = model
         self.db = db
         self.tenant_id = tenant_id
@@ -36,7 +36,7 @@ class BaseRepository(Generic[ModelType]):
             return and_(base_condition, self.model.deleted_at.is_(None))  # type: ignore[attr-defined]
         return base_condition
 
-    def get_by_id(self, resource_id: int) -> Optional[ModelType]:
+    def get_by_id(self, resource_id: str) -> Optional[ModelType]:
         return (
             self.db.query(self.model)
             .filter(self._tenant_filter(), self.model.id == resource_id)  # type: ignore[attr-defined]

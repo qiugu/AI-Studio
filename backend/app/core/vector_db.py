@@ -52,7 +52,7 @@ def get_vector_size_for_model(model_name: str) -> int:
     raise ValueError(f"Unsupported embedding model for vector size lookup: {model_name}")
 
 
-def get_or_create_collection(kb_id: int, vector_size: int = 1024) -> str:
+def get_or_create_collection(kb_id: str, vector_size: int = 1024) -> str:
     """确保知识库对应的 Collection 存在，返回 collection_name"""
     collection_name = f"kb_{kb_id}"
     client = get_qdrant_client()
@@ -67,7 +67,7 @@ def get_or_create_collection(kb_id: int, vector_size: int = 1024) -> str:
     return collection_name
 
 
-def delete_tenant_vectors(tenant_id: int) -> None:
+def delete_tenant_vectors(tenant_id: str) -> None:
     """删除指定租户的所有向量数据（租户注销时调用）"""
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 

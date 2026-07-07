@@ -1,6 +1,7 @@
 """Agent API 路由"""
 import json
 from typing import Optional
+import uuid
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -97,7 +98,7 @@ async def list_agents(
     response_model=ResponseBase,
 )
 async def get_agent(
-    agent_id: int,
+    agent_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -109,7 +110,7 @@ async def get_agent(
             data=AgentResponse.model_validate(agent).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise HTTPException(status_code=e.status_code, detail=str(e))
 
 
 @router.put(
@@ -118,7 +119,7 @@ async def get_agent(
     dependencies=[Depends(require_permission("agent", "update"))],
 )
 async def update_agent(
-    agent_id: int,
+    agent_id: str,
     data: AgentUpdate,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -140,7 +141,7 @@ async def update_agent(
     dependencies=[Depends(require_permission("agent", "delete"))],
 )
 async def delete_agent(
-    agent_id: int,
+    agent_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -182,7 +183,7 @@ async def create_conversation(
     response_model=PaginatedResponse,
 )
 async def list_conversations(
-    agent_id: int,
+    agent_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_session),
@@ -219,7 +220,7 @@ async def list_conversations(
     response_model=ResponseBase,
 )
 async def get_conversation(
-    conversation_id: int,
+    conversation_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -240,7 +241,7 @@ async def get_conversation(
     dependencies=[Depends(require_permission("agent", "chat"))],
 )
 async def update_conversation(
-    conversation_id: int,
+    conversation_id: str,
     data: ConversationUpdate,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -262,7 +263,7 @@ async def update_conversation(
     dependencies=[Depends(require_permission("agent", "chat"))],
 )
 async def delete_conversation(
-    conversation_id: int,
+    conversation_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -284,7 +285,7 @@ async def delete_conversation(
     dependencies=[Depends(require_permission("agent", "chat"))],
 )
 async def chat(
-    agent_id: int,
+    agent_id: str,
     data: ChatRequest,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -347,7 +348,7 @@ async def chat(
     # response_model=StreamingResponse
 )
 async def chat_stream(
-    agent_id: int,
+    agent_id: str,
     data: ChatRequest,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),

@@ -23,8 +23,8 @@ class AIProviderUpdate(BaseModel):
 
 
 class AIProviderOut(BaseModel):
-    id: int
-    tenant_id: int
+    id: str
+    tenant_id: str
     name: str
     provider_type: str
     api_base_url: Optional[str]

@@ -1,5 +1,6 @@
 """知识库 API 路由"""
 from typing import Optional
+import uuid
 from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -88,7 +89,7 @@ async def list_knowledge_bases(
     response_model=ResponseBase,
 )
 async def get_knowledge_base(
-    kb_id: int,
+    kb_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -109,7 +110,7 @@ async def get_knowledge_base(
     dependencies=[Depends(require_permission("knowledge", "update"))],
 )
 async def update_knowledge_base(
-    kb_id: int,
+    kb_id: str,
     name: Optional[str] = Query(None, min_length=1, max_length=255),
     description: Optional[str] = Query(None, max_length=500),
     db: Session = Depends(get_session),
@@ -131,7 +132,7 @@ async def update_knowledge_base(
     dependencies=[Depends(require_permission("knowledge", "delete"))],
 )
 async def delete_knowledge_base(
-    kb_id: int,
+    kb_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -152,7 +153,7 @@ async def delete_knowledge_base(
     dependencies=[Depends(require_permission("knowledge", "upload"))],
 )
 async def upload_document(
-    kb_id: int,
+    kb_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -201,7 +202,7 @@ async def upload_document(
     response_model=PaginatedResponse,
 )
 async def list_documents(
-    kb_id: int,
+    kb_id: str,
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -258,7 +259,7 @@ async def list_documents(
     response_model=ResponseBase,
 )
 async def get_document(
-    doc_id: int,
+    doc_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -278,7 +279,7 @@ async def get_document(
     dependencies=[Depends(require_permission("knowledge", "delete"))],
 )
 async def delete_document(
-    doc_id: int,
+    doc_id: str,
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -298,7 +299,7 @@ async def delete_document(
     response_model=PaginatedResponse,
 )
 async def get_document_chunks(
-    doc_id: int,
+    doc_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_session),
@@ -335,7 +336,7 @@ async def get_document_chunks(
     "/knowledge-bases/{kb_id}/search",
 )
 async def search_knowledge_base(
-    kb_id: int,
+    kb_id: str,
     query: str = Query(..., min_length=1),
     top_k: int = Query(5, ge=1, le=50),
     score_threshold: float = Query(0.5, ge=0.0, le=1.0),

@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+import uuid
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +16,7 @@ class WorkflowNodeBase(BaseModel):
 
 
 class WorkflowNodeCreate(WorkflowNodeBase):
-    pass
+    temp_id: Optional[str] = Field(default=None, description="临时节点ID（用于新建节点时的ID映射）")
 
 
 class WorkflowNodeUpdate(WorkflowNodeBase):
@@ -24,9 +25,9 @@ class WorkflowNodeUpdate(WorkflowNodeBase):
 
 
 class WorkflowNodeResponse(WorkflowNodeBase):
-    id: int
-    workflow_id: int
-    tenant_id: int
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    tenant_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
 
@@ -37,8 +38,8 @@ class WorkflowNodeResponse(WorkflowNodeBase):
 # ── Workflow Edge Schemas ──────────────────────────────────────────────────────
 
 class WorkflowEdgeBase(BaseModel):
-    source_node_id: int = Field(..., description="源节点ID")
-    target_node_id: int = Field(..., description="目标节点ID")
+    source_node_id: uuid.UUID = Field(..., description="源节点ID")
+    target_node_id: uuid.UUID = Field(..., description="目标节点ID")
     condition: Optional[Dict[str, Any]] = Field(default=None, description="条件配置")
     label: Optional[str] = Field(default=None, description="边标签")
 
@@ -48,14 +49,14 @@ class WorkflowEdgeCreate(WorkflowEdgeBase):
 
 
 class WorkflowEdgeUpdate(WorkflowEdgeBase):
-    source_node_id: Optional[int] = Field(default=None, description="源节点ID")
-    target_node_id: Optional[int] = Field(default=None, description="目标节点ID")
+    source_node_id: Optional[uuid.UUID] = Field(default=None, description="源节点ID")
+    target_node_id: Optional[uuid.UUID] = Field(default=None, description="目标节点ID")
 
 
 class WorkflowEdgeResponse(WorkflowEdgeBase):
-    id: int
-    workflow_id: int
-    tenant_id: int
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    tenant_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
 
@@ -84,11 +85,11 @@ class WorkflowUpdate(WorkflowBase):
 
 
 class WorkflowResponse(WorkflowBase):
-    id: int
-    tenant_id: int
+    id: uuid.UUID
+    tenant_id: uuid.UUID
     status: str
     is_active: bool
-    created_by: Optional[int]
+    created_by: Optional[uuid.UUID]
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]
@@ -113,16 +114,16 @@ class WorkflowExecutionRequest(BaseModel):
 
 
 class WorkflowExecutionResponse(BaseModel):
-    id: int
-    workflow_id: int
-    tenant_id: int
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    tenant_id: uuid.UUID
     status: str
     input_data: Optional[Dict[str, Any]]
     output_data: Optional[Dict[str, Any]]
     error_message: Optional[str]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
-    created_by: Optional[int]
+    created_by: Optional[uuid.UUID]
     created_at: datetime
 
     class Config:

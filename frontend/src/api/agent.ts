@@ -32,17 +32,17 @@ export async function listAgents(page = 1, pageSize = 20, status?: string): Prom
 }
 
 // 获取 Agent 详情
-export async function getAgent(agentId: number): Promise<ApiResponse<Agent>> {
+export async function getAgent(agentId: string): Promise<ApiResponse<Agent>> {
   return client.get(`/agent/agents/${agentId}`) as Promise<ApiResponse<Agent>>
 }
 
 // 更新 Agent
-export async function updateAgent(agentId: number, data: AgentUpdateRequest): Promise<ApiResponse<Agent>> {
+export async function updateAgent(agentId: string, data: AgentUpdateRequest): Promise<ApiResponse<Agent>> {
   return client.put(`/agent/agents/${agentId}`, data) as Promise<ApiResponse<Agent>>
 }
 
 // 删除 Agent
-export async function deleteAgent(agentId: number): Promise<ApiResponse<void>> {
+export async function deleteAgent(agentId: string): Promise<ApiResponse<void>> {
   return client.delete(`/agent/agents/${agentId}`) as Promise<ApiResponse<void>>
 }
 
@@ -56,22 +56,22 @@ export async function createConversation(data: ConversationCreateRequest): Promi
 }
 
 // 列出对话
-export async function listConversations(agentId: number, page = 1, pageSize = 20): Promise<ApiResponse<PaginatedData<Conversation>>> {
+export async function listConversations(agentId: string, page = 1, pageSize = 20): Promise<ApiResponse<PaginatedData<Conversation>>> {
   return client.get(`/agent/agents/${agentId}/conversations?page=${page}&page_size=${pageSize}`) as Promise<ApiResponse<PaginatedData<Conversation>>>
 }
 
 // 获取对话详情
-export async function getConversation(conversationId: number): Promise<ApiResponse<Conversation>> {
+export async function getConversation(conversationId: string): Promise<ApiResponse<Conversation>> {
   return client.get(`/agent/conversations/${conversationId}`) as Promise<ApiResponse<Conversation>>
 }
 
 // 更新对话
-export async function updateConversation(conversationId: number, data: ConversationUpdateRequest): Promise<ApiResponse<Conversation>> {
+export async function updateConversation(conversationId: string, data: ConversationUpdateRequest): Promise<ApiResponse<Conversation>> {
   return client.put(`/agent/conversations/${conversationId}`, data) as Promise<ApiResponse<Conversation>>
 }
 
 // 删除对话
-export async function deleteConversation(conversationId: number): Promise<ApiResponse<void>> {
+export async function deleteConversation(conversationId: string): Promise<ApiResponse<void>> {
   return client.delete(`/agent/conversations/${conversationId}`) as Promise<ApiResponse<void>>
 }
 
@@ -81,7 +81,7 @@ export async function deleteConversation(conversationId: number): Promise<ApiRes
 
 // Agent对话（阻塞式）
 export async function chat(
-  agentId: number,
+  agentId: string,
   data: ChatRequest,
   config?: { _suppressErrorMessage?: boolean }
 ): Promise<ApiResponse<ChatResponse>> {
@@ -89,6 +89,6 @@ export async function chat(
 }
 
 // Agent对话（SSE流式）- 返回 EventSource URL
-export function getChatStreamUrl(agentId: number): string {
+export function getChatStreamUrl(agentId: string): string {
   return `/api/agent/agents/${agentId}/chat/stream`
 }

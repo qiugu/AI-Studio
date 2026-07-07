@@ -35,7 +35,7 @@ export default function ModelList() {
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<{
     model_type?: string
-    provider_id?: number
+    provider_id?: string
     include_public: boolean
   }>({ include_public: false })
 
@@ -59,7 +59,7 @@ export default function ModelList() {
     fetchAll()
   }, [fetchAll])
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     try {
       await deleteModel(id)
       message.success('删除成功')

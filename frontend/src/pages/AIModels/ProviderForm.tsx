@@ -39,7 +39,7 @@ export default function ProviderForm() {
 
   useEffect(() => {
     if (!isEdit || !id) return
-    getProvider(Number(id))
+    getProvider(id)
       .then((res) => {
         const p = res.data
         form.setFieldsValue({
@@ -74,7 +74,7 @@ export default function ProviderForm() {
       }
 
       if (isEdit && id) {
-        await updateProvider(Number(id), payload)
+        await updateProvider(id, payload)
         message.success('更新成功')
       } else {
         await createProvider(payload)

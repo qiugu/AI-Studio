@@ -2,15 +2,17 @@ from typing import Optional
 from datetime import datetime
 
 from sqlalchemy.orm import mapped_column, Mapped
-from sqlalchemy import BigInteger, String, DateTime, Boolean, Integer, func
+from sqlalchemy import String, DateTime, Boolean, Integer, func
 
 from app.core.database import Base
+
+import uuid
 
 
 class Tenant(Base):
     __tablename__ = 'tenants'
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     plan: Mapped[str] = mapped_column(String(50), default="free")

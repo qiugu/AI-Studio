@@ -1,4 +1,3 @@
-import { Avatar } from 'antd'
 import { UserOutlined, RobotOutlined } from '@ant-design/icons'
 import MarkdownRenderer from '../MarkdownRenderer'
 import type { Message } from '@/types/agent'

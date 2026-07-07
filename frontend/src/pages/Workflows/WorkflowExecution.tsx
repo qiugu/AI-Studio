@@ -14,7 +14,7 @@ const WorkflowExecution: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
   const [executionEvents, setExecutionEvents] = useState<SSEWorkflowEvent[]>([])
-  const [executionId, setExecutionId] = useState<number | null>(null)
+  const [_, setExecutionId] = useState<string | null>(null)
   const [finalOutput, setFinalOutput] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form] = Form.useForm()
@@ -28,7 +28,7 @@ const WorkflowExecution: React.FC = () => {
   const fetchWorkflow = async () => {
     setLoading(true)
     try {
-      const response = await getWorkflow(parseInt(workflowId!))
+      const response = await getWorkflow(workflowId!)
       setWorkflow(response.data)
     } catch (error) {
       message.error('获取工作流失败')
@@ -45,10 +45,10 @@ const WorkflowExecution: React.FC = () => {
 
     try {
       // 验证工作流
-      await validateWorkflow(parseInt(workflowId!))
+      await validateWorkflow(workflowId!)
 
       // 使用 SSE 流式执行
-      const streamUrl = executeWorkflowStreamUrl(parseInt(workflowId!))
+      const streamUrl = executeWorkflowStreamUrl(workflowId!)
       const input_data = values.input_data ? JSON.parse(values.input_data) : {}
 
       createWorkflowStreamRequest(

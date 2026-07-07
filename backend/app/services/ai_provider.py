@@ -9,11 +9,11 @@ from app.utils import llm as llm_utils
 
 
 class AIProviderService:
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         self.db = db
         self.tenant_id = tenant_id
 
-    def _get_or_404(self, provider_id: int) -> AIProvider:
+    def _get_or_404(self, provider_id: str) -> AIProvider:
         provider = (
             self.db.query(AIProvider)
             .filter(
@@ -36,7 +36,7 @@ class AIProviderService:
         items = query.offset((page - 1) * page_size).limit(page_size).all()
         return items, total
 
-    def get(self, provider_id: int) -> AIProvider:
+    def get(self, provider_id: str) -> AIProvider:
         return self._get_or_404(provider_id)
 
     def create(self, data: AIProviderCreate) -> AIProvider:
@@ -53,7 +53,7 @@ class AIProviderService:
         self.db.flush()
         return provider
 
-    def update(self, provider_id: int, data: AIProviderUpdate) -> AIProvider:
+    def update(self, provider_id: str, data: AIProviderUpdate) -> AIProvider:
         provider = self._get_or_404(provider_id)
         if data.name is not None:
             provider.name = data.name
@@ -70,7 +70,7 @@ class AIProviderService:
         self.db.flush()
         return provider
 
-    def delete(self, provider_id: int) -> None:
+    def delete(self, provider_id: str) -> None:
         provider = self._get_or_404(provider_id)
         # 检查是否有模型依赖此供应商
         model_count = (
@@ -86,7 +86,7 @@ class AIProviderService:
         self.db.flush()
 
     def test_connectivity(
-        self, provider_id: int, model_name: str
+        self, provider_id: str, model_name: str
     ) -> ConnectivityTestResult:
         provider = self._get_or_404(provider_id)
         api_key = decrypt(provider.api_key_encrypted) if provider.api_key_encrypted else ""

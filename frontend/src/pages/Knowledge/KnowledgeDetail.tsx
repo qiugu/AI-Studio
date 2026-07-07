@@ -60,7 +60,7 @@ export default function KnowledgeDetail() {
 
   const loadKnowledgeBase = async () => {
     try {
-      const { data } = await kbApi.getKnowledgeBase(Number(kbId));
+      const { data } = await kbApi.getKnowledgeBase(kbId || '');
       setKb(data);
     } catch (error) {
       console.error("Failed to load knowledge base:", error);
@@ -71,7 +71,7 @@ export default function KnowledgeDetail() {
   const loadDocuments = async () => {
     setLoading(true);
     try {
-      const { data } = await kbApi.listDocuments(Number(kbId));
+      const { data } = await kbApi.listDocuments(kbId || '');
       setDocuments(data.items);
     } catch (error) {
       console.error("Failed to load documents:", error);
@@ -84,7 +84,7 @@ export default function KnowledgeDetail() {
   const handleUploadDocument = async (file: RcFile) => {
     setUploading(true);
     try {
-      await kbApi.uploadDocument(Number(kbId), file);
+      await kbApi.uploadDocument(kbId || '', file);
       message.success("文档上传成功，正在处理中...");
       loadDocuments();
       loadKnowledgeBase();
@@ -97,7 +97,7 @@ export default function KnowledgeDetail() {
     return false; // 禁止自动上传
   };
 
-  const handleDeleteDocument = async (docId: number) => {
+  const handleDeleteDocument = async (docId: string) => {
     try {
       await kbApi.deleteDocument(docId);
       message.success("文档已删除");
@@ -117,7 +117,7 @@ export default function KnowledgeDetail() {
 
     setChunksLoading(true);
     try {
-      const { data } = await kbApi.searchKnowledgeBase(Number(kbId), {
+      const { data } = await kbApi.searchKnowledgeBase(kbId || '', {
         query: searchQuery,
         top_k: 10,
         score_threshold: 0.3,
@@ -131,7 +131,7 @@ export default function KnowledgeDetail() {
     }
   };
 
-  const handleViewChunks = async (docId: number) => {
+  const handleViewChunks = async (docId: string) => {
     setChunksLoading(true);
     try {
       const { data } = await kbApi.getDocumentChunks(docId);

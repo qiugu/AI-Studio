@@ -1,8 +1,8 @@
 export type PromptStatus = 'draft' | 'published' | 'archived'
 
 export interface PromptVersion {
-  id: number
-  prompt_id: number
+  id: string
+  prompt_id: string
   version_number: number
   content: string
   variables: string[] | null
@@ -12,8 +12,8 @@ export interface PromptVersion {
 }
 
 export interface Prompt {
-  id: number
-  tenant_id: number
+  id: string
+  tenant_id: string
   name: string
   description: string | null
   category: string | null
@@ -46,9 +46,9 @@ export interface PromptVersionCreateRequest {
 }
 
 export interface PromptTestRequest {
-  version_id?: number
+  version_id?: string
   variables: Record<string, string>
-  model_id: number
+  model_id: string
 }
 
 export interface PromptTestResult {

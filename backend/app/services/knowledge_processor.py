@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task(name="process_document_task", bind=False)
-def process_document_task(doc_id: int, file_path: str, tenant_id: int) -> None:
+def process_document_task(doc_id: str, file_path: str, tenant_id: str) -> None:
     session: Session = sessionLocal()
     try:
         doc = session.query(KnowledgeDocument).filter(

@@ -4,7 +4,6 @@ import {
   RobotOutlined,
   CodeOutlined,
   DatabaseOutlined,
-  ApartmentOutlined,
   ThunderboltOutlined,
   AppstoreOutlined as PluginOutlined,
   SettingOutlined,

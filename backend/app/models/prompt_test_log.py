@@ -1,20 +1,22 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Text, JSON, String, Integer, DateTime, func, ForeignKey
+from sqlalchemy import Text, JSON, String, Integer, DateTime, func, ForeignKey
 from sqlalchemy.orm import mapped_column, Mapped
 
 from app.core.database import Base
+
+import uuid
 
 
 class PromptTestLog(Base):
     __tablename__ = "prompt_test_logs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    prompt_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("prompts.id", ondelete="CASCADE"), nullable=False, index=True)
-    version_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
-    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    model_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    prompt_id: Mapped[str] = mapped_column(String(36), ForeignKey("prompts.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("prompt_versions.id", ondelete="SET NULL"), nullable=True)
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    model_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     input_vars: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     rendered_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     result_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

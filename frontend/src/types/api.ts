@@ -19,8 +19,8 @@ export interface PageParams {
 }
 
 export interface User {
-  id: number
-  tenant_id: number
+  id: string
+  tenant_id: string
   email: string
   nickname: string | null
   avatar: string | null
@@ -33,8 +33,8 @@ export interface User {
 }
 
 export interface Role {
-  id: number
-  tenant_id?: number
+  id: string
+  tenant_id?: string
   name: string
   code: string
   description?: string | null
@@ -43,7 +43,7 @@ export interface Role {
 }
 
 export interface Permission {
-  id: number
+  id: string
   resource: string
   action: string
   description?: string | null

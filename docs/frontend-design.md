@@ -62,9 +62,15 @@ frontend/
 │   │   ├── AdminGuard.tsx           # 超级管理员路由守卫(检查 is_platform_admin)
 │   │   ├── Pagination.tsx           # 通用分页封装
 │   │   ├── CodeEditor.tsx           # 代码/Prompt编辑器(Monaco)
-│   │   ├── MarkdownRenderer.tsx     # Markdown渲染组件
-│   │   ├── ChatMessage.tsx         # 对话消息组件
-│   │   ├── ChatInput.tsx           # 对话输入组件
+│   │   ├── MarkdownRenderer.tsx     # Markdown渲染组件(支持GFM、代码高亮)
+│   │   ├── MarkdownRenderer.css     # GitHub风格Markdown样式
+│   │   ├── Chat/
+│   │   │   ├── AgentInfo.tsx       # Agent信息卡片
+│   │   │   ├── ChatContainer.tsx   # 对话容器(虚拟滚动)
+│   │   │   ├── ChatInput.tsx       # 对话输入组件
+│   │   │   ├── ConversationList.tsx # 对话历史列表(时间分组)
+│   │   │   ├── MessageBubble.tsx   # 消息气泡(用户/AI区分)
+│   │   │   └── ErrorAlert.tsx      # 错误消息展示
 │   │   └── TokenCounter.tsx       # Token计数组件
 │   │
 │   ├── pages/                        # 页面
@@ -92,7 +98,8 @@ frontend/
 │   │   ├── Agents/
 │   │   │   ├── AgentList.tsx        # Agent列表
 │   │   │   ├── AgentForm.tsx        # Agent创建/编辑
-│   │   │   └── AgentChat.tsx        # Agent对话界面(SSE流式)
+│   │   │   ├── AgentChat.tsx        # Agent对话界面(SSE流式)
+│   │   │   └── AgentChat.css        # 对话界面样式(气泡、间距)
 │   │   ├── Plugins/
 │   │   │   ├── PluginList.tsx       # 插件列表
 │   │   │   └── PluginConfig.tsx     # 插件配置
@@ -209,11 +216,54 @@ frontend/
 - 执行面板(输入参数 → SSE流式输出 → 节点执行状态高亮)
 
 ### 6. Agent对话
-- 基于Ant Design X的聊天界面
-- SSE流式响应
-- 工具调用展示(折叠面板)
-- 对话历史侧边栏
+
+**核心特性**：
+- 基于 `@ant-design/x` 的 `Bubble.List` 组件，支持虚拟滚动（超过 50 条消息自动启用）
+- SSE 流式响应，实时渲染 AI 输出
+- GitHub 风格 Markdown 渲染（支持 GFM、代码高亮、表格）
+- 用户/AI 消息视觉区分（用户蓝色右对齐，AI 灰色左对齐）
+- 对话历史侧边栏，支持时间分组导航（今天、昨天、本周、更早）
+- 消息气泡胶囊形状（用户）和圆角矩形（AI），12px 间距
+- 错误消息独立展示（Alert 组件，支持重试按钮）
+- 工具调用展示（折叠面板）
 - 上下文引用展示
+
+**关键组件**：
+- `MarkdownRenderer.tsx` - Markdown 渲染器，支持：
+  - GFM (GitHub Flavored Markdown)
+  - 代码高亮（highlight.js，github-dark 主题）
+  - HTML 标签渲染
+  - 表格滚动包装
+  - 链接新窗口打开
+- `ConversationList.tsx` - 对话历史列表：
+  - 时间分组导航（相对时间显示）
+  - 活动状态样式（左侧边框强调，悬停阴影）
+  - 消息预览（截断 50 字符）
+  - 消息计数徽标
+  - 悬停操作菜单（重命名、删除）
+  - 性能优化（React.memo、useMemo）
+- `MessageBubble.tsx` - 消息气泡：
+  - 用户消息：蓝色背景、右对齐、UserOutlined 图标、胶囊形状
+  - AI 消息：灰色背景、左对齐、RobotOutlined 图标、圆角矩形
+  - Markdown 内容渲染
+  - Token 计数显示
+- `ChatContainer.tsx` - 对话容器：
+  - 虚拟滚动（`@ant-design/x` 内置，auto 启用）
+  - 流式渲染状态管理
+  - 消息列表更新优化
+
+**SSE 流式处理**：
+- 使用 `createStreamRequest` 工具函数（基于 fetch + ReadableStream）
+- 正确解析 SSE 消息边界（`\n\n` 分隔符）
+- 处理三种事件类型：`message`（内容块）、`done`（完成）、`error`（错误）
+- 支持用户中断（AbortController）
+- Unicode 字符正确处理（后端 `ensure_ascii=False`）
+
+**样式规范**：
+- 字体大小系统（基于 8px）：标题 16px bold，预览 14px，徽标 11px
+- 间距系统：项目间 8px，组间 20px，气泡间 12px
+- 选中样式：`bg-blue-50/40` 背景，3px 左侧边框，`shadow-xs` 阴影
+- 过渡动画：200ms（颜色、阴影、边框）
 
 ### 7. 审计日志
 - 高级筛选(时间范围、操作类型、资源类型、用户)

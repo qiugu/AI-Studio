@@ -40,9 +40,9 @@ export default function ProviderList() {
   const navigate = useNavigate()
   const [providers, setProviders] = useState<AIProvider[]>([])
   const [loading, setLoading] = useState(true)
-  const [testModal, setTestModal] = useState<{ open: boolean; providerId: number }>({
+  const [testModal, setTestModal] = useState<{ open: boolean; providerId: string }>({
     open: false,
-    providerId: 0,
+    providerId: '',
   })
 
   const fetchProviders = useCallback(async () => {
@@ -61,7 +61,7 @@ export default function ProviderList() {
     fetchProviders()
   }, [fetchProviders])
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     try {
       await deleteProvider(id)
       message.success('删除成功')
@@ -151,7 +151,7 @@ export default function ProviderList() {
       <ConnectionTestModal
         open={testModal.open}
         providerId={testModal.providerId}
-        onClose={() => setTestModal({ open: false, providerId: 0 })}
+        onClose={() => setTestModal({ open: false, providerId: '' })}
       />
     </div>
   )

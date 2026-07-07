@@ -13,7 +13,7 @@ class BadRequestException(AppException):
 
 
 class NotFoundException(AppException):
-    def __init__(self, resource: str, resource_id: int | None = None):
+    def __init__(self, resource: str, resource_id: str | int | None = None):
         msg = f"{resource} not found"
         if resource_id is not None:
             msg += f" (id={resource_id})"

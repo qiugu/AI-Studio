@@ -4,27 +4,27 @@ from pydantic import BaseModel, Field
 
 
 class PromptVersionOut(BaseModel):
-    id: int
-    prompt_id: int
+    id: str
+    prompt_id: str
     version_number: int
     content: str
     variables: Optional[list[str]] = None
     is_current: bool
-    created_by: Optional[int]
+    created_by: Optional[str]
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
 
 
 class PromptOut(BaseModel):
-    id: int
-    tenant_id: int
+    id: str
+    tenant_id: str
     name: str
     description: Optional[str]
     category: Optional[str]
     tags: Optional[list[str]]
     status: str
-    created_by: Optional[int]
+    created_by: Optional[str]
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
     current_version: Optional[PromptVersionOut] = None
@@ -53,9 +53,9 @@ class PromptVersionCreate(BaseModel):
 
 
 class PromptTestRequest(BaseModel):
-    version_id: Optional[int] = None
+    version_id: Optional[str] = None
     variables: dict[str, str] = Field(default_factory=dict)
-    model_id: int
+    model_id: str
 
 
 class PromptTestResult(BaseModel):

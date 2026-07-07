@@ -1,0 +1,443 @@
+/* Workflow Editor - Design System */
+/* Inspired by modern IDEs and flowchart tools: Figma, Miro, n8n */
+
+/* ============================================================================
+   TOKEN SYSTEM
+   ============================================================================ */
+
+:root {
+  /* Colors - Neutral palette with purposeful accents */
+  --wf-bg-canvas: #f8f9fa;
+  --wf-bg-panel: #ffffff;
+  --wf-border-subtle: #e5e7eb;
+  --wf-border-default: #d1d5db;
+  --wf-text-primary: #111827;
+  --wf-text-secondary: #6b7280;
+  --wf-text-tertiary: #9ca3af;
+
+  /* Node accent colors - Muted and sophisticated */
+  --wf-node-start: #10b981;
+  --wf-node-end: #ef4444;
+  --wf-node-llm: #3b82f6;
+  --wf-node-condition: #f59e0b;
+  --wf-node-knowledge: #8b5cf6;
+  --wf-node-code: #06b6d4;
+  --wf-node-tool: #ec4899;
+  --wf-node-loop: #f97316;
+  --wf-node-variable: #84cc16;
+
+  /* Spacing scale - 4px base unit */
+  --wf-space-1: 4px;
+  --wf-space-2: 8px;
+  --wf-space-3: 12px;
+  --wf-space-4: 16px;
+  --wf-space-5: 20px;
+
+  /* Typography scale */
+  --wf-text-xs: 11px;
+  --wf-text-sm: 13px;
+  --wf-text-base: 14px;
+  --wf-text-lg: 16px;
+
+  /* Transitions */
+  --wf-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --wf-transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Shadows */
+  --wf-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --wf-shadow-base: 0 2px 8px 0 rgba(0, 0, 0, 0.08);
+  --wf-shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================================
+   CANVAS & LAYOUT
+   ============================================================================ */
+
+.workflow-editor-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--wf-bg-canvas);
+}
+
+.workflow-editor-toolbar {
+  background: var(--wf-bg-panel);
+  border-bottom: 1px solid var(--wf-border-subtle);
+  padding: var(--wf-space-3) var(--wf-space-4);
+  box-shadow: var(--wf-shadow-sm);
+}
+
+.workflow-editor-canvas {
+  flex: 1;
+  position: relative;
+}
+
+/* React Flow overrides */
+.react-flow__node {
+  cursor: grab;
+}
+
+.react-flow__node:active {
+  cursor: grabbing;
+}
+
+/* ============================================================================
+   SMART HANDLE SYSTEM - Direction-aware connection points
+   ============================================================================ */
+
+.react-flow__handle {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  border: 2px solid white !important;
+  transition: transform var(--wf-transition-fast), box-shadow var(--wf-transition-fast) !important;
+  z-index: 10 !important;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.4);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+}
+
+/* Primary handles (left/right) - Larger and more prominent */
+.handle-left,
+.handle-right {
+  width: 14px !important;
+  height: 14px !important;
+  border-width: 2.5px !important;
+}
+
+.handle-left:hover,
+.handle-right:hover {
+  transform: scale(1.5);
+  box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.4);
+}
+
+/* Secondary handles (top/bottom) - Smaller for vertical connections */
+.handle-top,
+.handle-bottom {
+  width: 10px !important;
+  height: 10px !important;
+  opacity: 0.8;
+}
+
+.handle-top:hover,
+.handle-bottom:hover {
+  opacity: 1;
+  transform: scale(1.3);
+}
+
+/* ============================================================================
+   EDGE DESIGN - Smooth curves for better readability
+   ============================================================================ */
+
+.react-flow__edge-path {
+  stroke-width: 2.5;
+  stroke: #94a3b8;
+  fill: none;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-width: 3;
+}
+
+/* Animated edge on connection */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 5;
+  stroke-dashoffset: 0;
+  animation: dash 0.5s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: 10;
+  }
+}
+
+/* Edge hover effect */
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #64748b;
+  stroke-width: 3;
+}
+
+.react-flow__controls {
+  box-shadow: var(--wf-shadow-base) !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--wf-border-subtle) !important;
+}
+
+.react-flow__minimap {
+  box-shadow: var(--wf-shadow-base) !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--wf-border-subtle) !important;
+}
+
+/* ============================================================================
+   NODE DESIGN - Compact & Clean
+   ============================================================================ */
+
+.workflow-node {
+  background: var(--wf-bg-panel);
+  border-radius: 8px;
+  box-shadow: var(--wf-shadow-base);
+  border: 1px solid var(--wf-border-subtle);
+  min-width: 160px;
+  max-width: 200px;
+  transition: all var(--wf-transition-base);
+  position: relative;
+}
+
+.workflow-node:hover {
+  box-shadow: var(--wf-shadow-md);
+  border-color: var(--wf-border-default);
+}
+
+.workflow-node.selected {
+  box-shadow: 0 0 0 2px #3b82f6, var(--wf-shadow-md);
+}
+
+/* Node accent bar - top colored line */
+.workflow-node::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 8px 8px 0 0;
+  transition: background-color var(--wf-transition-fast);
+}
+
+/* Color coding for different node types */
+.workflow-node[data-type="start"]::before { background-color: var(--wf-node-start); }
+.workflow-node[data-type="end"]::before { background-color: var(--wf-node-end); }
+.workflow-node[data-type="llm"]::before { background-color: var(--wf-node-llm); }
+.workflow-node[data-type="condition"]::before { background-color: var(--wf-node-condition); }
+.workflow-node[data-type="knowledge"]::before { background-color: var(--wf-node-knowledge); }
+.workflow-node[data-type="code"]::before { background-color: var(--wf-node-code); }
+.workflow-node[data-type="tool"]::before { background-color: var(--wf-node-tool); }
+.workflow-node[data-type="loop"]::before { background-color: var(--wf-node-loop); }
+.workflow-node[data-type="variable"]::before { background-color: var(--wf-node-variable); }
+
+/* Node header */
+.workflow-node-header {
+  display: flex;
+  align-items: center;
+  gap: var(--wf-space-2);
+  padding: var(--wf-space-2) var(--wf-space-3);
+  border-bottom: 1px solid var(--wf-border-subtle);
+}
+
+.workflow-node-icon {
+  font-size: var(--wf-text-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.workflow-node[data-type="start"] .workflow-node-icon { color: var(--wf-node-start); }
+.workflow-node[data-type="end"] .workflow-node-icon { color: var(--wf-node-end); }
+.workflow-node[data-type="llm"] .workflow-node-icon { color: var(--wf-node-llm); }
+.workflow-node[data-type="condition"] .workflow-node-icon { color: var(--wf-node-condition); }
+.workflow-node[data-type="knowledge"] .workflow-node-icon { color: var(--wf-node-knowledge); }
+.workflow-node[data-type="code"] .workflow-node-icon { color: var(--wf-node-code); }
+.workflow-node[data-type="tool"] .workflow-node-icon { color: var(--wf-node-tool); }
+.workflow-node[data-type="loop"] .workflow-node-icon { color: var(--wf-node-loop); }
+.workflow-node[data-type="variable"] .workflow-node-icon { color: var(--wf-node-variable); }
+
+.workflow-node-label {
+  font-size: var(--wf-text-sm);
+  font-weight: 500;
+  color: var(--wf-text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.workflow-node-actions {
+  display: flex;
+  gap: var(--wf-space-1);
+  opacity: 0;
+  transition: opacity var(--wf-transition-fast);
+}
+
+.workflow-node:hover .workflow-node-actions {
+  opacity: 1;
+}
+
+.workflow-node-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--wf-text-tertiary);
+  cursor: pointer;
+  transition: all var(--wf-transition-fast);
+  padding: 0;
+}
+
+.workflow-node-action-btn:hover {
+  background: #f3f4f6;
+  color: var(--wf-text-primary);
+}
+
+.workflow-node-action-btn.danger:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Node content */
+.workflow-node-content {
+  padding: var(--wf-space-2) var(--wf-space-3);
+  font-size: var(--wf-text-xs);
+  color: var(--wf-text-secondary);
+  line-height: 1.5;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+.workflow-node-content pre {
+  margin: 0;
+  font-size: 10px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  color: var(--wf-text-secondary);
+}
+
+/* ============================================================================
+   NODE PALETTE - Sidebar Design
+   ============================================================================ */
+
+.node-palette {
+  background: var(--wf-bg-panel);
+  border-radius: 8px;
+  box-shadow: var(--wf-shadow-base);
+  border: 1px solid var(--wf-border-subtle);
+  overflow: hidden;
+  width: 180px;
+}
+
+.node-palette-header {
+  padding: var(--wf-space-3) var(--wf-space-3);
+  border-bottom: 1px solid var(--wf-border-subtle);
+  font-size: var(--wf-text-sm);
+  font-weight: 600;
+  color: var(--wf-text-primary);
+  background: #fafbfc;
+}
+
+.node-palette-list {
+  padding: var(--wf-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wf-space-1);
+}
+
+.node-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--wf-space-2);
+  padding: var(--wf-space-2) var(--wf-space-3);
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--wf-transition-fast);
+  font-size: var(--wf-text-sm);
+  font-weight: 500;
+  color: var(--wf-text-primary);
+  text-align: left;
+  width: 100%;
+}
+
+.node-palette-item:hover {
+  background: #f3f4f6;
+  transform: translateX(2px);
+}
+
+.node-palette-item:active {
+  transform: scale(0.98);
+}
+
+.node-palette-item-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 12px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.node-palette-item[data-type="start"] .node-palette-item-icon { background: var(--wf-node-start); }
+.node-palette-item[data-type="end"] .node-palette-item-icon { background: var(--wf-node-end); }
+.node-palette-item[data-type="llm"] .node-palette-item-icon { background: var(--wf-node-llm); }
+.node-palette-item[data-type="condition"] .node-palette-item-icon { background: var(--wf-node-condition); }
+.node-palette-item[data-type="knowledge"] .node-palette-item-icon { background: var(--wf-node-knowledge); }
+.node-palette-item[data-type="code"] .node-palette-item-icon { background: var(--wf-node-code); }
+.node-palette-item[data-type="tool"] .node-palette-item-icon { background: var(--wf-node-tool); }
+.node-palette-item[data-type="loop"] .node-palette-item-icon { background: var(--wf-node-loop); }
+.node-palette-item[data-type="variable"] .node-palette-item-icon { background: var(--wf-node-variable); }
+
+/* ============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .node-palette {
+    width: 160px;
+  }
+
+  .workflow-node {
+    min-width: 140px;
+    max-width: 180px;
+  }
+}
+
+/* ============================================================================
+   ACCESSIBILITY
+   ============================================================================ */
+
+.workflow-node:focus,
+.node-palette-item:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .workflow-node,
+  .workflow-node-actions,
+  .node-palette-item,
+  .react-flow__handle {
+    transition: none;
+  }
+}
+
+/* ============================================================================
+   DARK MODE SUPPORT (Future enhancement)
+   ============================================================================ */
+
+/*
+@media (prefers-color-scheme: dark) {
+  :root {
+    --wf-bg-canvas: #1f2937;
+    --wf-bg-panel: #374151;
+    --wf-border-subtle: #4b5563;
+    --wf-border-default: #6b7280;
+    --wf-text-primary: #f9fafb;
+    --wf-text-secondary: #d1d5db;
+    --wf-text-tertiary: #9ca3af;
+  }
+}
+*/

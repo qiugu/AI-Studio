@@ -9,7 +9,7 @@ import { getToken } from './auth'
  */
 export interface StreamCallbacks {
   onContent?: (content: string) => void // 收到内容块时的回调
-  onComplete?: (fullContent: string, conversationId?: number) => void // 流式完成时的回调
+  onComplete?: (fullContent: string, conversationId?: string) => void // 流式完成时的回调
   onError?: (error: string, errorCode?: string) => void // 错误时的回调
 }
 
@@ -18,7 +18,7 @@ export interface StreamCallbacks {
  */
 interface SSEData {
   content?: string
-  conversation_id?: number
+  conversation_id?: string
   error?: string
   error_code?: string
 }
@@ -72,7 +72,7 @@ export function createStreamRequest(
 
       const decoder = new TextDecoder()
       let fullContent = ''
-      let conversationId: number | undefined
+      let conversationId: string | undefined
       let buffer = '' // 用于处理跨数据块的 SSE 消息
 
       try {
@@ -199,12 +199,12 @@ export async function createBlockingRequest(
  * 工作流 SSE 事件类型
  */
 export type SSEWorkflowEvent =
-  | { type: 'execution_started'; execution_id: number; workflow_id: number }
-  | { type: 'node_started'; node_id: number; node_name: string; node_type: string }
-  | { type: 'node_completed'; node_id: number; node_name: string; output: Record<string, unknown> }
-  | { type: 'node_failed'; node_id: number; node_name: string; error: string }
-  | { type: 'execution_completed'; execution_id: number; output: Record<string, unknown> }
-  | { type: 'execution_failed'; execution_id: number; error: string }
+  | { type: 'execution_started'; execution_id: string; workflow_id: string }
+  | { type: 'node_started'; node_id: string; node_name: string; node_type: string }
+  | { type: 'node_completed'; node_id: string; node_name: string; output: Record<string, unknown> }
+  | { type: 'node_failed'; node_id: string; node_name: string; error: string }
+  | { type: 'execution_completed'; execution_id: string; output: Record<string, unknown> }
+  | { type: 'execution_failed'; execution_id: string; error: string }
 
 /**
  * 工作流流式请求回调函数类型

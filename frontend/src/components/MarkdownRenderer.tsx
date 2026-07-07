@@ -2,7 +2,6 @@
  * Markdown 渲染组件 - 支持代码高亮和 GitHub 风格 Markdown
  */
 
-import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'

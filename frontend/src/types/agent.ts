@@ -3,9 +3,9 @@
 export type ToolType = 'knowledge' | 'api' | 'function' | 'workflow' | 'plugin'
 
 export interface AgentTool {
-  id: number
-  agent_id: number
-  tenant_id: number
+  id: string
+  agent_id: string
+  tenant_id: string
   tool_type: ToolType
   config: Record<string, unknown>
   name: string
@@ -36,8 +36,8 @@ export interface AgentToolUpdate {
 export type AgentStatus = 'draft' | 'published' | 'archived'
 
 export interface Agent {
-  id: number
-  tenant_id: number
+  id: string
+  tenant_id: string
   name: string
   description: string | null
   avatar: string | null
@@ -82,9 +82,9 @@ export interface AgentUpdateRequest {
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface Message {
-  id: number
-  conversation_id: number
-  tenant_id: number
+  id: string
+  conversation_id: string
+  tenant_id: string
   role: MessageRole
   content: string
   prompt_tokens: number
@@ -101,9 +101,9 @@ export interface Message {
 // ── 对话 ─────────────────────────────────────────────────────────────────────
 
 export interface Conversation {
-  id: number
-  tenant_id: number
-  agent_id: number
+  id: string
+  tenant_id: string
+  agent_id: string
   title: string
   created_by: number | null
   created_at: string
@@ -112,7 +112,7 @@ export interface Conversation {
 }
 
 export interface ConversationCreateRequest {
-  agent_id: number
+  agent_id: string
   title?: string
 }
 
@@ -124,13 +124,13 @@ export interface ConversationUpdateRequest {
 
 export interface ChatRequest {
   message: string
-  conversation_id?: number
+  conversation_id?: string
   stream?: boolean
   messages?: Array<{ role: string; content: string }> // 对话历史消息数组（可选）
 }
 
 export interface ChatResponse {
-  conversation_id: number
+  conversation_id: string
   message: Message
 }
 
@@ -140,7 +140,7 @@ export interface SSEMessageEvent {
 
 export interface SSEDoneEvent {
   content: string
-  conversation_id: number
+  conversation_id: string
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number

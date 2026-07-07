@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Spin, Empty, Drawer, Button, message } from 'antd'
+import { Spin, Empty, Drawer, message } from 'antd'
 import { HistoryOutlined } from '@ant-design/icons'
 import * as agentApi from '@/api/agent'
 import { type Agent, type Conversation, type Message } from '@/types/agent'
@@ -18,7 +18,7 @@ import {
 import './AgentChat.css'
 
 export default function AgentChat() {
-  const { agentId } = useParams()
+  const { agentId } = useParams<{ agentId: string }>()
   const [agent, setAgent] = useState<Agent | null>(null)
   const [loading, setLoading] = useState(true)
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -40,9 +40,9 @@ export default function AgentChat() {
    */
   const addErrorToChat = (errorContent: string, errorCode?: string) => {
     const errorMessage: Message = {
-      id: Date.now(),
-      conversation_id: currentConversation?.id || 0,
-      tenant_id: agent?.tenant_id || 0,
+      id: `${Date.now()}`,
+      conversation_id: currentConversation?.id || '',
+      tenant_id: agent?.tenant_id || '',
       role: 'assistant',
       content: errorContent,
       prompt_tokens: 0,
@@ -61,7 +61,7 @@ export default function AgentChat() {
   const loadAgent = async () => {
     setLoading(true)
     try {
-      const { data } = await agentApi.getAgent(Number(agentId))
+      const { data } = await agentApi.getAgent(agentId || '')
       setAgent(data)
     } catch (error) {
       console.error('Failed to load agent:', error)
@@ -73,14 +73,14 @@ export default function AgentChat() {
 
   const loadConversations = async () => {
     try {
-      const { data } = await agentApi.listConversations(Number(agentId), 1, 20)
+      const { data } = await agentApi.listConversations(agentId || '', 1, 20)
       setConversations(data.items)
     } catch (error) {
       console.error('Failed to load conversations:', error)
     }
   }
 
-  const loadConversationMessages = async (conversationId: number) => {
+  const loadConversationMessages = async (conversationId: string) => {
     try {
       const { data } = await agentApi.getConversation(conversationId)
       setCurrentConversation(data)
@@ -96,9 +96,9 @@ export default function AgentChat() {
 
     // 创建用户消息
     const userMessage: Message = {
-      id: Date.now(),
-      conversation_id: currentConversation?.id || 0,
-      tenant_id: agent?.tenant_id || 0,
+      id: `${Date.now()}`,
+      conversation_id: currentConversation?.id || '',
+      tenant_id: agent?.tenant_id || '',
       role: 'user',
       content: content,
       prompt_tokens: 0,
@@ -111,11 +111,11 @@ export default function AgentChat() {
     }
 
     // 创建助手消息占位符（用于流式更新）
-    const assistantMessageId = Date.now() + 1
+    const assistantMessageId = `${Date.now() + 1}`
     const assistantMessagePlaceholder: Message = {
       id: assistantMessageId,
-      conversation_id: currentConversation?.id || 0,
-      tenant_id: agent?.tenant_id || 0,
+      conversation_id: currentConversation?.id || '',
+      tenant_id: agent?.tenant_id || '',
       role: 'assistant',
       content: '',
       prompt_tokens: 0,
@@ -159,7 +159,7 @@ export default function AgentChat() {
 
     // 使用 fetch + ReadableStream 发起流式请求
     abortControllerRef.current = createStreamRequest(
-      `/api/agent/agents/${agentId}/chat/stream`,
+      `/api/agent/agents/${agentId || ''}/chat/stream`,
       {
         message: content,
         conversation_id: currentConversation?.id,
@@ -181,8 +181,8 @@ export default function AgentChat() {
           if (conversationId && !currentConversation) {
             setCurrentConversation({
               id: conversationId,
-              tenant_id: agent?.tenant_id || 0,
-              agent_id: Number(agentId),
+              tenant_id: agent?.tenant_id || '',
+              agent_id: agentId || '',
               title: '新对话',
               created_by: null,
               created_at: new Date().toISOString(),

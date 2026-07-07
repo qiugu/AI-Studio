@@ -1,7 +1,3 @@
-import { useState } from 'react'
-import { Button, Typography, Space } from 'antd'
-import { InfoCircleOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
-import MarkdownRenderer from '../MarkdownRenderer'
 import type { Agent } from '@/types/agent'
 
 interface AgentInfoProps {
@@ -9,8 +5,6 @@ interface AgentInfoProps {
 }
 
 export default function AgentInfo({ agent }: AgentInfoProps) {
-  const [showSystemPrompt, setShowSystemPrompt] = useState(false)
-
   return (
     <div className="agent-info-card">
       <div className="agent-info-header">

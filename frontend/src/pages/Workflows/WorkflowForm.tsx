@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Form, Input, Button, Card, message } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { createWorkflow, getWorkflow, updateWorkflow } from '../../api/workflow'
-import type { WorkflowCreateRequest, Workflow } from '../../types/workflow'
+import type { WorkflowCreateRequest } from '../../types/workflow'
 
 const WorkflowForm: React.FC = () => {
   const navigate = useNavigate()
@@ -20,7 +20,7 @@ const WorkflowForm: React.FC = () => {
   const fetchWorkflow = async () => {
     setLoading(true)
     try {
-      const response = await getWorkflow(parseInt(workflowId!))
+      const response = await getWorkflow(workflowId!)
       const workflow = response.data
       form.setFieldsValue({
         name: workflow.name,
@@ -37,7 +37,7 @@ const WorkflowForm: React.FC = () => {
     setLoading(true)
     try {
       if (isEdit) {
-        await updateWorkflow(parseInt(workflowId!), values)
+        await updateWorkflow(workflowId!, values)
         message.success('工作流已更新')
         navigate(`/workflows/${workflowId}/edit`)
       } else {

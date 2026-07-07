@@ -11,19 +11,19 @@ from app.models.token_usage import TokenUsage
 class TokenUsageService:
     """Token统计服务"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         self.db = db
         self.tenant_id = tenant_id
 
     def record_usage(
         self,
-        model_id: int,
+        model_id: str,
         prompt_tokens: int,
         completion_tokens: int,
         total_tokens: int,
-        agent_id: Optional[int] = None,
-        user_id: Optional[int] = None,
-        conversation_id: Optional[int] = None,
+        agent_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> TokenUsage:
         """记录Token使用情况"""
         usage = TokenUsage(
@@ -44,9 +44,9 @@ class TokenUsageService:
         self,
         start_time: datetime,
         end_time: datetime,
-        agent_id: Optional[int] = None,
-        user_id: Optional[int] = None,
-        model_id: Optional[int] = None,
+        agent_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        model_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """获取时间范围内的Token使用统计"""
         query = self.db.query(TokenUsage).filter(

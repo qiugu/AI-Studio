@@ -2,6 +2,7 @@
 from typing import Optional, List, Dict, Any, AsyncGenerator
 from datetime import datetime
 import logging
+import uuid
 
 from sqlalchemy.orm import Session
 
@@ -52,7 +53,7 @@ def _extract_openai_error_message(error: Exception, default_msg: str) -> str:
 class AgentService:
     """Agent服务"""
 
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         self.db = db
         self.tenant_id = tenant_id
         self.agent_repo = AgentRepository(db=db, tenant_id=tenant_id)
@@ -65,7 +66,7 @@ class AgentService:
     def create_agent(
         self,
         data: AgentCreate,
-        user_id: int,
+        user_id: uuid.UUID,
     ) -> Agent:
         """创建Agent"""
         # 验证AI模型存在
@@ -104,7 +105,7 @@ class AgentService:
         self.db.commit()
         return self.get_agent(agent.id)
 
-    def get_agent(self, agent_id: int) -> Agent:
+    def get_agent(self, agent_id: str) -> Agent:
         """获取Agent详情"""
         agent = self.agent_repo.get_with_tools(agent_id)
         if not agent:
@@ -124,7 +125,7 @@ class AgentService:
 
     def update_agent(
         self,
-        agent_id: int,
+        agent_id: str,
         data: AgentUpdate,
     ) -> Agent:
         """更新Agent"""
@@ -163,7 +164,7 @@ class AgentService:
         self.db.commit()
         return self.get_agent(agent_id)
 
-    def delete_agent(self, agent_id: int) -> None:
+    def delete_agent(self, agent_id: str) -> None:
         """删除Agent"""
         agent = self.get_agent(agent_id)
         self.agent_repo.delete(agent)
@@ -256,10 +257,10 @@ class AgentService:
 
     async def chat(
         self,
-        agent_id: int,
+        agent_id: str,
         message: str,
-        conversation_id: Optional[int] = None,
-        user_id: Optional[int] = None,
+        conversation_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         history_messages: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """执行Agent对话（阻塞式）
@@ -546,10 +547,10 @@ Final Answer: 最终答案
 
     async def chat_stream(
         self,
-        agent_id: int,
+        agent_id: str,
         message: str,
-        conversation_id: Optional[int] = None,
-        user_id: Optional[int] = None,
+        conversation_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         history_messages: Optional[List[Dict[str, str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """执行Agent对话（流式）
@@ -562,7 +563,8 @@ Final Answer: 最终答案
             history_messages: 前端传递的历史消息数组（可选），格式：[{"role": "user", "content": "..."}]
         """
         from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        import httpx
+        from langchain.agents import AgentExecutor, create_react_agent
+        from langchain_core.prompts import PromptTemplate
         from openai import (
             APIConnectionError,
             APIStatusError,
@@ -570,73 +572,103 @@ Final Answer: 最终答案
             RateLimitError,
             BadRequestError,
         )
+        import httpx
 
         agent = self.get_agent(agent_id)
 
         # 构建LLM
         llm = self._build_llm_client(agent)
         tools = self._build_langchain_tools(agent)
-
-        # 暂时简化：直接使用LLM流式（后续可集成ReAct Agent流式）
-        messages = []
-        if agent.system_prompt:
-            messages.append(SystemMessage(content=agent.system_prompt))
-
-        # 添加对话历史
-        # 优先使用前端传递的历史消息，如果没有则从数据库查询
-        if history_messages:
-            # 调试日志：显示接收到的历史消息数量和内容
-            logger.info(
-                f"[DEBUG] Received history_messages: {len(history_messages)} items",
-                extra={
-                    "agent_id": agent_id,
-                    "conversation_id": conversation_id,
-                    "history_count": len(history_messages),
-                    "history_preview": [
-                        {"role": msg.role, "content": msg.content[:50]}
-                        for msg in history_messages[:3]
-                    ],
-                }
-            )
-            # 使用前端传递的历史消息（Pydantic MessageBase 对象列表）
-            for hist_msg in history_messages:
-                if hist_msg.role == "user":
-                    messages.append(HumanMessage(content=hist_msg.content))
-                elif hist_msg.role == "assistant":
-                    messages.append(AIMessage(content=hist_msg.content))
-        elif conversation_id:
-            # 从数据库查询历史消息
-            # 注意：API 层会先添加用户消息到数据库，所以历史消息中已包含当前用户消息
-            history = self.conv_service.get_conversation_history(conversation_id)
-            # 检查最后一条消息是否是当前用户消息（避免重复添加）
-            last_is_current = (
-                history and
-                history[-1]["role"] == "user" and
-                history[-1]["content"] == message
-            )
-
-            # 添加历史消息
-            for hist_msg in history:
-                if hist_msg["role"] == "user":
-                    messages.append(HumanMessage(content=hist_msg["content"]))
-                elif hist_msg["role"] == "assistant":
-                    messages.append(AIMessage(content=hist_msg["content"]))
-
-            # 如果历史消息中没有当前用户消息，则添加
-            if not last_is_current:
-                messages.append(HumanMessage(content=message))
-        else:
-            # 新对话，没有历史消息，直接添加当前用户消息
-            messages.append(HumanMessage(content=message))
-
-        # 流式生成
-        full_content = ""
-        prompt_tokens = 0
-        completion_tokens = 0
-        total_tokens = 0
+ 
 
         try:
-            async for chunk in llm.astream(messages):
+            if tools:
+                # ReAct提示词模板
+                template = """你是一个助手，可以使用工具完成任务。
+
+可用工具:
+{tools}
+
+使用工具时，请遵循以下格式：
+Thought: 思考下一步应该做什么
+Action: 工具名称
+Action Input: 工具输入参数
+Observation: 工具执行结果
+... (重复Thought/Action/Action Input/Observation直到完成)
+Thought: 我现在知道最终答案了
+Final Answer: 最终答案
+
+开始！
+
+问题: {input}
+{agent_scratchpad}"""
+
+                prompt = PromptTemplate.from_template(template)
+                lc_agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
+                agent_executor = AgentExecutor(agent=lc_agent, tools=tools, verbose=True)
+
+                # 执行
+                response_content = await agent_executor.astream({"input": message})
+                # response_content = result.get("output", "")
+            else:
+                messages = []
+                if agent.system_prompt:
+                    messages.append(SystemMessage(content=agent.system_prompt))
+
+                # 添加对话历史
+                # 优先使用前端传递的历史消息，如果没有则从数据库查询
+                if history_messages:
+                    # 调试日志：显示接收到的历史消息数量和内容
+                    logger.info(
+                        f"[DEBUG] Received history_messages: {len(history_messages)} items",
+                        extra={
+                            "agent_id": agent_id,
+                            "conversation_id": conversation_id,
+                            "history_count": len(history_messages),
+                            "history_preview": [
+                                {"role": msg.role, "content": msg.content[:50]}
+                                for msg in history_messages[:3]
+                            ],
+                        }
+                    )
+                    # 使用前端传递的历史消息（Pydantic MessageBase 对象列表）
+                    for hist_msg in history_messages:
+                        if hist_msg.role == "user":
+                            messages.append(HumanMessage(content=hist_msg.content))
+                        elif hist_msg.role == "assistant":
+                            messages.append(AIMessage(content=hist_msg.content))
+                elif conversation_id:
+                    # 从数据库查询历史消息
+                    # 注意：API 层会先添加用户消息到数据库，所以历史消息中已包含当前用户消息
+                    history = self.conv_service.get_conversation_history(conversation_id)
+                    # 检查最后一条消息是否是当前用户消息（避免重复添加）
+                    last_is_current = (
+                        history and
+                        history[-1]["role"] == "user" and
+                        history[-1]["content"] == message
+                    )
+
+                    # 添加历史消息
+                    for hist_msg in history:
+                        if hist_msg["role"] == "user":
+                            messages.append(HumanMessage(content=hist_msg["content"]))
+                        elif hist_msg["role"] == "assistant":
+                            messages.append(AIMessage(content=hist_msg["content"]))
+
+                    # 如果历史消息中没有当前用户消息，则添加
+                    if not last_is_current:
+                        messages.append(HumanMessage(content=message))
+                else:
+                    # 新对话，没有历史消息，直接添加当前用户消息
+                    messages.append(HumanMessage(content=message))
+
+                # 流式生成
+                full_content = ""
+                prompt_tokens = 0
+                completion_tokens = 0
+                total_tokens = 0
+                response_content = llm.astream(messages)
+            async for chunk in response_content:
                 content = chunk.content
                 full_content += content
 

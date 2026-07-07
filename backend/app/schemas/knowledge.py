@@ -5,7 +5,7 @@ from app.schemas.common import ResponseBase, PaginatedResponse
 
 class KnowledgeBaseResponse(BaseModel):
     """知识库响应"""
-    id: int
+    id: str
     name: str
     description: Optional[str]
     embedding_model: str
@@ -19,8 +19,8 @@ class KnowledgeBaseResponse(BaseModel):
 
 class KnowledgeDocumentResponse(BaseModel):
     """文档响应"""
-    id: int
-    kb_id: int
+    id: str
+    kb_id: str
     file_name: str
     file_type: str
     file_size: int
@@ -35,7 +35,7 @@ class KnowledgeDocumentResponse(BaseModel):
 
 class KnowledgeChunkResponse(BaseModel):
     """分块响应"""
-    id: int
+    id: str
     content: str
     chunk_index: int
     source_page: Optional[int]
@@ -46,9 +46,9 @@ class KnowledgeChunkResponse(BaseModel):
 
 class SearchResult(BaseModel):
     """检索结果"""
-    id: int
+    id: str
     content: str
     score: float
-    doc_id: int
+    doc_id: str
     doc_name: Optional[str]
     chunk_index: int

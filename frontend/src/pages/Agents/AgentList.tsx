@@ -37,7 +37,7 @@ export default function AgentList() {
     }
   }
 
-  const handleDeleteAgent = async (agentId: number) => {
+  const handleDeleteAgent = async (agentId: string) => {
     try {
       await agentApi.deleteAgent(agentId)
       message.success('Agent已删除')

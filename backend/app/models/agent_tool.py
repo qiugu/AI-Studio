@@ -1,20 +1,22 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, String, Text, DateTime, JSON, func
+from sqlalchemy import String, Text, DateTime, JSON, func
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 from sqlalchemy import ForeignKey
 
 from app.core.database import Base
+
+import uuid
 
 
 class AgentTool(Base):
     """Agent工具关联表"""
     __tablename__ = "agent_tools"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    agent_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    agent_id: Mapped[str] = mapped_column(String(36), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
 
     # 工具类型：knowledge | api | function | workflow | plugin
     tool_type: Mapped[str] = mapped_column(String(50), nullable=False)

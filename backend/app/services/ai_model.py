@@ -13,7 +13,7 @@ from app.utils.encryption import decrypt
 
 
 class AIModelService:
-    def __init__(self, db: Session, tenant_id: int):
+    def __init__(self, db: Session, tenant_id: str):
         self.db = db
         self.tenant_id = tenant_id
 
@@ -25,7 +25,7 @@ class AIModelService:
             )
         return AIModel.tenant_id == self.tenant_id
 
-    def _get_or_404(self, model_id: int) -> AIModel:
+    def _get_or_404(self, model_id: str) -> AIModel:
         model = (
             self.db.query(AIModel)
             .filter(
@@ -43,7 +43,7 @@ class AIModelService:
         page: int = 1,
         page_size: int = 20,
         model_type: str | None = None,
-        provider_id: int | None = None,
+        provider_id: str | None = None,
         include_public: bool = False,
     ):
         query = self.db.query(AIModel).filter(self._base_filter(include_public))
@@ -55,7 +55,7 @@ class AIModelService:
         items = query.offset((page - 1) * page_size).limit(page_size).all()
         return items, total
 
-    def get(self, model_id: int) -> AIModel:
+    def get(self, model_id: str) -> AIModel:
         return self._get_or_404(model_id)
 
     def create(self, data: AIModelCreate) -> AIModel:
@@ -78,7 +78,7 @@ class AIModelService:
         self.db.flush()
         return model
 
-    def update(self, model_id: int, data: AIModelUpdate) -> AIModel:
+    def update(self, model_id: str, data: AIModelUpdate) -> AIModel:
         model = self._get_or_404(model_id)
         # 公共模型（tenant_id=None）不允许普通租户修改
         if model.tenant_id is None:
@@ -90,7 +90,7 @@ class AIModelService:
         self.db.flush()
         return model
 
-    def delete(self, model_id: int) -> None:
+    def delete(self, model_id: str) -> None:
         model = self._get_or_404(model_id)
         if model.tenant_id is None:
             from app.core.exceptions import ForbiddenException
@@ -98,7 +98,7 @@ class AIModelService:
         self.db.delete(model)
         self.db.flush()
 
-    def test_model(self, model_id: int, messages: list[dict]) -> ModelTestResult:
+    def test_model(self, model_id: str, messages: list[dict]) -> ModelTestResult:
         model = self._get_or_404(model_id)
         provider = (
             self.db.query(AIProvider)

@@ -14,13 +14,15 @@ from app.core.security import hash_password
 from app.core.exceptions import ConflictException, NotFoundException
 from app.services.quota import QuotaService
 
+import uuid
+
 
 # 内置角色 code 常量
 ROLE_TENANT_ADMIN = "tenant_admin"
 ROLE_TENANT_MEMBER = "tenant_member"
 
 
-def _init_builtin_roles(db: Session, tenant_id: int) -> tuple[Role, Role]:
+def _init_builtin_roles(db: Session, tenant_id: str) -> tuple[Role, Role]:
     """初始化租户内置角色：tenant_admin 和 tenant_member。"""
     admin_role = Role(
         tenant_id=tenant_id,
@@ -54,7 +56,7 @@ def _init_builtin_roles(db: Session, tenant_id: int) -> tuple[Role, Role]:
     return admin_role, member_role
 
 
-def register_user(form: RegisterForm, db: Session) -> tuple[User, str, str]:
+def register_user(form: RegisterForm, db: Session) -> User:
     """
     原子事务注册：
     1. 检查邮箱唯一性
@@ -104,7 +106,7 @@ def register_user(form: RegisterForm, db: Session) -> tuple[User, str, str]:
 def create_user(
     email: str,
     password: str,
-    tenant_id: int,
+    tenant_id: str,
     db: Session,
     nickname: Optional[str] = None,
     check_quota: bool = True,
@@ -144,7 +146,7 @@ def create_user(
     return new_user
 
 
-def get_user_by_id(user_id: int, tenant_id: int, db: Session) -> User:
+def get_user_by_id(user_id: str, tenant_id: str, db: Session) -> User:
     user = (
         db.query(User)
         .filter(User.id == user_id, User.tenant_id == tenant_id, User.deleted_at.is_(None))

@@ -37,7 +37,7 @@ export default function PromptEditor() {
 
   useEffect(() => {
     if (isEdit && id) {
-      getPrompt(Number(id)).then((res) => {
+      getPrompt(id || '').then((res) => {
         const p = res.data!
         setPrompt(p)
         form.setFieldsValue({
@@ -68,7 +68,7 @@ export default function PromptEditor() {
         message.success('Prompt 创建成功')
         navigate(`/prompts/${res.data!.id}`)
       } else {
-        await updatePrompt(Number(id), {
+        await updatePrompt(id || '', {
           name: values.name,
           description: values.description,
           category: values.category,
@@ -77,9 +77,9 @@ export default function PromptEditor() {
         })
         // if content changed from current version, create new version
         if (prompt?.current_version?.content !== content) {
-          const vRes = await createVersion(Number(id), { content })
+          const vRes = await createVersion(id || '', { content })
           // auto-activate the new version so it becomes current
-          await activateVersion(Number(id), vRes.data!.id)
+          await activateVersion(id || '', vRes.data!.id)
           message.success('已保存元数据并创建新版本（已激活）')
         } else {
           message.success('Prompt 更新成功')

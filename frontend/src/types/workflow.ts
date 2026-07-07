@@ -4,7 +4,7 @@ export type NodeType = 'start' | 'end' | 'llm' | 'condition' | 'knowledge' | 'co
 
 export interface WorkflowNodeConfig {
   // LLM节点配置
-  model_id?: number
+  model_id?: string
   prompt_template?: string
   temperature?: number
   max_tokens?: number
@@ -17,7 +17,7 @@ export interface WorkflowNodeConfig {
   }>
 
   // Knowledge节点配置
-  knowledge_base_id?: number
+  knowledge_base_id?: string
   query_template?: string
   top_k?: number
 
@@ -55,9 +55,9 @@ export interface WorkflowNodeConfig {
 }
 
 export interface WorkflowNode {
-  id: number
-  workflow_id: number
-  tenant_id: number
+  id: string
+  workflow_id: string
+  tenant_id: string
   node_type: NodeType
   name: string
   position_x: number
@@ -73,6 +73,7 @@ export interface WorkflowNodeCreate {
   position_x: number
   position_y: number
   config?: WorkflowNodeConfig
+  temp_id?: string // 临时节点ID（用于新建节点时的ID映射）
 }
 
 // ── Workflow Edge Types ───────────────────────────────────────────────────────
@@ -83,11 +84,11 @@ export interface WorkflowEdgeCondition {
 }
 
 export interface WorkflowEdge {
-  id: number
-  workflow_id: number
-  tenant_id: number
-  source_node_id: number
-  target_node_id: number
+  id: string
+  workflow_id: string
+  tenant_id: string
+  source_node_id: string
+  target_node_id: string
   condition: WorkflowEdgeCondition | null
   label: string | null
   created_at: string
@@ -95,8 +96,8 @@ export interface WorkflowEdge {
 }
 
 export interface WorkflowEdgeCreate {
-  source_node_id: number
-  target_node_id: number
+  source_node_id: string | number // 可以是临时ID字符串或真实ID数字
+  target_node_id: string | number // 可以是临时ID字符串或真实ID数字
   condition?: WorkflowEdgeCondition
   label?: string
 }
@@ -106,8 +107,8 @@ export interface WorkflowEdgeCreate {
 export type WorkflowStatus = 'draft' | 'published' | 'archived'
 
 export interface Workflow {
-  id: number
-  tenant_id: number
+  id: string
+  tenant_id: string
   name: string
   description: string | null
   status: WorkflowStatus
@@ -147,9 +148,9 @@ export interface WorkflowListResponse {
 export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface WorkflowExecution {
-  id: number
-  workflow_id: number
-  tenant_id: number
+  id: string
+  workflow_id: string
+  tenant_id: string
   status: ExecutionStatus
   input_data: Record<string, unknown> | null
   output_data: Record<string, unknown> | null
@@ -168,40 +169,40 @@ export interface WorkflowExecutionRequest {
 
 export interface SSEExecutionStartedEvent {
   type: 'execution_started'
-  execution_id: number
-  workflow_id: number
+  execution_id: string
+  workflow_id: string
 }
 
 export interface SSENodeStartedEvent {
   type: 'node_started'
-  node_id: number
+  node_id: string
   node_name: string
   node_type: NodeType
 }
 
 export interface SSENodeCompletedEvent {
   type: 'node_completed'
-  node_id: number
+  node_id: string
   node_name: string
   output: Record<string, unknown>
 }
 
 export interface SSENodeFailedEvent {
   type: 'node_failed'
-  node_id: number
+  node_id: string
   node_name: string
   error: string
 }
 
 export interface SSEExecutionCompletedEvent {
   type: 'execution_completed'
-  execution_id: number
+  execution_id: string
   output: Record<string, unknown>
 }
 
 export interface SSEExecutionFailedEvent {
   type: 'execution_failed'
-  execution_id: number
+  execution_id: string
   error: string
 }
 

@@ -3,7 +3,7 @@
  */
 
 export interface KnowledgeBase {
-  id: number;
+  id: string;
   name: string;
   description?: string;
   embedding_model: string;
@@ -19,8 +19,8 @@ export interface DocumentStatus {
 }
 
 export interface KnowledgeDocument {
-  id: number;
-  kb_id: number;
+  id: string;
+  kb_id: string;
   file_name: string;
   file_type: string;
   file_size: number;
@@ -32,7 +32,7 @@ export interface KnowledgeDocument {
 }
 
 export interface KnowledgeChunk {
-  id: number;
+  id: string;
   content: string;
   chunk_index: number;
   source_page?: number;
@@ -40,10 +40,10 @@ export interface KnowledgeChunk {
 }
 
 export interface SearchResult {
-  id: number;
+  id: string;
   content: string;
   score: number;
-  doc_id: number;
+  doc_id: string;
   doc_name?: string;
   chunk_index: number;
 }

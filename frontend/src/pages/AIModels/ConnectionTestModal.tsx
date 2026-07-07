@@ -8,7 +8,7 @@ const { Text } = Typography
 
 interface Props {
   open: boolean
-  providerId: number
+  providerId: string
   onClose: () => void
 }
 

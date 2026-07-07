@@ -17,7 +17,7 @@ export async function listPrompts(
   return response as unknown as ApiResponse<PaginatedData<Prompt>>
 }
 
-export async function getPrompt(id: number): Promise<ApiResponse<Prompt>> {
+export async function getPrompt(id: string): Promise<ApiResponse<Prompt>> {
   const response = await apiClient.get(`/prompts/${id}`)
   return response as unknown as ApiResponse<Prompt>
 }
@@ -28,25 +28,25 @@ export async function createPrompt(data: PromptCreateRequest): Promise<ApiRespon
 }
 
 export async function updatePrompt(
-  id: number,
+  id: string,
   data: PromptUpdateRequest
 ): Promise<ApiResponse<Prompt>> {
   const response = await apiClient.put(`/prompts/${id}`, data)
   return response as unknown as ApiResponse<Prompt>
 }
 
-export async function deletePrompt(id: number): Promise<ApiResponse<null>> {
+export async function deletePrompt(id: string): Promise<ApiResponse<null>> {
   const response = await apiClient.delete(`/prompts/${id}`)
   return response as unknown as ApiResponse<null>
 }
 
-export async function listVersions(promptId: number): Promise<ApiResponse<PromptVersion[]>> {
+export async function listVersions(promptId: string): Promise<ApiResponse<PromptVersion[]>> {
   const response = await apiClient.get(`/prompts/${promptId}/versions`)
   return response as unknown as ApiResponse<PromptVersion[]>
 }
 
 export async function createVersion(
-  promptId: number,
+  promptId: string,
   data: PromptVersionCreateRequest
 ): Promise<ApiResponse<PromptVersion>> {
   const response = await apiClient.post(`/prompts/${promptId}/versions`, data)
@@ -54,15 +54,15 @@ export async function createVersion(
 }
 
 export async function activateVersion(
-  promptId: number,
-  versionId: number
+  promptId: string,
+  versionId: string
 ): Promise<ApiResponse<PromptVersion>> {
   const response = await apiClient.put(`/prompts/${promptId}/versions/${versionId}/activate`, {})
   return response as unknown as ApiResponse<PromptVersion>
 }
 
 export async function testPrompt(
-  promptId: number,
+  promptId: string,
   data: PromptTestRequest
 ): Promise<ApiResponse<PromptTestResult>> {
   const response = await apiClient.post(`/prompts/${promptId}/test`, data)

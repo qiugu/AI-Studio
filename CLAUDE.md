@@ -6,6 +6,8 @@
 
 AI-Studio 是一个企业级 AI 应用平台，采用前后端分离架构：
 
+> 当前代码库已完成一轮主键与外键规范统一：核心业务 ID 统一为字符串 UUID v4，数据库层以 `varchar(36)` 存储，后端模型、Alembic 迁移和前端接口/页面调用已同步适配。
+
 - **后端**：Python + FastAPI，位于 `backend/` 目录
 - **前端**：React + TypeScript + Vite，位于 `frontend/` 目录
 - **设计文档**：位于 `docs/` 目录
@@ -17,10 +19,13 @@ AI-Studio 是一个企业级 AI 应用平台，采用前后端分离架构：
 **框架与版本**
 
 - FastAPI 0.136+，所有路由使用异步函数（`async def`）
+- 数据库主键/外键/租户字段统一使用字符串 UUID v4，模型定义为 `String(36)`，默认值通过 `str(uuid.uuid4())` 生成
 - SQLAlchemy 2.0，使用 `Session` 风格（非 `AsyncSession`）
 - Pydantic v2，所有请求/响应模型继承自 `BaseModel`
 
 **多租户数据隔离（核心机制）**
+
+> 修改模型或新增字段时，优先确认是否需要同步更新：SQLAlchemy 模型、Alembic 迁移、前端类型定义与 API 调用。
 
 所有数据访问必须通过 `BaseRepository`（`backend/app/repositories/base.py`），**禁止**直接在 Service 层裸写 `db.query(Model).all()`。
 

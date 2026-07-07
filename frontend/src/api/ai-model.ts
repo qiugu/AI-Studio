@@ -22,7 +22,7 @@ export async function listProviders(
   return response as unknown as ApiResponse<PaginatedData<AIProvider>>
 }
 
-export async function getProvider(id: number): Promise<ApiResponse<AIProvider>> {
+export async function getProvider(id: string): Promise<ApiResponse<AIProvider>> {
   const response = await apiClient.get(`/providers/${id}`)
   return response as unknown as ApiResponse<AIProvider>
 }
@@ -35,20 +35,20 @@ export async function createProvider(
 }
 
 export async function updateProvider(
-  id: number,
+  id: string,
   data: AIProviderUpdateRequest
 ): Promise<ApiResponse<AIProvider>> {
   const response = await apiClient.put(`/providers/${id}`, data)
   return response as unknown as ApiResponse<AIProvider>
 }
 
-export async function deleteProvider(id: number): Promise<ApiResponse<null>> {
+export async function deleteProvider(id: string): Promise<ApiResponse<null>> {
   const response = await apiClient.delete(`/providers/${id}`)
   return response as unknown as ApiResponse<null>
 }
 
 export async function testProviderConnectivity(
-  id: number,
+  id: string,
   data: ConnectivityTestRequest
 ): Promise<ApiResponse<ConnectivityTestResult>> {
   const response = await apiClient.post(`/providers/${id}/test`, data)
@@ -60,7 +60,7 @@ export async function testProviderConnectivity(
 export async function listModels(
   params?: PageParams & {
     model_type?: string
-    provider_id?: number
+    provider_id?: string
     include_public?: boolean
   }
 ): Promise<ApiResponse<PaginatedData<AIModel>>> {
@@ -68,7 +68,7 @@ export async function listModels(
   return response as unknown as ApiResponse<PaginatedData<AIModel>>
 }
 
-export async function getModel(id: number): Promise<ApiResponse<AIModel>> {
+export async function getModel(id: string): Promise<ApiResponse<AIModel>> {
   const response = await apiClient.get(`/ai-models/${id}`)
   return response as unknown as ApiResponse<AIModel>
 }
@@ -81,20 +81,20 @@ export async function createModel(
 }
 
 export async function updateModel(
-  id: number,
+  id: string,
   data: AIModelUpdateRequest
 ): Promise<ApiResponse<AIModel>> {
   const response = await apiClient.put(`/ai-models/${id}`, data)
   return response as unknown as ApiResponse<AIModel>
 }
 
-export async function deleteModel(id: number): Promise<ApiResponse<null>> {
+export async function deleteModel(id: string): Promise<ApiResponse<null>> {
   const response = await apiClient.delete(`/ai-models/${id}`)
   return response as unknown as ApiResponse<null>
 }
 
 export async function testModel(
-  id: number,
+  id: string,
   data: ModelTestRequest
 ): Promise<ApiResponse<ModelTestResult>> {
   const response = await apiClient.post(`/ai-models/${id}/test`, data)

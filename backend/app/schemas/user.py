@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class PermissionOut(BaseModel):
-    id: int
+    id: str
     resource: str
     action: str
     description: Optional[str] = None
@@ -13,7 +13,7 @@ class PermissionOut(BaseModel):
 
 
 class RoleOut(BaseModel):
-    id: int
+    id: str
     name: str
     code: str
     description: Optional[str] = None
@@ -24,8 +24,8 @@ class RoleOut(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: int
-    tenant_id: int
+    id: str
+    tenant_id: str
     email: str
     nickname: Optional[str] = None
     avatar: Optional[str] = None
