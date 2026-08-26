@@ -1,17 +1,18 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.schemas.auth import RegisterForm
-from app.schemas.user import UserOut
+from app.schemas.user import UserOut, UserUpdate, UserRoleAssign
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.models.role import Role
 from app.models.role_permission import role_permission
 from app.models.user_role import user_role
 from app.core.security import hash_password
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import ConflictException, NotFoundException, ValidationException
 from app.services.quota import QuotaService
 
 import uuid
@@ -110,9 +111,11 @@ def create_user(
     db: Session,
     nickname: Optional[str] = None,
     check_quota: bool = True,
+    role_ids: Optional[List[str]] = None,
 ) -> User:
     """
     创建用户（用于租户内添加成员），创建前检查配额。
+    若指定 role_ids 则使用指定角色，否则默认分配 tenant_member。
     """
     if check_quota:
         QuotaService(db).check_user_quota(tenant_id)
@@ -130,20 +133,87 @@ def create_user(
     db.add(new_user)
     db.flush()
 
-    # 分配默认角色 tenant_member
-    member_role = (
-        db.query(Role)
-        .filter(
-            Role.tenant_id == tenant_id,
-            Role.code == f"{ROLE_TENANT_MEMBER}_{tenant_id}",
+    # 角色分配：优先使用指定角色，否则默认 tenant_member
+    if role_ids:
+        _assign_roles(new_user.id, role_ids, tenant_id, db)
+    else:
+        member_role = (
+            db.query(Role)
+            .filter(
+                Role.tenant_id == tenant_id,
+                Role.code == f"{ROLE_TENANT_MEMBER}_{tenant_id}",
+            )
+            .first()
         )
-        .first()
-    )
-    if member_role:
-        db.execute(user_role.insert().values(user_id=new_user.id, role_id=member_role.id))
-        db.flush()
+        if member_role:
+            db.execute(user_role.insert().values(user_id=new_user.id, role_id=member_role.id))
+            db.flush()
 
     return new_user
+
+
+def _assign_roles(user_id: str, role_ids: List[str], tenant_id: str, db: Session) -> None:
+    """全量覆盖用户角色（仅允许分配本租户内的角色）。"""
+    roles = db.query(Role).filter(Role.tenant_id == tenant_id, Role.id.in_(role_ids)).all()
+    valid_ids = {r.id for r in roles}
+    db.execute(user_role.delete().where(user_role.c.user_id == user_id))
+    for rid in valid_ids:
+        db.execute(user_role.insert().values(user_id=user_id, role_id=rid))
+    db.flush()
+
+
+def list_users(
+    tenant_id: str,
+    db: Session,
+    page: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    status: Optional[bool] = None,
+):
+    """列出租户内用户（分页 + 搜索 + 状态筛选）。"""
+    query = db.query(User).filter(User.tenant_id == tenant_id, User.deleted_at.is_(None))
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(User.email.like(like), User.nickname.like(like)))
+    if status is not None:
+        query = query.filter(User.status == status)
+    total = query.count()
+    items = (
+        query.order_by(User.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return items, total
+
+
+def update_user(user_id: str, data: UserUpdate, tenant_id: str, db: Session) -> User:
+    """更新用户信息（昵称 / 密码 / 状态）。"""
+    user = get_user_by_id(user_id, tenant_id, db)
+    if data.nickname is not None:
+        user.nickname = data.nickname
+    if data.status is not None:
+        user.status = data.status
+    if data.password:
+        user.password_hash = hash_password(data.password)
+    db.flush()
+    return user
+
+
+def delete_user(user_id: str, tenant_id: str, db: Session) -> None:
+    """软删除用户（同时清理角色关联）。"""
+    user = get_user_by_id(user_id, tenant_id, db)
+    db.execute(user_role.delete().where(user_role.c.user_id == user_id))
+    user.deleted_at = datetime.now(timezone.utc)
+    db.flush()
+
+
+def assign_roles(user_id: str, data: UserRoleAssign, tenant_id: str, db: Session) -> User:
+    """为用户分配角色（全量覆盖）。"""
+    user = get_user_by_id(user_id, tenant_id, db)
+    _assign_roles(user_id, data.role_ids, tenant_id, db)
+    db.flush()
+    return user
 
 
 def get_user_by_id(user_id: str, tenant_id: str, db: Session) -> User:

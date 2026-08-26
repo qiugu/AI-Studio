@@ -106,9 +106,22 @@ async def require_platform_admin(
     return current_user
 
 
+async def require_tenant_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """租户管理员守卫 - 平台管理员或拥有 admin 角色的用户可通过。"""
+    if current_user.is_platform_admin:
+        return current_user
+    for role in current_user.roles:
+        if "admin" in role.code:
+            return current_user
+    raise ForbiddenException("tenant", "admin")
+
+
 # 类型别名，简化路由参数声明
 SessionDep = Annotated[Session, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentTenantId = Annotated[str, Depends(get_current_tenant)]
 PlatformAdmin = Annotated[User, Depends(require_platform_admin)]
+TenantAdmin = Annotated[User, Depends(require_tenant_admin)]
 QdrantClientDep = Annotated["QdrantClient", Depends(get_qdrant_client)]

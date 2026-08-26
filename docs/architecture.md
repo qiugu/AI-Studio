@@ -89,8 +89,9 @@ backend/
 ├── alembic/
 ├── alembic.ini
 ├── .env
-├── requirements.txt
-└── Dockerfile
+├── Dockerfile                  # 后端镜像（API / Celery Worker 共用）
+├── .dockerignore
+└── requirements.txt
 ```
 
 ## 关键技术决策

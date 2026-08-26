@@ -37,3 +37,21 @@ class UserOut(BaseModel):
     roles: List[RoleOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    nickname: Optional[str] = None
+    role_ids: Optional[List[str]] = None  # 可指定初始角色，默认 tenant_member
+
+
+class UserUpdate(BaseModel):
+    nickname: Optional[str] = None
+    password: Optional[str] = None
+    status: Optional[bool] = None
+    role_ids: Optional[List[str]] = None  # 全量覆盖用户角色
+
+
+class UserRoleAssign(BaseModel):
+    role_ids: List[str]

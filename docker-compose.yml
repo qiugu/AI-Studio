@@ -1,0 +1,176 @@
+# AI-Studio Docker Compose 一键部署
+# 使用方式：
+#   1. cp .env.example .env  并按需修改
+#   2. docker compose up -d --build
+name: ai-studio
+
+# 后端（API / Celery Worker 共用）环境变量
+x-backend-env: &backend-env
+  # MySQL
+  DATABASE_HOST: mysql
+  DATABASE_PORT: 3306
+  DATABASE_NAME: ${MYSQL_DATABASE}
+  DATABASE_USERNAME: ${MYSQL_USER}
+  DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+  # Qdrant
+  QDRANT_URL: http://qdrant:6333
+  QDRANT_API_KEY: ""
+  # Redis
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_DB: 0
+  REDIS_PASSWORD: ""
+  # JWT
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  JWT_ALGORITHM: HS256
+  JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+  JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+  # Fernet（API Key 加密）
+  FERNET_KEY: ${FERNET_KEY}
+  # 文件上传
+  UPLOAD_DIR: /app/uploads
+  MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
+  # Celery
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  # Embedding
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+  EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-}
+  # Ollama 本地模型（macOS/Windows 自动可用；Linux 依赖 extra_hosts）
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+
+services:
+  # ── MySQL 主数据库 ────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: ai-studio-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - ai-studio-net
+
+  # ── Redis（缓存 + 限流 + Celery Broker）──────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ai-studio-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ai-studio-net
+
+  # ── Qdrant 向量数据库 ────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ai-studio-qdrant
+    restart: unless-stopped
+    # 用于调试 / 访问管理面板；不需要可删除本段
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - ai-studio-net
+
+  # ── 后端 API（启动时自动执行数据库迁移）───────────────────────
+  backend:
+    build: ./backend
+    container_name: ai-studio-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - uploads:/app/uploads
+    # 用于访问 Swagger 文档（http://localhost:8000/docs）；
+    # 生产环境建议删除本段，仅通过前端 Nginx 访问
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - ai-studio-net
+
+  # ── Celery Worker（文档解析 / 向量化等异步任务）───────────────
+  celery-worker:
+    build: ./backend
+    container_name: ai-studio-celery-worker
+    restart: unless-stopped
+    depends_on:
+      - backend
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2
+    environment: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - uploads:/app/uploads
+    networks:
+      - ai-studio-net
+
+  # ── 前端（Nginx 静态托管 + API 反向代理 / SSE）───────────────
+  frontend:
+    build: ./frontend
+    container_name: ai-studio-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai-studio-net
+
+volumes:
+  mysql-data:
+  redis-data:
+  qdrant-data:
+  uploads:
+
+networks:
+  ai-studio-net:
+    driver: bridge

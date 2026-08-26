@@ -18,6 +18,7 @@ from app.utils.encryption import decrypt
 from app.services.knowledge import KnowledgeBaseService
 from app.services.token_usage import TokenUsageService
 from app.services.conversation import ConversationService
+from app.services.audit import record_model_call
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,43 @@ class AgentService:
         self.tool_repo = AgentToolRepository(db=db, tenant_id=tenant_id)
         self.token_usage_service = TokenUsageService(db=db, tenant_id=tenant_id)
         self.conv_service = ConversationService(db=db, tenant_id=tenant_id)
+
+    def _record_model_call(
+        self,
+        *,
+        agent_id: Optional[str],
+        user_id: Optional[str],
+        conversation_id: Optional[str],
+        model_id: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+        latency_ms: int = 0,
+        status: str = "success",
+        error_message: Optional[str] = None,
+    ) -> None:
+        """记录模型调用日志（同时补全 provider_id）。"""
+        provider_id = None
+        try:
+            model = self.db.query(AIModel).filter(AIModel.id == model_id).first()
+            provider_id = model.provider_id if model else None
+        except Exception:
+            pass
+        record_model_call(
+            self.db,
+            self.tenant_id,
+            model_id=model_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            provider_id=provider_id,
+            conversation_id=conversation_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            latency_ms=latency_ms,
+            status=status,
+            error_message=error_message,
+        )
 
     # ── Agent CRUD ───────────────────────────────────────────────────────────
 
@@ -207,23 +245,266 @@ class AgentService:
 
             # API工具
             elif tool_type == "api":
-                # 暂不实现，阶段7会完整实现插件系统
-                pass
+                url = config.get("url")
+                if not url:
+                    logger.warning("Agent API 工具跳过：缺少 url 配置 (%s)", agent_tool.name)
+                    continue
+
+                method = (config.get("method") or "GET").upper()
+                headers = config.get("headers") or {}
+                timeout = float(config.get("timeout") or 30)
+
+                def api_call_func(
+                    query: str,
+                    _url=url,
+                    _method=method,
+                    _headers=headers,
+                    _timeout=timeout,
+                ) -> str:
+                    """调用外部 HTTP API，入参可为 JSON 字符串或纯文本。"""
+                    import json as _json
+
+                    import httpx as _httpx
+
+                    try:
+                        payload = (
+                            _json.loads(query)
+                            if isinstance(query, str) and query.strip().startswith("{")
+                            else {"query": query}
+                        )
+                    except Exception:
+                        payload = {"query": query}
+
+                    try:
+                        with _httpx.Client(timeout=_timeout) as client:
+                            if _method == "GET":
+                                resp = client.request(
+                                    _method, _url, params=payload, headers=_headers
+                                )
+                            else:
+                                resp = client.request(
+                                    _method, _url, json=payload, headers=_headers
+                                )
+                        resp.raise_for_status()
+                        try:
+                            data = resp.json()
+                        except Exception:
+                            data = resp.text
+                        return _json.dumps(data, ensure_ascii=False, default=str)
+                    except Exception as e:
+                        return f"API 调用异常：{str(e)}"
+
+                tools.append(
+                    Tool(
+                        name=agent_tool.name,
+                        description=agent_tool.description
+                        or f"调用外部 API（{method} {url}）",
+                        func=api_call_func,
+                    )
+                )
 
             # Function工具
             elif tool_type == "function":
-                # 暂不实现，需要代码沙盒
-                pass
+                code = config.get("code")
+                if not code:
+                    logger.warning("Agent Function 工具跳过：缺少 code 配置 (%s)", agent_tool.name)
+                    continue
+
+                # 受限执行环境：禁用危险内置函数，仅暴露安全的辅助函数
+                safe_builtins = {
+                    "print": print,
+                    "len": len,
+                    "str": str,
+                    "int": int,
+                    "float": float,
+                    "bool": bool,
+                    "list": list,
+                    "dict": dict,
+                    "tuple": tuple,
+                    "set": set,
+                    "sum": sum,
+                    "min": min,
+                    "max": max,
+                    "abs": abs,
+                    "round": round,
+                    "sorted": sorted,
+                    "enumerate": enumerate,
+                    "range": range,
+                    "json": __import__("json"),
+                    "math": __import__("math"),
+                    "datetime": __import__("datetime"),
+                }
+
+                def function_call_func(query: str, _code=code) -> str:
+                    """执行用户自定义函数代码，code 需定义 main(input) 并返回结果。"""
+                    import json as _json
+
+                    local_ns: dict = {}
+                    try:
+                        compiled = compile(_code, "<agent_function_tool>", "exec")
+                        exec(compiled, {"__builtins__": safe_builtins}, local_ns)
+                        main_func = local_ns.get("main") or local_ns.get(
+                            next(
+                                (k for k in local_ns if callable(local_ns[k]) and not k.startswith("__")),
+                                None,
+                            )
+                        )
+                        if main_func is None:
+                            return "Function 工具执行失败：未找到可调用函数（请定义 main(input)）"
+                        try:
+                            parsed = (
+                                _json.loads(query)
+                                if isinstance(query, str) and query.strip().startswith("{")
+                                else query
+                            )
+                        except Exception:
+                            parsed = query
+                        result = main_func(parsed)
+                        return _json.dumps(result, ensure_ascii=False, default=str) if not isinstance(result, str) else result
+                    except Exception as e:
+                        return f"Function 工具执行异常：{str(e)}"
+
+                tools.append(
+                    Tool(
+                        name=agent_tool.name,
+                        description=agent_tool.description or f"执行自定义函数 {agent_tool.name}",
+                        func=function_call_func,
+                    )
+                )
 
             # Workflow工具
             elif tool_type == "workflow":
-                # 暂不实现，阶段6会实现工作流引擎
-                pass
+                workflow_id = config.get("workflow_id")
+                if not workflow_id:
+                    logger.warning("Agent Workflow 工具跳过：缺少 workflow_id 配置 (%s)", agent_tool.name)
+                    continue
+
+                def workflow_run_func(query: str, _workflow_id=workflow_id) -> str:
+                    """执行工作流，入参可为 JSON 字符串或纯文本。"""
+                    import asyncio
+                    import json as _json
+
+                    from app.services.workflow_engine import WorkflowEngine
+
+                    try:
+                        input_data = (
+                            _json.loads(query)
+                            if isinstance(query, str) and query.strip().startswith("{")
+                            else {"query": query}
+                        )
+                    except Exception:
+                        input_data = {"query": query}
+
+                    try:
+                        engine = WorkflowEngine(db=self.db, tenant_id=self.tenant_id)
+                        result = asyncio.run(
+                            engine.execute_workflow(
+                                workflow_id=uuid.UUID(str(_workflow_id)),
+                                input_data=input_data,
+                                user_id=None,
+                            )
+                        )
+                        return _json.dumps(result.get("output"), ensure_ascii=False, default=str)
+                    except Exception as e:
+                        return f"工作流执行异常：{str(e)}"
+
+                tools.append(
+                    Tool(
+                        name=agent_tool.name,
+                        description=agent_tool.description or f"执行工作流 {workflow_id}",
+                        func=workflow_run_func,
+                    )
+                )
 
             # Plugin工具
             elif tool_type == "plugin":
-                # 暂不实现，阶段7会完整实现插件系统
-                pass
+                from app.services.plugin import PluginService
+                from app.models.plugin import PluginEndpoint
+                from app.utils.plugin_executor import execute_plugin_call
+
+                plugin_id = config.get("plugin_id")
+                if not plugin_id:
+                    continue
+
+                plugin_svc = PluginService(self.db, self.tenant_id)
+                try:
+                    plugin = plugin_svc.get(plugin_id)
+                except Exception:
+                    logger.warning("Agent 插件工具跳过：插件 %s 不存在", plugin_id)
+                    continue
+
+                # 解析目标端点：优先 endpoint_id，其次 endpoint 路径，最后取首个端点
+                endpoint = None
+                endpoint_id = config.get("endpoint_id")
+                if endpoint_id:
+                    endpoint = (
+                        self.db.query(PluginEndpoint)
+                        .filter(
+                            PluginEndpoint.id == endpoint_id,
+                            PluginEndpoint.plugin_id == plugin_id,
+                        )
+                        .first()
+                    )
+                if endpoint is None and config.get("endpoint"):
+                    endpoint = (
+                        self.db.query(PluginEndpoint)
+                        .filter(
+                            PluginEndpoint.plugin_id == plugin_id,
+                            PluginEndpoint.endpoint == config.get("endpoint"),
+                        )
+                        .first()
+                    )
+                if endpoint is None:
+                    endpoints = getattr(plugin, "_endpoints", None)
+                    endpoint = endpoints[0] if endpoints else None
+                if endpoint is None:
+                    logger.warning("Agent 插件工具跳过：插件 %s 无可用端点", plugin_id)
+                    continue
+
+                method = config.get("method") or endpoint.method
+                config_values = plugin_svc._load_config_dict(plugin_id)
+
+                def plugin_func(
+                    query: str,
+                    _plugin=plugin,
+                    _endpoint=endpoint,
+                    _method=method,
+                    _config_values=config_values,
+                ) -> str:
+                    """调用插件端点，入参可为 JSON 字符串或纯文本。"""
+                    import json
+
+                    try:
+                        params = (
+                            json.loads(query)
+                            if isinstance(query, str) and query.strip().startswith("{")
+                            else {"query": query}
+                        )
+                    except Exception:
+                        params = {"query": query}
+                    try:
+                        result = execute_plugin_call(
+                            plugin_name=_plugin.name,
+                            api_spec=_plugin.api_spec,
+                            endpoint_path=_endpoint.endpoint,
+                            method=_method,
+                            endpoint_headers=_endpoint.headers,
+                            config_values=_config_values,
+                            params=params,
+                        )
+                    except Exception as e:
+                        return f"插件调用异常：{str(e)}"
+                    if not result["success"]:
+                        return f"插件调用失败：{result.get('error')}"
+                    return json.dumps(result.get("data"), ensure_ascii=False, default=str)
+
+                tools.append(
+                    Tool(
+                        name=agent_tool.name,
+                        description=agent_tool.description or f"调用插件 {plugin.name}",
+                        func=plugin_func,
+                    )
+                )
 
         return tools
 
@@ -385,6 +666,15 @@ Final Answer: 最终答案
                     agent_id=agent_id,
                     user_id=user_id,
                     conversation_id=conversation_id,
+                )
+                self._record_model_call(
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    model_id=agent.model_id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
                 )
                 self.db.commit()
 
@@ -670,6 +960,8 @@ Final Answer: 最终答案
                 response_content = llm.astream(messages)
             async for chunk in response_content:
                 content = chunk.content
+                if not content:
+                    continue
                 full_content += content
 
                 # 尝试获取Token统计（流式时可能不完整）
@@ -678,10 +970,13 @@ Final Answer: 最终答案
                     prompt_tokens = usage.get("input_tokens", 0)
                     completion_tokens = usage.get("output_tokens", 0)
 
-                yield {
-                    "type": "message",
-                    "content": content,
-                }
+                # 打字机效果：将 LangChain 聚合后的大块内容按字符逐步下发，
+                # 避免一次推送一整段导致“部分消息”式输出。
+                for char in content:
+                    yield {
+                        "type": "message",
+                        "content": char,
+                    }
 
             # 返回完成信号
             total_tokens = prompt_tokens + completion_tokens
@@ -696,6 +991,15 @@ Final Answer: 最终答案
                     agent_id=agent_id,
                     user_id=user_id,
                     conversation_id=conversation_id,
+                )
+                self._record_model_call(
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    model_id=agent.model_id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
                 )
                 self.db.commit()
 

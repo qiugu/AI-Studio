@@ -13,6 +13,12 @@ from app.api.prompt import router as prompt_router
 from app.api.knowledge import router as knowledge_router
 from app.api.agent import router as agent_router
 from app.api.workflow import router as workflow_router
+from app.api.audit import router as audit_router
+from app.api.user import router as user_router
+from app.api.role import router as role_router
+from app.api.system import router as system_router
+from app.api.admin import router as admin_router
+from app.api.plugin import router as plugin_router
 from app.core.redis import init_redis, redis_close
 from app.core.exceptions import AppException
 from app.middleware.tenant import TenantMiddleware
@@ -112,6 +118,12 @@ app.include_router(prompt_router, prefix="/prompts", tags=["Prompt管理"])
 app.include_router(knowledge_router, prefix="/knowledge", tags=["知识库"])
 app.include_router(agent_router, prefix="/agent", tags=["Agent"])
 app.include_router(workflow_router, prefix="/workflows", tags=["工作流"])
+app.include_router(user_router, prefix="/users", tags=["用户管理"])
+app.include_router(role_router, prefix="/roles", tags=["角色权限"])
+app.include_router(system_router, prefix="/system", tags=["系统设置"])
+app.include_router(audit_router, prefix="/audit", tags=["监控审计"])
+app.include_router(admin_router, prefix="/admin", tags=["平台管理"])
+app.include_router(plugin_router, prefix="/plugins", tags=["插件"])
 
 
 @app.get("/health", tags=["系统"])

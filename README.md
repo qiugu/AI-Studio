@@ -9,6 +9,7 @@
 - [系统架构](#系统架构)
 - [功能模块](#功能模块)
 - [快速开始](#快速开始)
+- [Docker 一键部署](#docker-一键部署)
 - [项目结构](#项目结构)
 - [API 文档](#api-文档)
 - [开发计划](#开发计划)
@@ -180,12 +181,9 @@ DATABASE_NAME=ai_studio
 DATABASE_USERNAME=root
 DATABASE_PASSWORD=your_password
 
-# PostgreSQL + pgvector
-VECTOR_DB_HOST=localhost
-VECTOR_DB_PORT=5432
-VECTOR_DB_NAME=ai_studio_vector
-VECTOR_DB_USERNAME=postgres
-VECTOR_DB_PASSWORD=your_password
+# 向量数据库 (Qdrant)
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=
 
 # Redis
 REDIS_HOST=localhost
@@ -208,12 +206,82 @@ MAX_UPLOAD_SIZE_MB=50
 # Celery
 CELERY_BROKER_URL=redis://localhost:6379/1
 CELERY_RESULT_BACKEND=redis://localhost:6379/2
+
+# Embedding 向量化
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_API_KEY=
+EMBEDDING_API_BASE=
+
+# Ollama 本地模型
+OLLAMA_BASE_URL=http://localhost:11434
 ```
+
+> 注：以上为常用变量。完整且权威的变量列表以 `backend/app/core/config.py` 为准，
+> 可直接参考 `backend/.env.example`（与 `config.py` 字段一一对应）。
+
+## Docker 一键部署
+
+推荐使用 Docker Compose 一键部署，一条命令拉起全部依赖与前后端服务（MySQL、Redis、Qdrant、后端 API、Celery Worker、前端 Nginx）。
+
+### 前置条件
+
+- Docker Engine 20.10+（含 Docker Compose v2）
+
+### 部署步骤
+
+```bash
+# 1. 进入项目根目录
+cd AI-Studio
+
+# 2. 复制环境变量模板并按需修改
+cp .env.example .env
+# 必改项：MYSQL_ROOT_PASSWORD / MYSQL_PASSWORD / JWT_SECRET_KEY / FERNET_KEY
+# FERNET_KEY 生成：python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# 3. 构建并启动（首次构建需数分钟）
+docker compose up -d --build
+
+# 4. 查看服务状态
+docker compose ps
+```
+
+### 访问入口
+
+| 服务 | 地址 |
+|------|------|
+| 前端控制台 | http://localhost:80 |
+| Swagger API 文档 | http://localhost:8000/docs |
+| Qdrant 管理面板 | http://localhost:6333/dashboard |
+
+首次使用：打开前端 → 注册账号（自动初始化租户）→ 在「AI 模型管理」中配置模型供应商与 API Key。
+
+### 常用运维命令
+
+```bash
+docker compose logs -f backend                    # 查看后端日志
+docker compose down                               # 停止（保留数据卷）
+docker compose down -v                            # 停止并删除数据卷（会清空数据库！）
+git pull && docker compose up -d --build          # 更新代码后重新构建
+```
+
+### 数据持久化
+
+数据（MySQL、Redis、Qdrant、上传文件）保存在 Docker 命名卷中：`docker compose down` 不会删除数据，仅 `docker compose down -v` 会清空。
+
+### 生产注意事项
+
+- 务必修改 `.env` 中的全部密码与密钥，并妥善保管 `FERNET_KEY`（丢失后已加密的 AI 供应商 API Key 将无法解密）
+- 前端默认仅暴露 80 端口；如需关闭后端 8000 / Qdrant 6333 对外端口，删除 `docker-compose.yml` 中对应 `ports` 段即可
+- 若宿主机 80 端口被占用，可在 `.env` 中修改 `FRONTEND_PORT`
+- Docker 部署使用项目根目录的 `.env`，与本地开发的 `backend/.env` 是两套独立配置，互不影响
 
 ## 项目结构
 
 ```
 AI-Studio/
+├── docker-compose.yml               # Docker Compose 一键部署编排
+├── .env.example                     # Docker Compose 环境变量模板
 ├── backend/                        # 后端（FastAPI）
 │   ├── app/
 │   │   ├── main.py                 # 应用入口
@@ -232,6 +300,7 @@ AI-Studio/
 │   │   ├── middleware/             # 中间件（租户/审计/限流）
 │   │   └── utils/                  # 工具函数（LLM/Embedding/加密/文档解析）
 │   ├── alembic/                    # 数据库迁移
+│   ├── Dockerfile                  # 后端镜像（API / Celery Worker 共用）
 │   ├── requirements.txt
 │   └── alembic.ini
 ├── frontend/                       # 前端（React + Vite）
@@ -243,6 +312,8 @@ AI-Studio/
 │   │   ├── stores/                 # Zustand 状态管理
 │   │   ├── types/                  # TypeScript 类型定义
 │   │   └── utils/                  # 工具函数
+│   ├── Dockerfile                  # 前端镜像（Node 构建 + Nginx）
+│   ├── nginx.conf                  # 生产 Nginx 配置（API 反向代理 / SSE）
 │   ├── package.json
 │   └── vite.config.ts
 └── docs/                           # 设计文档

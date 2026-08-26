@@ -22,6 +22,15 @@ import WorkflowList from '@/pages/Workflows/WorkflowList'
 import WorkflowForm from '@/pages/Workflows/WorkflowForm'
 import WorkflowEditor from '@/pages/Workflows/WorkflowEditor'
 import WorkflowExecution from '@/pages/Workflows/WorkflowExecution'
+import PluginList from '@/pages/Plugins/PluginList'
+import PluginConfig from '@/pages/Plugins/PluginConfig'
+import Users from '@/pages/System/Users'
+import Roles from '@/pages/System/Roles'
+import AuditLogs from '@/pages/System/AuditLogs'
+import TenantSettings from '@/pages/System/TenantSettings'
+import TenantList from '@/pages/Admin/TenantList'
+import TenantDetail from '@/pages/Admin/TenantDetail'
+import AdminGuard from '@/components/AdminGuard'
 import './styles/global.css'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
@@ -108,6 +117,31 @@ export default function App() {
               <Route path="workflows/:workflowId" element={<WorkflowEditor />} />
               <Route path="workflows/:workflowId/edit" element={<WorkflowEditor />} />
               <Route path="workflows/:workflowId/execute" element={<WorkflowExecution />} />
+              {/* Phase 7: 插件系统 */}
+              <Route path="plugins" element={<PluginList />} />
+              <Route path="plugins/:id/config" element={<PluginConfig />} />
+              {/* Phase 8: 监控审计 & 系统管理 */}
+              <Route path="system/users" element={<Users />} />
+              <Route path="system/roles" element={<Roles />} />
+              <Route path="system/audit-logs" element={<AuditLogs />} />
+              <Route path="system/tenant" element={<TenantSettings />} />
+              {/* Phase 8: 平台管理（仅超级管理员） */}
+              <Route
+                path="admin/tenants"
+                element={
+                  <AdminGuard>
+                    <TenantList />
+                  </AdminGuard>
+                }
+              />
+              <Route
+                path="admin/tenants/:id"
+                element={
+                  <AdminGuard>
+                    <TenantDetail />
+                  </AdminGuard>
+                }
+              />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

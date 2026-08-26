@@ -18,11 +18,14 @@ from app.models.agent_tool import AgentTool
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.token_usage import TokenUsage
+from app.models.audit_log import AuditLog
+from app.models.model_call_log import ModelCallLog
 from app.models.workflow import Workflow
 from app.models.workflow_node import WorkflowNode
 from app.models.workflow_edge import WorkflowEdge
 from app.models.workflow_execution import WorkflowExecution
 from app.models.node_execution import NodeExecution
+from app.models.plugin import Plugin, PluginConfig, PluginEndpoint
 
 __all__ = [
     "Tenant",
@@ -46,9 +49,14 @@ __all__ = [
     "Conversation",
     "Message",
     "TokenUsage",
+    "AuditLog",
+    "ModelCallLog",
     "Workflow",
     "WorkflowNode",
     "WorkflowEdge",
     "WorkflowExecution",
     "NodeExecution",
+    "Plugin",
+    "PluginConfig",
+    "PluginEndpoint",
 ]

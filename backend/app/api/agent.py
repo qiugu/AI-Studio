@@ -437,6 +437,12 @@ async def chat_stream(
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
+            headers={
+                # 关闭代理层（Nginx 等）的响应缓冲，保证逐块推送
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
         )
     except AppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
