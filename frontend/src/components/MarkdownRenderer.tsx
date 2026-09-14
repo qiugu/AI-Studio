@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'  // F1: 净化原始 HTML，防止 XSS（模型输出/Prompt 内容经 rehype-raw 注入）
 import 'highlight.js/styles/github-dark.css'
 import './MarkdownRenderer.css'
 
@@ -23,7 +24,7 @@ export default function MarkdownRenderer({ content, className }: MarkdownRendere
     <div className={`markdown-body ${className || ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight, rehypeRaw]}
+        rehypePlugins={[rehypeHighlight, rehypeRaw, rehypeSanitize]}
         components={{
           // 自定义代码块渲染
           code({ className, children, ...props }) {

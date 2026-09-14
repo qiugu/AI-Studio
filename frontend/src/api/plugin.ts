@@ -5,6 +5,8 @@ import type {
   PluginCreateRequest,
   PluginUpdateRequest,
   PluginEndpoint,
+  PluginEndpointCreateRequest,
+  PluginEndpointUpdateRequest,
   PluginConfigResponse,
   PluginConfigItem,
   PluginTestRequest,
@@ -17,6 +19,7 @@ export async function listPlugins(
   params?: PageParams & {
     include_public?: boolean
     plugin_type?: string
+    source_type?: string
     status?: string
   }
 ): Promise<ApiResponse<PaginatedData<Plugin>>> {

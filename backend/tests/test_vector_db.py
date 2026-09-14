@@ -12,8 +12,11 @@ def test_get_vector_size_for_model_known_models():
 
 
 def test_get_vector_size_for_model_bge_variants():
-    assert get_vector_size_for_model("BAAI/bge-large-zh-v1.5") == 4096
-    assert get_vector_size_for_model("bge-large") == 4096
+    assert get_vector_size_for_model("BAAI/bge-large-zh-v1.5") == 1024
+    assert get_vector_size_for_model("bge-large") == 1024
+    assert get_vector_size_for_model("BAAI/bge-base-zh-v1.5") == 768
+    assert get_vector_size_for_model("BAAI/bge-small-zh-v1.5") == 512
+    assert get_vector_size_for_model("BAAI/bge-m3") == 1024
 
 
 def test_get_vector_size_for_model_invalid_model_raises():

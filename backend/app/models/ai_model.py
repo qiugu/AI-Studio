@@ -6,12 +6,16 @@ from sqlalchemy import String, JSON, Boolean, DateTime, func, Integer, Numeric
 from sqlalchemy.orm import mapped_column, Mapped
 
 from app.core.database import Base
+from app.core.tenant_scope import tenant_or_public_clause
 
 import uuid
 
 
 class AIModel(Base):
     __tablename__ = "ai_models"
+
+    # S3：纳入全局租户过滤器；tenant_id 为 NULL 表示平台预置公共模型，需放行。
+    __tenant_scope_clause__ = staticmethod(tenant_or_public_clause)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # tenant_id 为 NULL 表示平台预置公共模型

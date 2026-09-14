@@ -15,6 +15,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import CodeEditor from '@/components/CodeEditor'
 import { createPrompt, getPrompt, updatePrompt, createVersion, activateVersion } from '@/api/prompt'
+import { executePromptSave } from './promptSave'
 import type { Prompt } from '@/types/prompt'
 
 const { Title, Text } = Typography
@@ -34,6 +35,8 @@ export default function PromptEditor() {
   const [variables, setVariables] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [prompt, setPrompt] = useState<Prompt | null>(null)
+  // 内容是否与当前版本不同：决定保存时是否生成新版本
+  const contentChanged = prompt?.current_version?.content !== content
 
   useEffect(() => {
     if (isEdit && id) {
@@ -66,26 +69,32 @@ export default function PromptEditor() {
       if (!isEdit) {
         const res = await createPrompt({ ...values, content })
         message.success('Prompt 创建成功')
-        navigate(`/prompts/${res.data!.id}`)
-      } else {
-        await updatePrompt(id || '', {
+        // replace：用详情页替换编辑页的历史记录，使浏览器后退可直达列表页
+        navigate(`/prompts/${res.data!.id}`, { replace: true })
+        return
+      }
+
+      const result = await executePromptSave({
+        promptId: id || '',
+        isEdit: true,
+        contentChanged,
+        metadata: {
           name: values.name,
           description: values.description,
           category: values.category,
           tags: values.tags,
           status: values.status,
-        })
-        // if content changed from current version, create new version
-        if (prompt?.current_version?.content !== content) {
-          const vRes = await createVersion(id || '', { content })
-          // auto-activate the new version so it becomes current
-          await activateVersion(id || '', vRes.data!.id)
-          message.success('已保存元数据并创建新版本（已激活）')
-        } else {
-          message.success('Prompt 更新成功')
-        }
-        navigate(`/prompts/${id}`)
-      }
+        },
+        content,
+        deps: { updatePrompt, createVersion, activateVersion },
+      })
+
+      // isEdit=true 时不会 skip；此分支仅作防御
+      if (result.skip) return
+
+      message.success(result.message)
+      // replace：保存后编辑页不应留在历史栈中，否则后退会回到编辑页
+      navigate(`/prompts/${id}`, { replace: true })
     } catch {
       // interceptor handles error toast
     } finally {
@@ -106,6 +115,16 @@ export default function PromptEditor() {
           </Button>
         </Space>
       </div>
+
+      {isEdit && prompt && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space size={12}>
+            <Text type="secondary">当前版本：</Text>
+            <Tag color="blue">{`v${prompt?.current_version?.version_number ?? '-'}`}</Tag>
+            {contentChanged && <Text type="warning">内容已修改，保存后将自动生成新版本</Text>}
+          </Space>
+        </Card>
+      )}
 
       <Row gutter={16}>
         {/* Left: variables panel */}

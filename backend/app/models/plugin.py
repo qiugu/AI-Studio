@@ -11,6 +11,7 @@ from sqlalchemy import String, Text, JSON, Boolean, DateTime, func, ForeignKey, 
 from sqlalchemy.orm import mapped_column, Mapped
 
 from app.core.database import Base
+from app.core.tenant_scope import tenant_or_flagged_public_clause
 
 import uuid
 
@@ -20,12 +21,19 @@ class Plugin(Base):
 
     __tablename__ = "plugins"
 
+    # S3：纳入全局租户过滤器；仅 tenant_id IS NULL 且 is_public=True 的行为平台公共插件。
+    __tenant_scope_clause__ = staticmethod(tenant_or_flagged_public_clause)
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # tenant_id 为 NULL 表示平台公共插件
     tenant_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # 插件类型：tool / provider / processor / connector
+    # 能力形态（插件做什么）：tool / connector / processor —— 见 app/core/plugin_types.py
     plugin_type: Mapped[str] = mapped_column(String(50), nullable=False, default="tool")
+    # 接入方式（插件怎么接进来）：http / mcp / skill —— 见 app/core/plugin_types.py
+    source_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="http", server_default="http"
+    )
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0.0")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # 配置 Schema（JSON Schema 定义），用于前端动态渲染配置表单

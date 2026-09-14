@@ -1,5 +1,7 @@
 // ── Agent 工具 ───────────────────────────────────────────────────────────────
 
+import type { PluginSourceType, PluginType } from '@/types/plugin'
+
 export type ToolType = 'knowledge' | 'api' | 'function' | 'workflow' | 'plugin'
 
 export interface AgentTool {
@@ -29,6 +31,36 @@ export interface AgentToolUpdate {
   name?: string
   description?: string
   is_enabled?: boolean
+}
+
+// ── Agent 可绑定插件目录（候选清单） ─────────────────────────────────────────
+
+/**
+ * 目录中的插件端点。端点是「可被授权」的原子单位——选中它，模型才可能调用它。
+ */
+export interface ToolCatalogEndpoint {
+  id: string
+  endpoint: string
+  method: string
+  description: string | null
+  /** 破坏性动词（DELETE/PUT/PATCH），选中前需用户显式确认 */
+  is_destructive: boolean
+}
+
+/**
+ * 可绑定为 Agent 工具的插件。服务端已按 归属 / 状态 / 接入方式 / 端点数量 裁剪，
+ * 前端只需展示，不应重复判断「是否可用」，否则两端口径会漂移。
+ */
+export interface ToolCatalogPlugin {
+  id: string
+  name: string
+  plugin_type: PluginType
+  source_type: PluginSourceType
+  description: string | null
+  icon: string | null
+  /** 平台公共插件（tenant_id 为空），所有租户可绑定 */
+  is_public: boolean
+  endpoints: ToolCatalogEndpoint[]
 }
 
 // ── Agent ────────────────────────────────────────────────────────────────────

@@ -4,13 +4,30 @@ from typing import Optional, List, Any
 
 from pydantic import BaseModel, Field
 
+from app.core.plugin_types import (
+    DEFAULT_PLUGIN_TYPE,
+    DEFAULT_SOURCE_TYPE,
+    PluginSourceType,
+    PluginType,
+)
+
 
 # ============ 插件 Schema ============
 
 
 class PluginCreate(BaseModel):
+    # use_enum_values=True：校验后字段以纯字符串保存，便于直接写入 ORM 列。
+    model_config = {"use_enum_values": True}
+
     name: str = Field(..., max_length=255, description="插件名称")
-    plugin_type: str = Field("tool", max_length=50, description="插件类型：tool/provider/processor/connector")
+    plugin_type: PluginType = Field(
+        DEFAULT_PLUGIN_TYPE,
+        description="能力形态（插件做什么）：tool/connector/processor",
+    )
+    source_type: PluginSourceType = Field(
+        DEFAULT_SOURCE_TYPE,
+        description="接入方式（插件怎么接进来）：http/mcp/skill",
+    )
     version: str = Field("1.0.0", max_length=20)
     description: Optional[str] = None
     config_schema: Optional[dict] = Field(None, description="配置 JSON Schema")
@@ -23,8 +40,15 @@ class PluginCreate(BaseModel):
 
 
 class PluginUpdate(BaseModel):
+    model_config = {"use_enum_values": True}
+
     name: Optional[str] = Field(None, max_length=255)
-    plugin_type: Optional[str] = Field(None, max_length=50)
+    plugin_type: Optional[PluginType] = Field(
+        None, description="能力形态：tool/connector/processor"
+    )
+    source_type: Optional[PluginSourceType] = Field(
+        None, description="接入方式：http/mcp/skill"
+    )
     version: Optional[str] = Field(None, max_length=20)
     description: Optional[str] = None
     config_schema: Optional[dict] = None
@@ -54,7 +78,9 @@ class PluginOut(BaseModel):
     id: str
     tenant_id: Optional[str] = None
     name: str
+    # 输出层保持 str（而非枚举）：对历史数据宽容，避免个别脏值导致整体 500。
     plugin_type: str
+    source_type: str
     version: str
     description: Optional[str] = None
     config_schema: Optional[dict] = None

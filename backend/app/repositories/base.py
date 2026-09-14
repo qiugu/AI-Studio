@@ -21,25 +21,25 @@ class BaseRepository(Generic[ModelType]):
     def _tenant_filter(self) -> Any:
         """仅过滤当前租户数据"""
         return and_(
-            self.model.tenant_id == self.tenant_id,  # type: ignore[attr-defined]
-            self.model.deleted_at.is_(None) if hasattr(self.model, 'deleted_at') else True,  # type: ignore[attr-defined]
+            getattr(self.model, "tenant_id") == self.tenant_id,
+            getattr(self.model, "deleted_at").is_(None) if hasattr(self.model, "deleted_at") else True,
         )
 
     def _tenant_or_public_filter(self) -> Any:
         """过滤当前租户数据或公共数据（tenant_id=NULL）"""
         from sqlalchemy import or_
         base_condition = or_(
-            self.model.tenant_id == self.tenant_id,  # type: ignore[attr-defined]
-            self.model.tenant_id.is_(None),  # type: ignore[attr-defined]
+            getattr(self.model, "tenant_id") == self.tenant_id,
+            getattr(self.model, "tenant_id").is_(None),
         )
-        if hasattr(self.model, 'deleted_at'):
-            return and_(base_condition, self.model.deleted_at.is_(None))  # type: ignore[attr-defined]
+        if hasattr(self.model, "deleted_at"):
+            return and_(base_condition, getattr(self.model, "deleted_at").is_(None))
         return base_condition
 
     def get_by_id(self, resource_id: str) -> Optional[ModelType]:
         return (
             self.db.query(self.model)
-            .filter(self._tenant_filter(), self.model.id == resource_id)  # type: ignore[attr-defined]
+            .filter(self._tenant_filter(), getattr(self.model, "id") == resource_id)
             .first()
         )
 
@@ -81,7 +81,7 @@ class BaseRepository(Generic[ModelType]):
         """软删除"""
         from datetime import datetime, timezone
         if hasattr(instance, 'deleted_at'):
-            instance.deleted_at = datetime.now(timezone.utc)  # type: ignore[attr-defined]
+            setattr(instance, "deleted_at", datetime.now(timezone.utc))
             self.db.flush()
         else:
             self.db.delete(instance)

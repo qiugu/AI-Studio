@@ -1,4 +1,4 @@
-import apiClient from './client'
+import apiClient, { AI_REQUEST_TIMEOUT } from './client'
 import type { ApiResponse, PaginatedData, PageParams } from '@/types/api'
 import type {
   Workflow,
@@ -73,7 +73,10 @@ export async function executeWorkflow(
   workflowId: string,
   data: WorkflowExecutionRequest
 ): Promise<ApiResponse<WorkflowExecution>> {
-  const response = await apiClient.post(`/workflows/${workflowId}/execute`, data)
+  // 工作流执行含多次模型调用，使用 AI 专用超时
+  const response = await apiClient.post(`/workflows/${workflowId}/execute`, data, {
+    timeout: AI_REQUEST_TIMEOUT,
+  })
   return response as unknown as ApiResponse<WorkflowExecution>
 }
 

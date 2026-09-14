@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -20,7 +21,8 @@ from app.api.system import router as system_router
 from app.api.admin import router as admin_router
 from app.api.plugin import router as plugin_router
 from app.core.redis import init_redis, redis_close
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, build_error_envelope
+from app.core.config import config
 from app.middleware.tenant import TenantMiddleware
 from app.middleware.audit import AuditMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -46,7 +48,6 @@ app = FastAPI(
     version="0.1.0",
     description="企业级 AI 应用平台 API",
     lifespan=lifespan,
-    openapi_prefix="/api",
     servers=[
         {"url": "/api", "description": "API Gateway"},
     ],
@@ -54,10 +55,13 @@ app = FastAPI(
 
 # ── 中间件注册顺序（后注册先执行）────────────────────────────────────────────
 # 1. CORS（最先处理跨域预检）
+# 来源白名单由配置 CORS_ORIGINS 驱动（逗号分隔）；为空则拒绝任何跨域，
+# 且仅在显式配置了具体源时才允许携带凭证，避免 ``*`` + 凭证的泄露风险（S1）。
+_cors_origins = config.cors_origins_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=bool(_cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -72,17 +76,37 @@ app.add_middleware(TenantMiddleware)
 app.add_middleware(AuditMiddleware)
 
 
+# 5. 安全响应头（纵深防御，配合前端 Markdown sanitize 降低 XSS 影响面，S6）
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    # script-src 不含 unsafe-inline，阻断 markdown 注入的内联脚本执行；
+    # 若前端构建后续需内联脚本，应改为 nonce 方案而非放宽此处。
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; "
+        "base-uri 'self'; frame-ancestors 'none'",
+    )
+    return response
+
+
 # ── 全局异常处理器 ────────────────────────────────────────────────────────────
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "code": exc.status_code,
-            "message": exc.detail,
-            "data": None,
-        },
-    )
+    # C2：统一信封，AppException 派生类会携带 error_code 业务码。
+    return JSONResponse(status_code=exc.status_code, content=build_error_envelope(exc))
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # C1/C2：统一信封。裸 ``raise HTTPException`` 也返回 {code, message, data}，
+    # 与 AppException 处理器的输出结构保持一致（普通 HTTPException 无 error_code）。
+    # 业务异常仍应优先使用 ``app.core.exceptions.AppException`` 以携带 error_code。
+    return JSONResponse(status_code=exc.status_code, content=build_error_envelope(exc))
 
 
 @app.exception_handler(ValidationError)

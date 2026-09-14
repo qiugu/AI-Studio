@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.dependencies import CurrentUser, CurrentTenantId
+from app.core.dependencies import CurrentUser, CurrentTenantId, require_tenant_admin
 from app.schemas.prompt import (
     PromptCreate,
     PromptUpdate,
@@ -15,18 +15,18 @@ from app.schemas.prompt import (
 from app.schemas.common import ResponseBase, PaginatedData
 from app.services.prompt import PromptService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_tenant_admin)])
 
 
 @router.get("", response_model=ResponseBase)
 def list_prompts(
+    tenant_id: CurrentTenantId,
+    _current_user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     category: str | None = Query(None),
     status: str | None = Query(None),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     items, total = svc.list(page=page, page_size=page_size, category=category, status=status)
@@ -42,10 +42,10 @@ def list_prompts(
 
 @router.post("", response_model=ResponseBase)
 def create_prompt(
+    tenant_id: CurrentTenantId,
+    current_user: CurrentUser,
     data: PromptCreate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     user_id = current_user.id if current_user else None
@@ -56,10 +56,10 @@ def create_prompt(
 
 @router.get("/{prompt_id}", response_model=ResponseBase)
 def get_prompt(
+    tenant_id: CurrentTenantId,
+    _current_user: CurrentUser,
     prompt_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     prompt = svc.get(prompt_id)
@@ -68,11 +68,11 @@ def get_prompt(
 
 @router.put("/{prompt_id}", response_model=ResponseBase)
 def update_prompt(
+    tenant_id: CurrentTenantId,
+    _current_user: CurrentUser,
     prompt_id: str,
     data: PromptUpdate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     prompt = svc.update(prompt_id, data)
@@ -83,9 +83,9 @@ def update_prompt(
 @router.delete("/{prompt_id}", response_model=ResponseBase)
 def delete_prompt(
     prompt_id: str,
-    tenant_id: CurrentTenantId = None,
+    tenant_id: CurrentTenantId,
+    _current_user: CurrentUser,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     svc.delete(prompt_id)
@@ -96,9 +96,9 @@ def delete_prompt(
 @router.get("/{prompt_id}/versions", response_model=ResponseBase)
 def list_versions(
     prompt_id: str,
-    tenant_id: CurrentTenantId = None,
+    tenant_id: CurrentTenantId,
+    _current_user: CurrentUser,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     versions = svc.list_versions(prompt_id)
@@ -109,9 +109,9 @@ def list_versions(
 def create_version(
     prompt_id: str,
     data: PromptVersionCreate,
-    tenant_id: CurrentTenantId = None,
+    tenant_id: CurrentTenantId,
+    current_user: CurrentUser,
     db: Session = Depends(get_session),
-    current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     user_id = current_user.id if current_user else None
@@ -125,9 +125,9 @@ def create_version(
 def activate_version(
     prompt_id: str,
     version_id: str,
-    tenant_id: CurrentTenantId = None,
+    tenant_id: CurrentTenantId,
+    _current_user: CurrentUser,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     version = svc.activate_version(prompt_id, version_id)
@@ -140,9 +140,9 @@ def activate_version(
 def test_prompt(
     prompt_id: str,
     data: PromptTestRequest,
-    tenant_id: CurrentTenantId = None,
+    tenant_id: CurrentTenantId,
+    _current_user: CurrentUser,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = PromptService(db, tenant_id)
     result = svc.test_run(prompt_id, data)

@@ -2,14 +2,37 @@
 
 所有API前缀: `/api`
 
-通用响应格式:
-```json
+> **前缀实现方式**：应用内路由**不带** `/api`（例如 `/auth`、`/agent`），`/api` 由网关层添加——
+> 开发环境由 Vite 代理 `rewrite` 剥离（`frontend/vite.config.ts`），生产环境由 Nginx `location /api/` 剥离
+> （`frontend/nginx.conf`）。本文档表格中的路径均为**客户端可见路径**（含 `/api` 前缀）。
+> 历史上后端曾使用 `openapi_prefix="/api"` 参数，该参数在 FastAPI 中已废弃，现已移除。
+
+> **文档一致性状态**：§4、§5、§6、§9、§11、§13、§14 已逐条对照实现核对并修订
+> （未实现/已移除的条目已显式标注）。其余章节仍为设计稿，未逐条验证。
+
+通用响应格式（成功 / 失败信封的**单一权威定义**，C2）:
+
+```jsonc
+// 成功
 {
-  "code": 0,
+  "code": 0,                 // 固定为 0
   "message": "success",
-  "data": {}
+  "data": {}                 // 业务数据；分页接口为 { items, total, page, page_size }
+}
+
+// 失败（由全局异常处理器统一产出，结构稳定）
+{
+  "code": 400,               // 取 HTTP 状态码（400/401/403/404/409/422/429/502…）
+  "error_code": "NOT_FOUND", // 业务错误码（字符串），仅 AppException 派生类携带；
+                             // 裸 HTTPException（如参数校验）无此字段
+  "message": "Resource not found (id=1)",
+  "data": null
 }
 ```
+
+> 约定：前端**仅按 `code === 0` 判定成功**，不依赖具体错误码取值；`error_code`
+> 仅供需要按错误类型差异化处理的场景（如 `QUOTA_EXCEEDED` 跳转充值页）。
+> 限流触发时返回 `code: 429` 并带 `Retry-After` / `X-RateLimit-*` 响应头。
 
 分页响应格式:
 ```json
@@ -80,38 +103,52 @@
 
 ---
 
-## 4. 租户管理 `/api/tenants`
+## 4. 租户管理（无独立 `/api/tenants` 路由）
 
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| GET | /tenants/current | 当前租户信息 | - |
-| PUT | /tenants/current | 更新租户信息 | tenant:update |
-| GET | /tenants/current/members | 租户成员列表 | tenant:read |
-| PUT | /tenants/current/members/{user_id}/role | 修改成员角色 | tenant:update |
+> **实现说明**：后端**未实现** `/api/tenants` 独立路由。租户能力实际分布在两处：
+> - 当前租户信息的读取/更新：`GET|PUT /api/system/tenant`（`backend/app/api/system.py`）
+> - 租户的创建/启停/套餐/统计：`/api/admin/tenants/*`（见 §14，仅平台超级管理员）
+>
+> 下表为**原始设计稿**，保留以供后续演进参考，当前均未实现：
 
----
-
-## 5. API密钥 `/api/api-keys`
-
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| GET | /api-keys | 密钥列表 | api_key:read |
-| POST | /api-keys | 创建密钥(返回明文key) | api_key:create |
-| DELETE | /api-keys/{id} | 删除密钥 | api_key:delete |
-| PUT | /api-keys/{id}/status | 启用/禁用密钥 | api_key:update |
+| 方法 | 路径 | 说明 | 权限 | 状态 |
+|------|------|------|------|------|
+| GET | /tenants/current | 当前租户信息 | - | ❌ 未实现（实际：`GET /api/system/tenant`） |
+| PUT | /tenants/current | 更新租户信息 | tenant:update | ❌ 未实现（实际：`PUT /api/system/tenant`） |
+| GET | /tenants/current/members | 租户成员列表 | tenant:read | ❌ 未实现 |
+| PUT | /tenants/current/members/{user_id}/role | 修改成员角色 | tenant:update | ❌ 未实现 |
 
 ---
 
-## 6. AI供应商 `/api/ai-providers`
+## 5. API密钥 `/api/api-keys`（未实现，已移除死代码）
+
+> **状态**：该能力**未实现**。仓库中原先只存在未被任何 service / route 引用的死代码
+> （`models/api_key.py`、`core/security.generate_api_key`），已按评审结论 **A2** 删除
+> （见 `docs/review/01-backend.md`），并附带 Alembic 迁移 `b2c3d4e5f6a7` 清理孤立的 `api_keys` 表。
+> 下表为**原始设计稿**，如需该能力应另行立项实现：
+
+| 方法 | 路径 | 说明 | 权限 | 状态 |
+|------|------|------|------|------|
+| GET | /api-keys | 密钥列表 | api_key:read | ❌ 未实现 |
+| POST | /api-keys | 创建密钥(返回明文key) | api_key:create | ❌ 未实现 |
+| DELETE | /api-keys/{id} | 删除密钥 | api_key:delete | ❌ 未实现 |
+| PUT | /api-keys/{id}/status | 启用/禁用密钥 | api_key:update | ❌ 未实现 |
+
+---
+
+## 6. AI供应商 `/api/providers`
+
+> 实际注册前缀为 `/providers`（`backend/app/main.py`），而非 `/ai-providers`。
+> 权限守卫为 `require_tenant_admin`（租户级配置资源，仅租户管理员可写）。
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| GET | /ai-providers | 供应商列表 | provider:read |
-| POST | /ai-providers | 创建供应商 | provider:create |
-| GET | /ai-providers/{id} | 供应商详情 | provider:read |
-| PUT | /ai-providers/{id} | 更新供应商 | provider:update |
-| DELETE | /ai-providers/{id} | 删除供应商 | provider:delete |
-| POST | /ai-providers/{id}/test | 测试连通性 | provider:execute |
+| GET | /providers | 供应商列表 | require_tenant_admin |
+| POST | /providers | 创建供应商 | require_tenant_admin |
+| GET | /providers/{id} | 供应商详情 | require_tenant_admin |
+| PUT | /providers/{id} | 更新供应商 | require_tenant_admin |
+| DELETE | /providers/{id} | 删除供应商 | require_tenant_admin |
+| POST | /providers/{id}/test | 测试连通性 | require_tenant_admin |
 
 ---
 
@@ -153,7 +190,7 @@
 
 ## 9. 知识库 `/api/knowledge`（已实现）
 
-实际 API 路径前缀为 `/api/knowledge`（而非 `/api/knowledge-bases`），共实现 13 个端点。
+实际 API 路径前缀为 `/api/knowledge`（而非 `/api/knowledge-bases`），共实现 11 个端点。
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
@@ -229,21 +266,30 @@ Content-Type: application/json
 
 ---
 
-## 11. Agent `/api/agents`
+## 11. Agent `/api/agent`
+
+> 实际注册前缀为 `/agent`（`backend/app/main.py`），路径段为 `/agents/...`；
+> **SSE 流式端点是 `/chat/stream`**，`/chat` 为阻塞式（一次性返回）。原文档将两者标注反了，
+> 且 `/chat/block` 端点并不存在。权限为 `require_permission("agent", <action>)`。
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| GET | /agents | Agent列表 | agent:read |
-| POST | /agents | 创建Agent | agent:create |
-| GET | /agents/{id} | Agent详情 | agent:read |
-| PUT | /agents/{id} | 更新Agent | agent:update |
-| DELETE | /agents/{id} | 删除Agent | agent:delete |
-| POST | /agents/{id}/chat | 发起对话(SSE流式) | agent:execute |
-| POST | /agents/{id}/chat/block | 发起对话(阻塞模式) | agent:execute |
-| GET | /agents/{id}/conversations | 对话列表 | agent:read |
-| GET | /agents/{id}/conversations/{conv_id} | 对话详情 | agent:read |
-| GET | /agents/{id}/conversations/{conv_id}/messages | 消息历史 | agent:read |
-| DELETE | /agents/{id}/conversations/{conv_id} | 删除对话 | agent:delete |
+| GET | /agent/agents | Agent列表 | - |
+| POST | /agent/agents | 创建Agent | agent.create |
+| GET | /agent/agents/tool-catalog | 可授权给 Agent 的插件候选目录 | - |
+| GET | /agent/agents/{agent_id} | Agent详情 | - |
+| PUT | /agent/agents/{agent_id} | 更新Agent | agent.update |
+| DELETE | /agent/agents/{agent_id} | 删除Agent | agent.delete |
+| POST | /agent/conversations | 创建对话 | agent.chat |
+| GET | /agent/agents/{agent_id}/conversations | 某 Agent 的对话列表 | - |
+| GET | /agent/conversations/{conversation_id} | 对话详情 | - |
+| PUT | /agent/conversations/{conversation_id} | 更新对话 | agent.chat |
+| DELETE | /agent/conversations/{conversation_id} | 删除对话 | agent.chat |
+| POST | /agent/agents/{agent_id}/chat | 发起对话（阻塞模式，一次性返回） | agent.chat |
+| POST | /agent/agents/{agent_id}/chat/stream | 发起对话（**SSE 流式**） | agent.chat |
+
+> **未实现**：原文档中的 `GET /agents/{id}/conversations/{conv_id}/messages`
+> （消息历史）端点不存在；对话详情接口已包含消息内容。
 
 ---
 
@@ -264,17 +310,28 @@ Content-Type: application/json
 | GET | /plugins/{id}/config | 获取插件配置 | plugin:read |
 | PUT | /plugins/{id}/config | 更新插件配置 | plugin:update |
 
+**列表筛选参数**：`GET /plugins?plugin_type=tool&source_type=http&status=active&include_public=true`
+
+- `plugin_type` 能力形态（插件做什么）：`tool` / `connector` / `processor`；
+- `source_type` 接入方式（插件怎么接进来）：`http` / `mcp` / `skill`。
+
+创建/更新时的 `plugin_type` 与 `source_type` 均受枚举校验，非法值返回 `422`。
+两者的语义、使用场景与选型见 [plugin-types.md](plugin-types.md)。
+
 ---
 
 ## 13. 审计与监控 `/api/audit`
 
+> 实际共实现 4 个端点；原文档中的 `token-usage` / `model-stats` 名称有误，
+> `export` 端点未实现。
+
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| GET | /audit/logs | 审计日志查询(分页+筛选) | audit:read |
-| GET | /audit/token-usage | Token用量统计 | audit:read |
-| GET | /audit/model-stats | 模型调用统计 | audit:read |
-| GET | /audit/dashboard | 监控仪表盘数据 | audit:read |
-| GET | /audit/export | 导出审计数据 | audit:export |
+| GET | /audit/logs | 审计日志查询(分页+筛选) | require_permission |
+| GET | /audit/model-calls | 模型调用记录 | require_permission |
+| GET | /audit/token-stats | Token 用量统计 | require_permission |
+| GET | /audit/dashboard | 监控仪表盘数据 | require_permission |
+| GET | /audit/export | 导出审计数据 | ❌ 未实现 |
 
 **审计日志筛选参数**: `?action=login&resource_type=user&user_id=1&start_date=2024-01-01&end_date=2024-12-31&page=1&page_size=20`
 
@@ -288,22 +345,24 @@ Content-Type: application/json
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /admin/tenants | 租户列表（分页，支持 status/plan 筛选） |
-| POST | /admin/tenants | 手动创建租户（指定 plan/配额，适用企业客户） |
-| GET | /admin/tenants/{id} | 租户详情（含成员数、用量统计） |
-| PUT | /admin/tenants/{id}/status | 启用/禁用租户 |
-| PUT | /admin/tenants/{id}/plan | 变更套餐及配额（max_users/max_models） |
-| DELETE | /admin/tenants/{id} | 注销租户（软删除，触发 Celery 异步清理任务） |
-| GET | /admin/tenants/{id}/stats | 租户用量统计（token 消耗/用户数/调用次数） |
+| GET | /admin/tenants | 租户列表 |
+| POST | /admin/tenants | 创建租户 |
+| GET | /admin/tenants/{tenant_id} | 租户详情 |
+| PUT | /admin/tenants/{tenant_id} | 更新租户（含状态/套餐字段） |
+| PUT | /admin/tenants/{tenant_id}/quota | 设置租户配额 |
+| DELETE | /admin/tenants/{tenant_id} | 删除租户 |
+| GET | /admin/tenants/{id}/stats | 租户用量统计 | ❌ 未实现（无独立端点） |
 
-### 平台公共模型管理 `/api/admin/ai-models`
+### 平台公共模型管理 `/api/admin/models`
+
+> 实际前缀为 `/admin/models`（而非 `/admin/ai-models`）。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /admin/ai-models | 平台公共模型列表（`tenant_id IS NULL`） |
-| POST | /admin/ai-models | 创建平台公共模型（所有租户只读可用） |
-| PUT | /admin/ai-models/{id} | 更新平台公共模型 |
-| DELETE | /admin/ai-models/{id} | 删除平台公共模型 |
+| GET | /admin/models | 平台公共模型列表（`tenant_id IS NULL`） |
+| POST | /admin/models | 创建平台公共模型（所有租户只读可用） |
+| PUT | /admin/models/{model_id} | 更新平台公共模型 |
+| DELETE | /admin/models/{model_id} | 删除平台公共模型 |
 
 **Dashboard响应示例**:
 ```json

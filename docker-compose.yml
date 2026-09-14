@@ -163,10 +163,12 @@ services:
     depends_on:
       - backend
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      # nginx 在容器内监听 80（见 frontend/nginx.conf / Dockerfile EXPOSE 80），
+      # 对外暴露到宿主机 3000：宿主机端口:容器端口 = 3000:80
+      - "${FRONTEND_PORT:-3000}:80"
     healthcheck:
       # nginx 仅 listen 80（IPv4），容器内 localhost 会解析到 IPv6 ::1 导致误判 unhealthy，改用 127.0.0.1
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5

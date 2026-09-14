@@ -77,13 +77,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _get_client_ip(request: Request) -> str:
-        # 优先从代理头获取真实 IP
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
+        # 仅信任由受信反向代理（nginx）基于 TCP 对端地址写入的 X-Real-IP。
+        # nginx 以 ``proxy_set_header X-Real-IP $remote_addr`` 覆盖该头，客户端无法伪造（S7）。
+        # 直连 / 开发环境无该头时，回退到 TCP 对端地址。
+        # 不再读取客户端可控的 X-Forwarded-For 首段，防止攻击者用不同 XFF 绕过限流。
         real_ip = request.headers.get("X-Real-IP")
         if real_ip:
-            return real_ip
+            return real_ip.strip()
         if request.client:
             return request.client.host
         return "unknown"

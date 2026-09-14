@@ -56,8 +56,3 @@ def decode_token(token: str) -> dict[str, Any]:
         return payload
     except jwt.InvalidTokenError:
         raise ValueError("Invalid token")
-
-
-def generate_api_key() -> str:
-    import secrets
-    return f"ask-{secrets.token_urlsafe(32)}"

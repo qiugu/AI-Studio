@@ -1,7 +1,6 @@
 """插件服务：CRUD / OpenAPI 解析 / 端点管理 / 租户配置 / 连通性测试"""
 from __future__ import annotations
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.plugin import Plugin, PluginConfig, PluginEndpoint
@@ -20,9 +19,20 @@ from app.core.exceptions import (
     ForbiddenException,
     ValidationException,
 )
+from app.core.plugin_policy import (
+    AGENT_EXPOSABLE_PLUGIN_STATUSES,
+    BINDABLE_SOURCE_TYPES,
+    check_plugin_bindable,
+)
+from app.core.tenant_scope import public_or_tenant_filter
 from app.utils.plugin_executor import execute_plugin_call
 
 _SUPPORTED_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH"}
+
+# 候选目录的返回上限。候选面是给用户挑选的，不应无界返回——插件数量增长时
+# 响应体会线性膨胀。超限时应通过 keyword / plugin_type 收窄，而不是翻页：
+# 用户的挑选动作是一次性的，翻页只会割裂候选的整体视图。
+MAX_BINDABLE_PLUGINS = 200
 
 
 class PluginService:
@@ -34,12 +44,9 @@ class PluginService:
     # ── 公共查询过滤 ─────────────────────────────────────────────────────────
 
     def _base_filter(self, include_public: bool = False):
-        if include_public:
-            return or_(
-                Plugin.tenant_id == self.tenant_id,
-                Plugin.tenant_id.is_(None),
-            )
-        return Plugin.tenant_id == self.tenant_id
+        # 复用全局租户过滤器的公共行可见性规则（与 Plugin.__tenant_scope_clause__ 一致），
+        # 消除手写 or_(tenant_id == X, tenant_id.is_(None)) 的语义分歧。
+        return public_or_tenant_filter(Plugin, self.tenant_id, include_public=include_public)
 
     def _get_or_404(self, plugin_id: str) -> Plugin:
         plugin = (
@@ -59,11 +66,14 @@ class PluginService:
         page_size: int = 20,
         include_public: bool = True,
         plugin_type: str | None = None,
+        source_type: str | None = None,
         status: str | None = None,
     ):
         query = self.db.query(Plugin).filter(self._base_filter(include_public))
         if plugin_type:
             query = query.filter(Plugin.plugin_type == plugin_type)
+        if source_type:
+            query = query.filter(Plugin.source_type == source_type)
         if status:
             query = query.filter(Plugin.status == status)
         total = query.count()
@@ -86,6 +96,68 @@ class PluginService:
         plugin._endpoints = endpoints  # type: ignore[attr-defined]
         return plugin
 
+    # ── Agent 可绑定候选目录 ────────────────────────────────────────────────
+
+    def list_bindable_for_agent(
+        self,
+        plugin_type: str | None = None,
+        keyword: str | None = None,
+        limit: int = MAX_BINDABLE_PLUGINS,
+    ) -> list[tuple[Plugin, list[PluginEndpoint]]]:
+        """返回可授权给 Agent 的插件候选：``[(plugin, endpoints), ...]``。
+
+        这是**设计期**的候选面，回答「用户能给 Agent 选什么」，而非「仓库里有什么」。
+        裁剪条件与写入校验共用 ``check_plugin_bindable``，保证「选得到」与「存得下」
+        永远一致：
+
+        - 状态为 ``active``（``disabled`` / ``pending_review`` 不进候选）；
+        - 接入方式已实现（``source_type=http``；``mcp`` / ``skill`` 的执行器未落地）；
+        - 至少有一个端点（无端点即无可授权的内容）；
+        - 归属为本租户或平台公共插件。
+
+        端点按插件一次性批量查出后分组，避免逐个插件查询造成的 N+1。
+        返回上限见 ``MAX_BINDABLE_PLUGINS``。
+        """
+        query = self.db.query(Plugin).filter(
+            self._base_filter(include_public=True),
+            Plugin.status.in_(sorted(AGENT_EXPOSABLE_PLUGIN_STATUSES)),
+            Plugin.source_type.in_(sorted(BINDABLE_SOURCE_TYPES)),
+        )
+        if plugin_type:
+            query = query.filter(Plugin.plugin_type == plugin_type)
+        if keyword:
+            query = query.filter(Plugin.name.like(f"%{keyword}%"))
+
+        plugins = (
+            query.order_by(Plugin.plugin_type, Plugin.name)
+            .limit(max(1, limit))
+            .all()
+        )
+        if not plugins:
+            return []
+
+        grouped: dict[str, list[PluginEndpoint]] = {}
+        endpoints = (
+            self.db.query(PluginEndpoint)
+            .filter(PluginEndpoint.plugin_id.in_([p.id for p in plugins]))
+            .order_by(PluginEndpoint.created_at)
+            .all()
+        )
+        for endpoint in endpoints:
+            grouped.setdefault(endpoint.plugin_id, []).append(endpoint)
+
+        result: list[tuple[Plugin, list[PluginEndpoint]]] = []
+        for plugin in plugins:
+            plugin_endpoints = grouped.get(plugin.id, [])
+            # 用同一判据复核一次：SQL 已过滤状态与接入方式，此处补齐「端点数量」条件，
+            # 并确保后续若新增裁剪条件时无需在两处同步修改。
+            if check_plugin_bindable(
+                plugin.status, plugin.source_type, len(plugin_endpoints)
+            ):
+                continue
+            result.append((plugin, plugin_endpoints))
+        return result
+
     def create(self, data: PluginCreate) -> Plugin:
         if data.is_public and not self.is_platform_admin:
             raise ForbiddenException("plugin", "create_public")
@@ -93,6 +165,7 @@ class PluginService:
             tenant_id=None if data.is_public else self.tenant_id,
             name=data.name,
             plugin_type=data.plugin_type,
+            source_type=data.source_type,
             version=data.version,
             description=data.description,
             config_schema=data.config_schema,

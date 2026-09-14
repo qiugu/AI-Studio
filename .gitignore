@@ -1,3 +1,20 @@
 .venv/
 __pycache__/
 .env
+.env.bak*
+.workbuddy/
+node_modules/
+
+# HuggingFace 模型与数据集缓存（约 3 GB，可由脚本重新下载）
+.hf-cache/
+
+# 测试与评测生成的中间产物（可重新生成，不入库）
+backend/.pytest-tmp/
+backend/.pytest_run/
+.pytest_cache/
+backend/data/rag_eval/reports/
+# 采样子集规模较大（约 10 MB+），由 prepare_rag_eval_dataset.py + 固定 seed 完整可复现；
+# 金标准（golden.jsonl / manifest.json）体积小且是人工审阅对象，故保留入库。
+backend/data/rag_eval/corpus.jsonl
+backend/data/rag_eval/chunks.jsonl
+backend/data/rag_eval/index_manifest.json

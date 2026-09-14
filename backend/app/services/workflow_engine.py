@@ -5,8 +5,10 @@ import json
 import re
 import uuid
 
+import asyncio
 from sqlalchemy.orm import Session
 from collections import deque
+from app.core.config import config
 
 from app.models.workflow import Workflow
 from app.models.workflow_node import WorkflowNode
@@ -277,11 +279,34 @@ class WorkflowEngine:
             max_tokens=max_tokens,
         )
 
-        from langchain_core.messages import HumanMessage
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        response = await self._invoke_llm_with_retry(llm, prompt)
 
         output_variable = config.get("output_variable", "output")
         return {output_variable: response.content}
+
+    async def _invoke_llm_with_retry(self, llm, prompt: str, max_retries: int = 2):
+        """带重试地调用 LLM（A3）。
+
+        单点 LLM 调用已受客户端超时约束（utils/llm.py），此处叠加重试以容忍
+        瞬时网络/限流错误，避免工作流因一次抖动而整体失败。
+        """
+        from langchain_core.messages import HumanMessage
+        last_exc = None
+        for attempt in range(max_retries + 1):
+            try:
+                return await llm.ainvoke([HumanMessage(content=prompt)])
+            except Exception as e:  # noqa: BLE001 - 重试需捕获所有瞬时异常
+                last_exc = e
+                if attempt < max_retries:
+                    logger.warning(
+                        "LLM 调用失败，第 %d/%d 次重试: %s", attempt + 1, max_retries, e
+                    )
+                    await asyncio.sleep(min(2 ** attempt, 10))
+                    continue
+                break
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("LLM 调用失败")
 
     def _render_template(self, template: str, context: Dict[str, Any]) -> str:
         """渲染模板（替换变量）"""
@@ -357,7 +382,7 @@ class WorkflowEngine:
 
         from app.services.knowledge import KnowledgeBaseService
         kb_service = KnowledgeBaseService(self.db, str(self.tenant_id))
-        results = kb_service.search(kb_id=str(kb_id), query_text=query, top_k=top_k)
+        results = kb_service.search(kb_id=str(kb_id), query=query, top_k=top_k)
 
         output_variable = config.get("output_variable", "knowledge_result")
         return {
@@ -530,20 +555,26 @@ class WorkflowEngine:
 
             context = {"input": input_data or {}}
 
-            for node_id in node_order:
-                node = nodes[node_id]
+            async def _run_nodes():
+                for node_id in node_order:
+                    node = nodes[node_id]
 
-                node_input = {}
-                for edge in workflow.edges:
-                    if edge.target_node_id == node_id:
-                        source_node = nodes[edge.source_node_id]
-                        source_output = context.get(f"node_{source_node.id}", {})
-                        node_input.update(source_output)
+                    node_input = {}
+                    for edge in workflow.edges:
+                        if edge.target_node_id == node_id:
+                            source_node = nodes[edge.source_node_id]
+                            source_output = context.get(f"node_{source_node.id}", {})
+                            node_input.update(source_output)
 
-                node_output = await self.execute_node(node, node_input, execution.id)
+                    node_output = await self.execute_node(node, node_input, execution.id)
 
-                context[f"node_{node.id}"] = node_output
-                context.update(node_output)
+                    context[f"node_{node.id}"] = node_output
+                    context.update(node_output)
+
+            # A3：整体执行超时保护，避免单个工作流无限挂起占用请求。
+            await asyncio.wait_for(
+                _run_nodes(), timeout=config.workflow_execution_timeout_seconds
+            )
 
             end_nodes = [n for n in workflow.nodes if n.node_type == "end"]
             final_output = {}

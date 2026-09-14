@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import or_
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.prompt import Prompt
@@ -19,6 +19,7 @@ from app.schemas.prompt import (
     PromptTestResult,
 )
 from app.core.exceptions import NotFoundException, ValidationException
+from app.core.tenant_scope import public_or_tenant_filter
 from app.utils import llm as llm_utils
 from app.utils.encryption import decrypt
 
@@ -128,6 +129,7 @@ class PromptService:
         variables = self._extract_variables(data.content)
         version = PromptVersion(
             prompt_id=prompt.id,
+            tenant_id=self.tenant_id,
             version_number=1,
             content=data.content,
             variables=variables,
@@ -164,6 +166,26 @@ class PromptService:
             .all()
         )
 
+    def _next_version_number(self, prompt_id: str) -> int:
+        """计算某 prompt 的下一个版本号。
+
+        刻意走 **Core 级查询**（表对象 ``PromptVersion.__table__``，而非 ORM 实体）：
+        全局租户过滤器（S3，``with_loader_criteria``）会对含 ``tenant_id`` 列的
+        ORM 实体 SELECT 自动注入 ``tenant_id == 当前租户`` 条件。若历史版本行的
+        ``tenant_id`` 与当前租户不一致（如迁移回填未执行的存量数据），ORM 查询会
+        "看不到"已有版本，导致 next_num 误算为 1，进而撞上
+        ``(prompt_id, version_number)`` 唯一键（MySQL 1062）。
+
+        版本号是 prompt 的固有属性，且 prompt 归属已由 ``_get_or_404`` 做过租户
+        校验，此处按 prompt_id 取真实最大版本号即可，不应再受租户视图过滤影响。
+        """
+        max_num = self.db.execute(
+            select(func.max(PromptVersion.__table__.c.version_number)).where(
+                PromptVersion.__table__.c.prompt_id == prompt_id
+            )
+        ).scalar()
+        return (max_num or 0) + 1
+
     def create_version(
         self,
         prompt_id: str,
@@ -171,16 +193,11 @@ class PromptService:
         user_id: str | None = None,
     ) -> PromptVersion:
         self._get_or_404(prompt_id)
-        last = (
-            self.db.query(PromptVersion)
-            .filter(PromptVersion.prompt_id == prompt_id)
-            .order_by(PromptVersion.version_number.desc())
-            .first()
-        )
-        next_num = (last.version_number + 1) if last else 1
+        next_num = self._next_version_number(prompt_id)
         variables = self._extract_variables(data.content)
         version = PromptVersion(
             prompt_id=prompt_id,
+            tenant_id=self.tenant_id,
             version_number=next_num,
             content=data.content,
             variables=variables,
@@ -220,7 +237,7 @@ class PromptService:
             self.db.query(AIModel)
             .filter(
                 AIModel.id == data.model_id,
-                or_(AIModel.tenant_id == self.tenant_id, AIModel.tenant_id.is_(None)),
+                public_or_tenant_filter(AIModel, self.tenant_id, include_public=True),
             )
             .first()
         )

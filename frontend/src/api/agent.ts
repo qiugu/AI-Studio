@@ -13,6 +13,7 @@ import type {
   ConversationUpdateRequest,
   ChatRequest,
   ChatResponse,
+  ToolCatalogPlugin,
 } from '@/types/agent'
 
 /**
@@ -44,6 +45,25 @@ export async function updateAgent(agentId: string, data: AgentUpdateRequest): Pr
 // 删除 Agent
 export async function deleteAgent(agentId: string): Promise<ApiResponse<void>> {
   return client.delete(`/agent/agents/${agentId}`) as Promise<ApiResponse<void>>
+}
+
+/**
+ * 获取可授权给 Agent 的插件候选目录。
+ *
+ * 这是设计期的候选面：服务端已按 归属 / 状态 / 接入方式 / 端点数量 裁剪，
+ * 前端直接展示即可，不要重复判断「是否可用」，否则两端口径会漂移。
+ */
+export async function getToolCatalog(params?: {
+  plugin_type?: string
+  keyword?: string
+}): Promise<ApiResponse<ToolCatalogPlugin[]>> {
+  const search = new URLSearchParams()
+  if (params?.plugin_type) search.set('plugin_type', params.plugin_type)
+  if (params?.keyword) search.set('keyword', params.keyword)
+  const query = search.toString()
+  return client.get(
+    `/agent/agents/tool-catalog${query ? `?${query}` : ''}`
+  ) as Promise<ApiResponse<ToolCatalogPlugin[]>>
 }
 
 /**

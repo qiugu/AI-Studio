@@ -1,6 +1,10 @@
 // ── 插件系统 ────────────────────────────────────────────────────────────────
 
-export type PluginType = 'tool' | 'provider' | 'processor' | 'connector'
+// 维度 A · 能力形态（插件「做什么」）
+export type PluginType = 'tool' | 'connector' | 'processor'
+
+// 维度 B · 接入方式（插件「怎么接进来」）
+export type PluginSourceType = 'http' | 'mcp' | 'skill'
 
 export type PluginStatus = 'active' | 'disabled' | 'pending_review'
 
@@ -21,6 +25,7 @@ export interface Plugin {
   tenant_id: string | null
   name: string
   plugin_type: PluginType
+  source_type: PluginSourceType
   version: string
   description?: string | null
   config_schema?: Record<string, unknown> | null
@@ -38,6 +43,7 @@ export interface Plugin {
 export interface PluginCreateRequest {
   name: string
   plugin_type?: PluginType
+  source_type?: PluginSourceType
   version?: string
   description?: string
   config_schema?: Record<string, unknown>
@@ -52,6 +58,7 @@ export interface PluginCreateRequest {
 export interface PluginUpdateRequest {
   name?: string
   plugin_type?: PluginType
+  source_type?: PluginSourceType
   version?: string
   description?: string
   config_schema?: Record<string, unknown>

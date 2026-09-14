@@ -1,7 +1,7 @@
 """知识库 API 路由"""
 from typing import Optional
 import uuid
-from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
@@ -11,7 +11,8 @@ from app.services.knowledge import KnowledgeBaseService
 from app.models.knowledge_document import DocumentStatus
 from app.schemas.common import ResponseBase, PaginatedResponse
 from app.schemas.knowledge import KnowledgeBaseResponse, KnowledgeDocumentResponse
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, BadRequestException
+from app.core.config import config
 import tempfile
 import os
 
@@ -25,7 +26,10 @@ router = APIRouter()
 async def create_knowledge_base(
     name: str = Query(..., min_length=1, max_length=255),
     description: Optional[str] = Query(None, max_length=500),
-    embedding_model: Optional[str] = Query("text-embedding-3-small"),
+    embedding_model: Optional[str] = Query(
+        None,
+        description="向量模型标识；缺省时使用服务端配置 embedding_model",
+    ),
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -41,7 +45,7 @@ async def create_knowledge_base(
             data=KnowledgeBaseResponse.model_validate(kb).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.get(
@@ -81,7 +85,7 @@ async def list_knowledge_bases(
             },
         }
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.get(
@@ -101,7 +105,7 @@ async def get_knowledge_base(
             data=KnowledgeBaseResponse.model_validate(kb).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.put(
@@ -124,7 +128,7 @@ async def update_knowledge_base(
             data=KnowledgeBaseResponse.model_validate(kb).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.delete(
@@ -142,7 +146,7 @@ async def delete_knowledge_base(
         service.delete_knowledge_base(kb_id)
         return {"code": 0, "message": "success", "data": None}
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 # ── 文档 API ─────────────────────────────────────────────────────────────────
@@ -159,42 +163,59 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
 ):
     """上传文档"""
+    # 1) 扩展名白名单
+    valid_types = ["txt", "pdf", "docx", "md"]
+    file_ext = file.filename.split(".")[-1].lower() if "." in file.filename else ""
+    if file_ext not in valid_types:
+        raise BadRequestException(f"Unsupported file type: {file_ext}")
+
+    # 2) 文件头（magic bytes）校验，防止仅靠扩展名伪造类型
+    magic_map = {
+        "pdf": b"%PDF",
+        "docx": b"PK\x03\x04",
+        # txt/md 为纯文本，不强制 magic，交由后续解析
+    }
+    head = await file.read(8)
+    expected = magic_map.get(file_ext)
+    if expected is not None and not head.startswith(expected):
+        raise BadRequestException(f"File content does not match extension: {file_ext}")
+
+    # 3) 分块读取并强制大小上限，避免整文件读入内存被打满（DoS）
+    max_bytes = config.max_upload_size_mb * 1024 * 1024
+    chunks: list[bytes] = [head]
+    total = len(head)
+    while True:
+        if total > max_bytes:
+            raise BadRequestException("Uploaded file exceeds size limit")
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        chunks.append(chunk)
+    content = b"".join(chunks)
+
+    # 4) 落临时文件
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
     try:
-        # 验证文件类型
-        valid_types = ["txt", "pdf", "docx", "md"]
-        file_ext = file.filename.split(".")[-1].lower() if "." in file.filename else ""
-        if file_ext not in valid_types:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported file type: {file_ext}",
-            )
-
-        # 保存临时文件
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        doc = service.upload_document(
+            kb_id=kb_id,
+            file_path=tmp_path,
+            file_name=file.filename,
+            file_type=file_ext,
+        )
+        return ResponseBase.ok(
+            data=KnowledgeDocumentResponse.model_validate(doc).model_dump()
+        )
+    finally:
+        # 清理临时文件
         try:
-            service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
-            doc = service.upload_document(
-                kb_id=kb_id,
-                file_path=tmp_path,
-                file_name=file.filename,
-                file_type=file_ext,
-            )
-            return ResponseBase.ok(
-                data=KnowledgeDocumentResponse.model_validate(doc).model_dump()
-            )
-        finally:
-            # 清理临时文件
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
-
-    except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 @router.get(
@@ -216,10 +237,7 @@ async def list_documents(
             try:
                 doc_status = DocumentStatus(status)
             except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid status: {status}",
-                )
+                raise BadRequestException(f"Invalid status: {status}")
 
         service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
         docs, total = service.list_documents(
@@ -251,7 +269,7 @@ async def list_documents(
             }
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.get(
@@ -271,7 +289,7 @@ async def get_document(
             data=KnowledgeDocumentResponse.model_validate(doc).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.delete(
@@ -289,7 +307,7 @@ async def delete_document(
         service.delete_document(doc_id)
         return ResponseBase.ok()
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 # ── 分块 API ─────────────────────────────────────────────────────────────────
@@ -327,7 +345,7 @@ async def get_document_chunks(
             }
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 # ── 向量检索 API ─────────────────────────────────────────────────────────────
@@ -339,7 +357,12 @@ async def search_knowledge_base(
     kb_id: str,
     query: str = Query(..., min_length=1),
     top_k: int = Query(5, ge=1, le=50),
-    score_threshold: float = Query(0.5, ge=0.0, le=1.0),
+    score_threshold: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="相似度下限；缺省时使用服务端配置 retrieval_score_threshold",
+    ),
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -356,4 +379,4 @@ async def search_knowledge_base(
             data=results
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e

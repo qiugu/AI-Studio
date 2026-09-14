@@ -3,12 +3,13 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Card, Button, Space, Popconfirm, Spin, Empty, Tag, Select, message } from 'antd'
+import { Card, Button, Space, Popconfirm, Spin, Empty, Tag, Select, Tooltip, message } from 'antd'
 import { DeleteOutlined, EditOutlined, RobotOutlined, MessageOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import * as agentApi from '@/api/agent'
 import { type Agent, type AgentStatus } from '@/types/agent'
 import Pagination from '@/components/Pagination'
+import { summarizeBoundTools } from './agentToolBinding'
 
 export default function AgentList() {
   const navigate = useNavigate()
@@ -119,7 +120,20 @@ export default function AgentList() {
                       <div style={{ marginBottom: '8px' }}>{agent.description || '暂无描述'}</div>
                       <Tag color={getStatusColor(agent.status)}>{agent.status}</Tag>
                       {agent.tools && agent.tools.length > 0 && (
-                        <Tag color="blue">{agent.tools.length}个工具</Tag>
+                        <Tooltip
+                          title={
+                            <div>
+                              {summarizeBoundTools(agent.tools).map((item, index) => (
+                                <div key={`${item.plugin}${item.action}${index}`}>
+                                  {item.plugin}
+                                  {item.action ? ` → ${item.action}` : ''}
+                                </div>
+                              ))}
+                            </div>
+                          }
+                        >
+                          <Tag color="blue">{agent.tools.length}个工具</Tag>
+                        </Tooltip>
                       )}
                     </div>
                   }

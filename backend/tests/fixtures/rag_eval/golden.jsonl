@@ -1,0 +1,6 @@
+{"query_id": "q-001", "query": "文档分块大小和重叠长度是多少", "query_type": "fact", "relevant": [{"id": "doc-003"}]}
+{"query_id": "q-002", "query": "bge-base-zh-v1.5 的向量维度", "query_type": "exact_term", "relevant": [{"id": "doc-004"}]}
+{"query_id": "q-003", "query": "任务一直停留在 pending 的原因", "query_type": "paraphrase", "relevant": [{"id": "doc-005"}]}
+{"query_id": "q-004", "query": "相似度阈值的默认值是多少", "query_type": "fact", "relevant": [{"id": "doc-002"}]}
+{"query_id": "q-005", "query": "删除文档后内容仍被检索到", "query_type": "paraphrase", "relevant": [{"id": "doc-007"}]}
+{"query_id": "q-006", "query": "如何保证不会读到其他租户的数据", "query_type": "multi_doc", "relevant": [{"id": "doc-008"}, {"id": "doc-001"}]}

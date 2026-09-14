@@ -12,6 +12,8 @@ from app.core.dependencies import get_current_user, require_permission, CurrentU
 from app.models.user import User
 from app.services.agent import AgentService
 from app.services.conversation import ConversationService
+from app.services.plugin import MAX_BINDABLE_PLUGINS, PluginService
+from app.core.plugin_policy import DESTRUCTIVE_HTTP_METHODS
 from app.schemas.common import ResponseBase, PaginatedResponse
 from app.schemas.agent import (
     AgentCreate,
@@ -55,7 +57,7 @@ async def create_agent(
             data=AgentResponse.model_validate(agent).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.get(
@@ -90,7 +92,62 @@ async def list_agents(
             },
         }
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
+
+
+@router.get(
+    "/agents/tool-catalog",
+    response_model=ResponseBase,
+)
+async def get_agent_tool_catalog(
+    plugin_type: Optional[str] = Query(None, description="按能力形态过滤：tool/connector/processor"),
+    keyword: Optional[str] = Query(None, max_length=100, description="按插件名称模糊搜索"),
+    limit: int = Query(MAX_BINDABLE_PLUGINS, ge=1, le=500, description="返回上限"),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """获取可授权给 Agent 的插件候选目录。
+
+    这是**设计期**的候选面：回答「用户能给这个 Agent 选什么」，而不是「插件仓库里有什么」。
+    服务端已按 归属 / 状态 / 接入方式 / 端点数量 裁剪，因此前端只需展示，不需要自行判断
+    哪些插件可用——否则口径会随两端实现漂移。
+
+    ⚠️ 路由顺序：本路由必须声明在 ``/agents/{agent_id}`` **之前**。FastAPI 按注册顺序
+    匹配，若置于其后，``/agents/tool-catalog`` 会被 ``/agents/{agent_id}`` 当成
+    ``agent_id="tool-catalog"`` 吞掉（表现为 404 或把目录名当 ID 查询）。
+    """
+    try:
+        service = PluginService(db=db, tenant_id=current_user.tenant_id)
+        bindable = service.list_bindable_for_agent(
+            plugin_type=plugin_type, keyword=keyword, limit=limit
+        )
+        items = [
+            {
+                "id": plugin.id,
+                "name": plugin.name,
+                "plugin_type": plugin.plugin_type,
+                "source_type": plugin.source_type,
+                "description": plugin.description,
+                "icon": plugin.icon,
+                # tenant_id 为 NULL 即平台公共插件，前端据此提示「平台内置」
+                "is_public": plugin.tenant_id is None,
+                "endpoints": [
+                    {
+                        "id": endpoint.id,
+                        "endpoint": endpoint.endpoint,
+                        "method": endpoint.method,
+                        "description": endpoint.description,
+                        "is_destructive": endpoint.method.upper()
+                        in DESTRUCTIVE_HTTP_METHODS,
+                    }
+                    for endpoint in endpoints
+                ],
+            }
+            for plugin, endpoints in bindable
+        ]
+        return ResponseBase.ok(data=items)
+    except AppException as e:
+        raise e
 
 
 @router.get(
@@ -110,7 +167,7 @@ async def get_agent(
             data=AgentResponse.model_validate(agent).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=str(e))
+        raise e
 
 
 @router.put(
@@ -132,7 +189,7 @@ async def update_agent(
             data=AgentResponse.model_validate(agent).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.delete(
@@ -151,7 +208,7 @@ async def delete_agent(
         service.delete_agent(agent_id)
         return ResponseBase.ok(message="Agent deleted successfully")
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 # ============ Conversation CRUD ============
@@ -175,7 +232,7 @@ async def create_conversation(
             data=ConversationResponse.model_validate(conv).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.get(
@@ -212,7 +269,7 @@ async def list_conversations(
             },
         }
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.get(
@@ -232,7 +289,7 @@ async def get_conversation(
             data=ConversationResponse.model_validate(conv).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.put(
@@ -254,7 +311,7 @@ async def update_conversation(
             data=ConversationResponse.model_validate(conv).model_dump()
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 @router.delete(
@@ -273,7 +330,7 @@ async def delete_conversation(
         service.delete_conversation(conversation_id)
         return ResponseBase.ok(message="Conversation deleted successfully")
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e
 
 
 # ============ Chat API ============
@@ -339,7 +396,7 @@ async def chat(
             }
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=str(e))
+        raise e
 
 
 @router.post(
@@ -445,4 +502,4 @@ async def chat_stream(
             },
         )
     except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+        raise e

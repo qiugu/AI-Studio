@@ -12,15 +12,65 @@ from app.models.ai_model import AIModel
 from app.models.ai_provider import AIProvider
 from app.repositories.agent import AgentRepository, AgentToolRepository
 from app.core.exceptions import NotFoundException, ValidationException
+from app.core.tenant_scope import public_or_tenant_filter
+from app.core.plugin_policy import (
+    binding_rejection_reason,
+    check_plugin_method_gate,
+    check_plugin_status_gate,
+    has_explicit_endpoint_ref,
+    resolve_bound_endpoint,
+)
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentToolCreate
 from app.utils import llm as llm_utils
 from app.utils.encryption import decrypt
+from app.utils.net_guard import assert_outbound_url_allowed
 from app.services.knowledge import KnowledgeBaseService
 from app.services.token_usage import TokenUsageService
 from app.services.conversation import ConversationService
 from app.services.audit import record_model_call
 
 logger = logging.getLogger(__name__)
+
+
+def _exc_message(exc: Exception) -> str:
+    """提取异常的人类可读信息。
+
+    ``AppException`` 派生类（如 ``BadRequestException``）把 message 放在 ``detail``，
+    ``str(exc)`` 会渲染成 ``400: xxx`` 这类带状态码的字符串，直接回给模型可读性差。
+    """
+    return str(getattr(exc, "detail", None) or exc)
+
+
+def _assert_plugin_tool_bindable(index: int, tool: Any, lookup) -> None:
+    """校验单条 ``plugin`` 类工具绑定是否合法，不合法即抛 ``ValidationException``。
+
+    **设计期门禁**（fail-closed）：在 Agent 创建/更新时就拒绝非法绑定，而不是留到
+    运行时静默跳过。后者会让调用方以为"配上了"，实际工具根本没进工具池。
+
+    ``lookup(plugin_id) -> (plugin, endpoints)`` 由调用方注入：生产路径走
+    ``PluginService.get``（租户内或公共插件，否则 NotFound），单测可传入轻量替身，
+    因此本函数无需数据库即可覆盖。
+    """
+    config = getattr(tool, "config", None) or {}
+    name = getattr(tool, "name", None) or "(未命名)"
+    label = f"第 {index + 1} 个工具「{name}」"
+
+    plugin_id = config.get("plugin_id") if hasattr(config, "get") else None
+    if not plugin_id:
+        raise ValidationException(f"{label}缺少 plugin_id")
+
+    try:
+        plugin, endpoints = lookup(plugin_id)
+    except NotFoundException:
+        # from None：原始 NotFound 的信息已完整并入新消息，保留异常链只会让日志里
+        # 出现无意义的双层 traceback。
+        raise ValidationException(
+            f"{label}引用的插件不存在或不属于当前租户：{plugin_id}"
+        ) from None
+
+    reason = binding_rejection_reason(config, plugin, endpoints)
+    if reason:
+        raise ValidationException(f"{label}不可绑定：{reason}")
 
 
 def _extract_openai_error_message(error: Exception, default_msg: str) -> str:
@@ -110,11 +160,14 @@ class AgentService:
         # 验证AI模型存在
         model = self.db.query(AIModel).filter(
             AIModel.id == data.model_id,
-            (AIModel.tenant_id == self.tenant_id) | (AIModel.tenant_id.is_(None)),
+            public_or_tenant_filter(AIModel, self.tenant_id, include_public=True),
             AIModel.deleted_at.is_(None),
         ).first()
         if not model:
             raise NotFoundException("AIModel", data.model_id)
+
+        # 设计期门禁：写入前校验插件绑定，避免落库后才发现不可用。
+        self._validate_tool_bindings(data.tools)
 
         # 创建Agent
         agent = self.agent_repo.create(
@@ -173,7 +226,7 @@ class AgentService:
         if data.model_id is not None:
             model = self.db.query(AIModel).filter(
                 AIModel.id == data.model_id,
-                (AIModel.tenant_id == self.tenant_id) | (AIModel.tenant_id.is_(None)),
+                public_or_tenant_filter(AIModel, self.tenant_id, include_public=True),
                 AIModel.deleted_at.is_(None),
             ).first()
             if not model:
@@ -186,6 +239,9 @@ class AgentService:
 
         # 更新工具（如果提供）
         if data.tools is not None:
+            # 设计期门禁：必须先校验再删除旧工具。若先删后校验，一次非法提交
+            # 会连带把已有的合法授权清空（虽在同一事务内可回滚，但语义上不该走到那一步）。
+            self._validate_tool_bindings(data.tools)
             # 删除旧工具
             self.tool_repo.delete_by_agent(agent_id)
             # 创建新工具
@@ -207,6 +263,29 @@ class AgentService:
         agent = self.get_agent(agent_id)
         self.agent_repo.delete(agent)
         self.db.commit()
+
+    # ── Agent工具授权校验（设计期门禁） ────────────────────────────────────
+
+    def _lookup_plugin_for_binding(self, plugin_id: str):
+        """取插件及其端点：本租户或平台公共插件，否则抛 ``NotFoundException``。"""
+        from app.services.plugin import PluginService
+
+        plugin = PluginService(self.db, self.tenant_id).get(plugin_id)
+        return plugin, list(getattr(plugin, "_endpoints", None) or [])
+
+    def _validate_tool_bindings(self, tools: Optional[List[AgentToolCreate]]) -> None:
+        """在落库前校验全部 ``plugin`` 类工具绑定（fail-closed）。
+
+        只校验 ``plugin`` 类型——``knowledge`` / ``api`` / ``function`` / ``workflow``
+        各有自己的配置约束，不属本策略范围。
+
+        任一条不合法即抛 ``ValidationException``，**整次请求失败**：部分成功会让调用方
+        无法判断最终状态，也容易掩盖「以为配上了、其实被静默丢弃」的问题。
+        """
+        for index, tool in enumerate(tools or []):
+            if getattr(tool, "tool_type", None) != "plugin":
+                continue
+            _assert_plugin_tool_bindable(index, tool, self._lookup_plugin_for_binding)
 
     # ── Agent工具构建 ───────────────────────────────────────────────────────
 
@@ -230,7 +309,7 @@ class AgentService:
                 
                 def knowledge_search_func(query: str) -> str:
                     """知识库检索"""
-                    results = kb_service.search(kb_id=kb_id, query_text=query, top_k=top_k)
+                    results = kb_service.search(kb_id=kb_id, query=query, top_k=top_k)
                     if not results:
                         return "未找到相关知识"
                     return "\n".join([r.get("content", "") for r in results])
@@ -276,7 +355,12 @@ class AgentService:
                         payload = {"query": query}
 
                     try:
-                        with _httpx.Client(timeout=_timeout) as client:
+                        # 与插件调用同源的风险：目标 URL 由租户配置，须先过出站护栏，
+                        # 否则该工具可直接访问内网 / 云元数据地址。
+                        assert_outbound_url_allowed(_url)
+                        with _httpx.Client(
+                            timeout=_timeout, follow_redirects=False
+                        ) as client:
                             if _method == "GET":
                                 resp = client.request(
                                     _method, _url, params=payload, headers=_headers
@@ -292,7 +376,7 @@ class AgentService:
                             data = resp.text
                         return _json.dumps(data, ensure_ascii=False, default=str)
                     except Exception as e:
-                        return f"API 调用异常：{str(e)}"
+                        return f"API 调用异常：{_exc_message(e)}"
 
                 tools.append(
                     Tool(
@@ -419,11 +503,19 @@ class AgentService:
             # Plugin工具
             elif tool_type == "plugin":
                 from app.services.plugin import PluginService
-                from app.models.plugin import PluginEndpoint
                 from app.utils.plugin_executor import execute_plugin_call
 
                 plugin_id = config.get("plugin_id")
                 if not plugin_id:
+                    continue
+
+                # 门禁 1：必须显式指定端点。先于数据库查询判断，既省去一次注定被拒
+                # 的查询，也让"未配端点"的失败原因更明确。
+                if not has_explicit_endpoint_ref(config):
+                    logger.warning(
+                        "Agent 插件工具跳过：%s 未显式指定端点（endpoint_id / endpoint）",
+                        agent_tool.name,
+                    )
                     continue
 
                 plugin_svc = PluginService(self.db, self.tenant_id)
@@ -433,35 +525,43 @@ class AgentService:
                     logger.warning("Agent 插件工具跳过：插件 %s 不存在", plugin_id)
                     continue
 
-                # 解析目标端点：优先 endpoint_id，其次 endpoint 路径，最后取首个端点
-                endpoint = None
-                endpoint_id = config.get("endpoint_id")
-                if endpoint_id:
-                    endpoint = (
-                        self.db.query(PluginEndpoint)
-                        .filter(
-                            PluginEndpoint.id == endpoint_id,
-                            PluginEndpoint.plugin_id == plugin_id,
-                        )
-                        .first()
+                # 门禁 2：插件状态必须允许暴露。禁用 / 待审插件不得被 Agent 调用，
+                # 否则"停用插件"这一动作在运行时形同虚设。
+                status_reason = check_plugin_status_gate(plugin.status)
+                if status_reason:
+                    logger.warning(
+                        "Agent 插件工具跳过：%s（插件 %s）", status_reason, plugin_id
                     )
-                if endpoint is None and config.get("endpoint"):
-                    endpoint = (
-                        self.db.query(PluginEndpoint)
-                        .filter(
-                            PluginEndpoint.plugin_id == plugin_id,
-                            PluginEndpoint.endpoint == config.get("endpoint"),
-                        )
-                        .first()
-                    )
-                if endpoint is None:
-                    endpoints = getattr(plugin, "_endpoints", None)
-                    endpoint = endpoints[0] if endpoints else None
-                if endpoint is None:
-                    logger.warning("Agent 插件工具跳过：插件 %s 无可用端点", plugin_id)
                     continue
 
-                method = config.get("method") or endpoint.method
+                # 解析目标端点：仅接受配置显式指定的 endpoint_id 或 endpoint 路径。
+                # 与设计期校验共用 resolve_bound_endpoint，避免两处解析规则漂移；
+                # 不再回退到"首个端点"——该兜底使端点选择不可预期，
+                # 且 OpenAPI 规范中破坏性端点常排在前面。
+                # 复用 plugin_svc.get 已加载的端点，省去两次按端点查询。
+                endpoint = resolve_bound_endpoint(
+                    config, getattr(plugin, "_endpoints", None)
+                )
+                if endpoint is None:
+                    logger.warning(
+                        "Agent 插件工具跳过：插件 %s 未找到配置指定的端点", plugin_id
+                    )
+                    continue
+
+                method = (config.get("method") or endpoint.method).upper()
+
+                # 门禁 3：破坏性动词默认不暴露，需显式 allow_destructive=true。
+                method_reason = check_plugin_method_gate(method, config)
+                if method_reason:
+                    logger.warning(
+                        "Agent 插件工具跳过：%s（插件 %s，端点 %s %s）",
+                        method_reason,
+                        plugin_id,
+                        method,
+                        endpoint.endpoint,
+                    )
+                    continue
+
                 config_values = plugin_svc._load_config_dict(plugin_id)
 
                 def plugin_func(
@@ -493,7 +593,7 @@ class AgentService:
                             params=params,
                         )
                     except Exception as e:
-                        return f"插件调用异常：{str(e)}"
+                        return f"插件调用异常：{_exc_message(e)}"
                     if not result["success"]:
                         return f"插件调用失败：{result.get('error')}"
                     return json.dumps(result.get("data"), ensure_ascii=False, default=str)

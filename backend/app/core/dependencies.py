@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from qdrant_client import QdrantClient
 from app.core.security import decode_token
 from app.core.exceptions import UnauthorizedException, ForbiddenException
+from app.core.tenant_scope import set_tenant_scope
 from app.models.user import User
 from app.models.permission import Permission
 from app.models.role_permission import role_permission
@@ -63,6 +64,10 @@ async def get_current_user(
     # 注意：只存储需要的信息，避免 Session 关闭后访问 detached 对象
     request.state.user_id = user.id
     request.state.tenant_id = user.tenant_id
+
+    # S3：将租户作用域注入 ContextVar，供全局查询过滤器（tenant_scope）使用。
+    # 上下文随请求 Task 隔离，平台管理员（is_platform_admin）可跨租户，过滤器会据此跳过。
+    set_tenant_scope(user.tenant_id, user.is_platform_admin)
 
     return user
 

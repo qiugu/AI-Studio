@@ -4,12 +4,24 @@ import urllib3
 from app.utils.embedding import EmbeddingClient, get_embedding_client
 
 
+@pytest.mark.slow
 def test_embedding_client():
+    """本地 sentence-transformers 真实推理（需要 torch 与模型权重，缺失时跳过）
+
+    设计为慢速用例：本机开发 venv 通常不安装 torch（仅 Docker 镜像安装），
+    因此不能让它成为整套测试的硬门槛，否则任何未装重依赖的环境都会红。
+    """
+    pytest.importorskip(
+        "sentence_transformers",
+        reason="本地向量化依赖未安装（torch / sentence-transformers），已跳过真实推理用例",
+    )
     client = get_embedding_client()
     vectors = client.embed(['hello world'])
 
     assert client is not None
     assert vectors is not None
+    assert len(vectors) == 1
+    assert len(vectors[0]) > 0
 
 
 def test_siliconflow_embedding_retries_after_incomplete_read(monkeypatch):

@@ -102,3 +102,7 @@ vine==5.1.0
 wcwidth==0.8.2
 yarl==1.24.5
 zstandard==0.23.0
+# 本地向量化（sentence-transformers）。torch 使用 CPU 版 wheel 以减小镜像体积。
+# 注意：torch 的 +cpu 轮子需配合 PyTorch CPU 源安装（见 Dockerfile 的 --extra-index-url）。
+sentence-transformers==3.3.1
+torch==2.6.0+cpu

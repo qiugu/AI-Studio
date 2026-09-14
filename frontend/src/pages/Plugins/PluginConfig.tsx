@@ -50,6 +50,7 @@ import type {
   PluginEndpointCreateRequest,
   PluginEndpointUpdateRequest,
 } from '@/types/plugin'
+import { pluginSourceMeta, pluginTypeMeta } from './pluginMeta'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -457,6 +458,9 @@ export default function PluginConfig() {
     },
   ]
 
+  const typeMeta = pluginTypeMeta(plugin?.plugin_type)
+  const sourceMeta = pluginSourceMeta(plugin?.source_type)
+
   if (loading) return null
 
   return (
@@ -475,7 +479,14 @@ export default function PluginConfig() {
           <Descriptions column={2} size="small">
             <Descriptions.Item label="名称">{plugin.name}</Descriptions.Item>
             <Descriptions.Item label="类型">
-              <Tag color="blue">{plugin.plugin_type}</Tag>
+              <Tooltip title={`${typeMeta.description} 适用：${typeMeta.useCases}`}>
+                <Tag color={typeMeta.color}>{typeMeta.label}</Tag>
+              </Tooltip>
+            </Descriptions.Item>
+            <Descriptions.Item label="接入方式">
+              <Tooltip title={`${sourceMeta.description} 适用：${sourceMeta.useCases}`}>
+                <Tag color={sourceMeta.color}>{sourceMeta.label}</Tag>
+              </Tooltip>
             </Descriptions.Item>
             <Descriptions.Item label="版本">{plugin.version}</Descriptions.Item>
             <Descriptions.Item label="状态">

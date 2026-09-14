@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.dependencies import CurrentUser, CurrentTenantId
+from app.core.dependencies import CurrentUser, CurrentTenantId, require_tenant_admin
 from app.schemas.ai_model import (
     AIModelCreate,
     AIModelUpdate,
@@ -13,7 +13,7 @@ from app.schemas.ai_model import (
 from app.schemas.common import ResponseBase, PaginatedData
 from app.services.ai_model import AIModelService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_tenant_admin)])
 
 
 @router.get("", response_model=ResponseBase)

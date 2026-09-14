@@ -1,4 +1,4 @@
-import apiClient from './client'
+import apiClient, { AI_REQUEST_TIMEOUT } from './client'
 import type { ApiResponse, PaginatedData, PageParams } from '@/types/api'
 import type {
   Prompt,
@@ -65,6 +65,9 @@ export async function testPrompt(
   promptId: string,
   data: PromptTestRequest
 ): Promise<ApiResponse<PromptTestResult>> {
-  const response = await apiClient.post(`/prompts/${promptId}/test`, data)
+  // 模型推理耗时不定，使用 AI 专用超时，避免被默认 30s 提前中断
+  const response = await apiClient.post(`/prompts/${promptId}/test`, data, {
+    timeout: AI_REQUEST_TIMEOUT,
+  })
   return response as unknown as ApiResponse<PromptTestResult>
 }

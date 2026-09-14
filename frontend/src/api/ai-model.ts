@@ -1,4 +1,4 @@
-import apiClient from './client'
+import apiClient, { AI_REQUEST_TIMEOUT } from './client'
 import type { ApiResponse, PaginatedData, PageParams } from '@/types/api'
 import type {
   AIProvider,
@@ -51,7 +51,10 @@ export async function testProviderConnectivity(
   id: string,
   data: ConnectivityTestRequest
 ): Promise<ApiResponse<ConnectivityTestResult>> {
-  const response = await apiClient.post(`/providers/${id}/test`, data)
+  // 连通性检测会真实调用供应商接口，使用 AI 专用超时
+  const response = await apiClient.post(`/providers/${id}/test`, data, {
+    timeout: AI_REQUEST_TIMEOUT,
+  })
   return response as unknown as ApiResponse<ConnectivityTestResult>
 }
 
@@ -97,6 +100,9 @@ export async function testModel(
   id: string,
   data: ModelTestRequest
 ): Promise<ApiResponse<ModelTestResult>> {
-  const response = await apiClient.post(`/ai-models/${id}/test`, data)
+  // 模型测试会真实推理，使用 AI 专用超时
+  const response = await apiClient.post(`/ai-models/${id}/test`, data, {
+    timeout: AI_REQUEST_TIMEOUT,
+  })
   return response as unknown as ApiResponse<ModelTestResult>
 }

@@ -32,6 +32,11 @@ engine = create_engine(
 
 sessionLocal = sessionmaker(autocommit=False, bind=engine, autoflush=False)
 
+# S3：注册全局租户查询过滤器（机制化兜底，详见 app.core.tenant_scope）。
+from app.core.tenant_scope import register_tenant_filter  # noqa: E402
+
+register_tenant_filter()
+
 
 def get_session() -> Generator[Session, None, None]:
     db = sessionLocal()

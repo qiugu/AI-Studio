@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.ai_model import AIModel
 from app.models.ai_provider import AIProvider
 from app.schemas.ai_model import AIModelCreate, AIModelUpdate, ModelTestResult
 from app.core.exceptions import NotFoundException
+from app.core.tenant_scope import public_or_tenant_filter
 from app.services.quota import QuotaService
 from app.utils import llm as llm_utils
 from app.utils.encryption import decrypt
@@ -18,12 +18,8 @@ class AIModelService:
         self.tenant_id = tenant_id
 
     def _base_filter(self, include_public: bool = False):
-        if include_public:
-            return or_(
-                AIModel.tenant_id == self.tenant_id,
-                AIModel.tenant_id.is_(None),
-            )
-        return AIModel.tenant_id == self.tenant_id
+        # 复用全局租户过滤器的公共行可见性规则（与 AIModel.__tenant_scope_clause__ 一致）。
+        return public_or_tenant_filter(AIModel, self.tenant_id, include_public=include_public)
 
     def _get_or_404(self, model_id: str) -> AIModel:
         model = (

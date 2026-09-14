@@ -1,0 +1,16 @@
+........................................................................ [ 32%]
+........................................................................ [ 65%]
+...................................................................x.... [ 98%]
+....                                                                     [100%]
+=============================== warnings summary ===============================
+tests/test_knowledge_vector_delete.py::TestDeleteDocumentSelector::test_passes_point_ids_list_not_bare_string
+tests/test_knowledge_vector_delete.py::TestDeleteDocumentSelector::test_skips_qdrant_when_no_vector_ids
+tests/test_knowledge_vector_delete.py::TestDeleteDocumentSelector::test_chunks_are_soft_deleted_after_vector_cleanup
+tests/test_knowledge_vector_delete.py::TestDeleteDocumentSelector::test_failure_is_logged_not_swallowed
+  /Volumes/Document/qiugu/AI-Studio/backend/app/services/knowledge.py:222: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deleted_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+XFAIL tests/test_text_splitter.py::TestKnownDefects::test_consecutive_chunks_should_overlap - D11：`TextSplitter._merge_splits` 只比较 `len(current) + len(s) + separator_len`，从未把 `chunk_overlap` 纳入计算，因此声明的 128 字符重叠实际为 0。后果：跨块边界的答案会被一分为二，任何一块都无法独立支撑答案，直接压低 Recall 上限。计划在 Phase 5 修复。
+219 passed, 1 xfailed, 4 warnings in 434.39s (0:07:14)

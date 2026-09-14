@@ -15,6 +15,10 @@ class PromptVersion(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     prompt_id: Mapped[str] = mapped_column(String(36), ForeignKey("prompts.id", ondelete="CASCADE"), nullable=False, index=True)
+    # 纵深防御：prompt_versions 本身缺少 tenant_id，导致按版本查询无法在 DB 层强制租户隔离。
+    # 见 docs/review/01-backend.md S4。通过外键到 prompts 并回填 tenant_id，
+    # 使租户过滤可下推到查询层，降低对 Service 层手工过滤的依赖。
+    tenant_id: Mapped[str] = mapped_column(String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     # variables extracted from content: ["var1", "var2", ...]

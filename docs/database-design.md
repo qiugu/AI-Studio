@@ -456,7 +456,8 @@ Point结构:
 | id | String(36) PK | 主键 |
 | tenant_id | String(36) FK | 所属租户(公共插件为NULL) |
 | name | String(255) | 插件名称 |
-| plugin_type | String(50) | 插件类型(tool/provider/processor/connector) |
+| plugin_type | String(50) | 能力形态(tool/connector/processor)，详见 docs/plugin-types.md |
+| source_type | String(50) | 接入方式(http/mcp/skill)，默认http，详见 docs/plugin-types.md |
 | version | String(20) | 版本号 |
 | description | Text | 描述 |
 | config_schema | JSON | 配置Schema(JSON Schema定义) |

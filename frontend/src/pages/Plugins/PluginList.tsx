@@ -35,28 +35,21 @@ import {
 import type {
   Plugin,
   PluginType,
+  PluginSourceType,
   PluginStatus,
   PluginTestResult,
   PluginCreateRequest,
 } from '@/types/plugin'
+import {
+  PLUGIN_SOURCE_OPTIONS,
+  PLUGIN_TYPE_OPTIONS,
+  pluginSourceMeta,
+  pluginTypeMeta,
+} from './pluginMeta'
 import { useAuthStore } from '@/stores/auth'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
-
-const PLUGIN_TYPE_COLORS: Record<PluginType, string> = {
-  tool: 'blue',
-  provider: 'green',
-  processor: 'purple',
-  connector: 'orange',
-}
-
-const PLUGIN_TYPES = [
-  { value: 'tool', label: '工具 (tool)' },
-  { value: 'provider', label: '供应商 (provider)' },
-  { value: 'processor', label: '处理器 (processor)' },
-  { value: 'connector', label: '连接器 (connector)' },
-]
 
 export default function PluginList() {
   const navigate = useNavigate()
@@ -89,7 +82,13 @@ export default function PluginList() {
   const openCreate = () => {
     setEditing(null)
     form.resetFields()
-    form.setFieldsValue({ plugin_type: 'tool', version: '1.0.0', status: 'active', is_public: false })
+    form.setFieldsValue({
+      plugin_type: 'tool',
+      source_type: 'http',
+      version: '1.0.0',
+      status: 'active',
+      is_public: false,
+    })
     setModalOpen(true)
   }
 
@@ -98,6 +97,7 @@ export default function PluginList() {
     form.setFieldsValue({
       name: plugin.name,
       plugin_type: plugin.plugin_type,
+      source_type: plugin.source_type,
       version: plugin.version,
       description: plugin.description,
       status: plugin.status,
@@ -117,6 +117,7 @@ export default function PluginList() {
       const payload: PluginCreateRequest = {
         name: values.name,
         plugin_type: values.plugin_type,
+        source_type: values.source_type,
         version: values.version,
         description: values.description,
         status: values.status,
@@ -214,9 +215,27 @@ export default function PluginList() {
       title: '类型',
       dataIndex: 'plugin_type',
       key: 'plugin_type',
-      render: (t: PluginType) => (
-        <Tag color={PLUGIN_TYPE_COLORS[t] ?? 'default'}>{t}</Tag>
-      ),
+      render: (t: PluginType) => {
+        const meta = pluginTypeMeta(t)
+        return (
+          <Tooltip title={`${meta.description} 适用：${meta.useCases}`}>
+            <Tag color={meta.color}>{meta.label}</Tag>
+          </Tooltip>
+        )
+      },
+    },
+    {
+      title: '接入方式',
+      dataIndex: 'source_type',
+      key: 'source_type',
+      render: (s: PluginSourceType) => {
+        const meta = pluginSourceMeta(s)
+        return (
+          <Tooltip title={`${meta.description} 适用：${meta.useCases}`}>
+            <Tag color={meta.color}>{meta.label}</Tag>
+          </Tooltip>
+        )
+      },
     },
     {
       title: '版本',
@@ -334,14 +353,27 @@ export default function PluginList() {
           <Form.Item name="name" label="插件名称" rules={[{ required: true }]}>
             <Input placeholder="如：天气查询插件" />
           </Form.Item>
-          <Space style={{ display: 'flex' }} size="large">
-            <Form.Item name="plugin_type" label="插件类型" rules={[{ required: true }]}>
-              <Select options={PLUGIN_TYPES} style={{ width: 220 }} />
+          <Space style={{ display: 'flex' }} size="large" wrap>
+            <Form.Item
+              name="plugin_type"
+              label="能力形态（做什么）"
+              tooltip="工具：可被 Agent 调用的动作；连接器：对接外部系统；处理器：数据转换加工。"
+              rules={[{ required: true }]}
+            >
+              <Select options={PLUGIN_TYPE_OPTIONS} style={{ width: 220 }} />
             </Form.Item>
-            <Form.Item name="version" label="版本" rules={[{ required: true }]}>
-              <Input style={{ width: 160 }} />
+            <Form.Item
+              name="source_type"
+              label="接入方式（怎么接）"
+              tooltip="HTTP / OpenAPI 为当前可用方式；MCP 与 Skill 为类型占位，执行器实现属二期。"
+              rules={[{ required: true }]}
+            >
+              <Select options={PLUGIN_SOURCE_OPTIONS} style={{ width: 200 }} />
             </Form.Item>
           </Space>
+          <Form.Item name="version" label="版本" rules={[{ required: true }]}>
+            <Input style={{ width: 160 }} />
+          </Form.Item>
           <Form.Item name="description" label="描述">
             <TextArea rows={2} placeholder="插件功能说明" />
           </Form.Item>

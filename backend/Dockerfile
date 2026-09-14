@@ -14,8 +14,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # 先拷贝依赖清单，充分利用镜像层缓存
+# torch 使用 CPU 专用源（--extra-index-url），避免拉取 CUDA 版大体积轮子
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
 # 拷贝应用代码（含 Alembic 迁移）
 COPY . .

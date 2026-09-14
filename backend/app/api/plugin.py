@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.dependencies import CurrentUser, CurrentTenantId
+from app.core.dependencies import CurrentUser, CurrentTenantId, require_tenant_admin
 from app.schemas.plugin import (
     PluginCreate,
     PluginUpdate,
@@ -17,7 +17,7 @@ from app.schemas.plugin import (
 from app.schemas.common import ResponseBase, PaginatedData
 from app.services.plugin import PluginService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_tenant_admin)])
 
 
 def _svc(db: Session, tenant_id: str, current_user: CurrentUser) -> PluginService:
@@ -33,7 +33,8 @@ def list_plugins(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     include_public: bool = Query(True, description="是否包含平台公共插件"),
-    plugin_type: str | None = Query(None),
+    plugin_type: str | None = Query(None, description="能力形态过滤：tool/connector/processor"),
+    source_type: str | None = Query(None, description="接入方式过滤：http/mcp/skill"),
     status: str | None = Query(None),
     tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
@@ -45,6 +46,7 @@ def list_plugins(
         page_size=page_size,
         include_public=include_public,
         plugin_type=plugin_type,
+        source_type=source_type,
         status=status,
     )
     return ResponseBase.ok(

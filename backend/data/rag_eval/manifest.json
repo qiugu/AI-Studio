@@ -1,0 +1,26 @@
+{
+  "source_repo": "mteb/T2Retrieval",
+  "source_revision": "921dd3af6e78d1ae7ee0368aa8d7eaee02c8f08e",
+  "hf_endpoint": "https://hf-mirror.com",
+  "seed": 42,
+  "requested_m": 20000,
+  "actual_m": 20000,
+  "quota": 100,
+  "min_chars": 10,
+  "pool_size": 118256,
+  "sampling_ratio": 0.169125,
+  "eligible_queries": 588,
+  "n_queries": 100,
+  "query_group_distribution": {
+    "rel1": 80,
+    "rel2": 17,
+    "rel3plus": 3
+  },
+  "relevant_per_query": {
+    "min": 1,
+    "max": 3,
+    "mean": 1.23
+  },
+  "relevance_grading": "binary",
+  "sampling_bias_note": "语料为基准的子集，干扰项同比例减少，绝对 Recall 高于全量场景；结论仅用于比较基线与其他检索配置的相对增益。"
+}
