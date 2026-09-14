@@ -11,7 +11,20 @@ export function applyAuthInterceptor(config: InternalAxiosRequestConfig) {
 }
 
 let isRefreshing = false
-let pendingRequests: Array<(token: string) => void> = []
+type PendingRequest = {
+  config: AuthRequestConfig
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
+}
+// 在 axios 默认请求配置上扩展的自定义字段：
+//   _retry              标记该请求是否已用刷新令牌重试过，避免 401 刷新死循环
+//   _suppressErrorMessage 是否禁用全局错误提示弹窗
+type AuthRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean
+  _suppressErrorMessage?: boolean
+}
+
+let pendingRequests: PendingRequest[] = []
 
 /**
  * 从 AxiosError 中提取后端返回的 message 字段。
@@ -30,10 +43,7 @@ export function setupResponseInterceptor(instance: AxiosInstance, onRefreshFail?
   instance.interceptors.response.use(
     (response: AxiosResponse) => response,
     async (error: AxiosError) => {
-      const originalRequest = error.config as InternalAxiosRequestConfig & { 
-        _retry?: boolean
-        _suppressErrorMessage?: boolean  // 是否禁用全局错误消息弹窗
-      }
+      const originalRequest = error.config as AuthRequestConfig
 
       if (error.response?.status === 401 && !originalRequest._retry) {
         const refreshToken = getRefreshToken()
@@ -44,12 +54,10 @@ export function setupResponseInterceptor(instance: AxiosInstance, onRefreshFail?
           return Promise.reject(error)
         }
 
+        // 同一次刷新窗口内：排队等待，避免并发刷新（E9：存 resolve/reject，而非单参数回调）
         if (isRefreshing) {
-          return new Promise((resolve) => {
-            pendingRequests.push((token: string) => {
-              originalRequest.headers.Authorization = `Bearer ${token}`
-              resolve(axios(originalRequest))
-            })
+          return new Promise((resolve, reject) => {
+            pendingRequests.push({ config: originalRequest, resolve, reject })
           })
         }
 
@@ -63,15 +71,23 @@ export function setupResponseInterceptor(instance: AxiosInstance, onRefreshFail?
           const newToken = response.data.data.access_token
           setToken(newToken)
 
-          pendingRequests.forEach((cb) => cb(newToken))
+          // 用新令牌重试本请求与所有排队请求
+          pendingRequests.forEach(({ config, resolve }) => {
+            config._retry = true
+            config.headers.Authorization = `Bearer ${newToken}`
+            resolve(axios(config))
+          })
           pendingRequests = []
 
           originalRequest.headers.Authorization = `Bearer ${newToken}`
           return axios(originalRequest)
-        } catch {
+        } catch (refreshError) {
+          // E9：刷新失败必须 reject 所有排队请求，否则它们会永久挂起（Promise 泄漏）
+          pendingRequests.forEach(({ reject }) => reject(refreshError))
+          pendingRequests = []
           clearAuth()
           onRefreshFail?.()
-          return Promise.reject(error)
+          return Promise.reject(refreshError)
         } finally {
           isRefreshing = false
         }

@@ -34,8 +34,9 @@ x-backend-env: &backend-env
   CELERY_BROKER_URL: redis://redis:6379/1
   CELERY_RESULT_BACKEND: redis://redis:6379/2
   # Embedding
-  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
-  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-sentence-transformers}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-zh-v1.5}
+  EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
   EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
   EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-}
   # Ollama 本地模型（macOS/Windows 自动可用；Linux 依赖 extra_hosts）
@@ -94,7 +95,8 @@ services:
     volumes:
       - qdrant-data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      # qdrant 官方镜像不含 curl/wget，使用 bash 内置的 /dev/tcp 做 HTTP 健康检查
+      test: ["CMD-SHELL", "bash -c \"exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q 200\""]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -119,6 +121,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - uploads:/app/uploads
+      - hf-cache:/root/.cache/huggingface
     # 用于访问 Swagger 文档（http://localhost:8000/docs）；
     # 生产环境建议删除本段，仅通过前端 Nginx 访问
     ports:
@@ -139,12 +142,16 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2
+    # 使用 threads 池而非默认 prefork：避免 fork 子进程加载 torch/sentence-transformers
+    # 时 OpenMP 重复初始化导致的 SIGABRT（WorkerLostError: signal 6）。本地手动启动时
+    # 亦可加 --pool=threads。celery_app.py 中已设置 KMP_DUPLICATE_LIB_OK 等环境变量作为兜底。
+    command: celery -A app.core.celery_app worker --pool=threads --loglevel=info --concurrency=2
     environment: *backend-env
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - uploads:/app/uploads
+      - hf-cache:/root/.cache/huggingface
     networks:
       - ai-studio-net
 
@@ -156,9 +163,10 @@ services:
     depends_on:
       - backend
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      # nginx 仅 listen 80（IPv4），容器内 localhost 会解析到 IPv6 ::1 导致误判 unhealthy，改用 127.0.0.1
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -170,6 +178,7 @@ volumes:
   redis-data:
   qdrant-data:
   uploads:
+  hf-cache:
 
 networks:
   ai-studio-net:
