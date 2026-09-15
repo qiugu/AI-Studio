@@ -4,11 +4,9 @@ from typing import Optional, List, Any
 
 from pydantic import BaseModel, Field
 
-from app.core.plugin_types import (
-    DEFAULT_PLUGIN_TYPE,
+from app.core.plugin_source_types import (
     DEFAULT_SOURCE_TYPE,
     PluginSourceType,
-    PluginType,
 )
 
 
@@ -20,10 +18,6 @@ class PluginCreate(BaseModel):
     model_config = {"use_enum_values": True}
 
     name: str = Field(..., max_length=255, description="插件名称")
-    plugin_type: PluginType = Field(
-        DEFAULT_PLUGIN_TYPE,
-        description="能力形态（插件做什么）：tool/connector/processor",
-    )
     source_type: PluginSourceType = Field(
         DEFAULT_SOURCE_TYPE,
         description="接入方式（插件怎么接进来）：http/mcp/skill",
@@ -43,9 +37,6 @@ class PluginUpdate(BaseModel):
     model_config = {"use_enum_values": True}
 
     name: Optional[str] = Field(None, max_length=255)
-    plugin_type: Optional[PluginType] = Field(
-        None, description="能力形态：tool/connector/processor"
-    )
     source_type: Optional[PluginSourceType] = Field(
         None, description="接入方式：http/mcp/skill"
     )
@@ -79,7 +70,6 @@ class PluginOut(BaseModel):
     tenant_id: Optional[str] = None
     name: str
     # 输出层保持 str（而非枚举）：对历史数据宽容，避免个别脏值导致整体 500。
-    plugin_type: str
     source_type: str
     version: str
     description: Optional[str] = None
@@ -131,11 +121,16 @@ class PluginEndpointUpdate(BaseModel):
 
 class PluginConfigItem(BaseModel):
     name: str = Field(..., max_length=255, description="配置项名称")
-    value: Optional[Any] = Field(None, description="配置值")
+    value: Optional[Any] = Field(None, description="配置值（敏感项不回显，见 has_value）")
+    # 该配置项是否已设置真实值。敏感项（api_key/secret/...）回显时 value 恒为 None，
+    # 仅靠 has_value=True 告知前端「已设置」，避免明文/脱敏占位泄露（对齐 AIProvider.has_api_key）。
+    has_value: bool = Field(False, description="是否已设置真实值（敏感项回显为 True 但 value 为 None）")
 
 
 class PluginConfigUpdateRequest(BaseModel):
     items: List[PluginConfigItem] = Field(..., description="配置项列表（按 name upsert）")
+    # 需删除的配置项名称（显式移除，避免「保存即全量、但无法删除」的语义缺失，review P1-C1）。
+    remove: List[str] = Field(default_factory=list, description="需删除的配置项名称列表")
 
 
 class PluginConfigResponse(BaseModel):

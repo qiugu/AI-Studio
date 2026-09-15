@@ -25,6 +25,7 @@ from app.models.workflow_edge import WorkflowEdge
 from app.models.workflow_execution import WorkflowExecution
 from app.models.node_execution import NodeExecution
 from app.models.plugin import Plugin, PluginConfig, PluginEndpoint
+from app.models.email_verification import EmailVerification
 
 __all__ = [
     "Tenant",
@@ -57,4 +58,5 @@ __all__ = [
     "Plugin",
     "PluginConfig",
     "PluginEndpoint",
+    "EmailVerification",
 ]

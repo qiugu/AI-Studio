@@ -8,13 +8,15 @@
 ``InMemoryRetriever``   否                  单测与 CI。用确定性哈希向量，结果逐位可复现，
                                             验证的是**评测框架本身**的正确性，不代表检索质量。
 ``QdrantRetriever``     是（Qdrant）        端到端真实链路，产出可对外引用的指标。
+``HybridRetriever``     是（Qdrant）        稠密 + 词法双路加权融合；用于度量混合检索增益。
 ``RerankedRetriever``   取决于被包装者        装饰器：宽召回 + 精排，用于度量重排增益。
 ======================  ==================  ==========================================
 
 **口径一致性（不可妥协）**：``QdrantRetriever`` 必须经由
-:func:`app.core.vector_db.search_points` 完成召回，与线上
-``KnowledgeBaseService.search()`` 共用同一实现。一旦评测侧另写一份 Qdrant 查询逻辑，
-评测结论就不能再用来推断线上行为——这是评测体系最常见的失效方式。
+:func:`app.core.vector_db.search_points` 完成召回，``HybridRetriever`` 必须经由
+``search_points`` + ``search_sparse_points`` + ``app.utils.retrieval_fusion.weighted_fuse``，
+与线上 ``KnowledgeBaseService.search()`` 共用同一实现。一旦评测侧另写一份 Qdrant 查询
+或融合逻辑，评测结论就不能再用来推断线上行为——这是评测体系最常见的失效方式。
 """
 
 from __future__ import annotations
@@ -28,17 +30,27 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from app.core.config import config
-from app.core.vector_db import RetrievedPoint, search_points
+from app.core.vector_db import (
+    NAMED_DENSE_VECTOR,
+    RetrievedPoint,
+    collection_layout,
+    search_points,
+    search_sparse_points,
+    supports_sparse_vectors,
+)
+from app.utils.retrieval_fusion import weighted_fuse
 
 __all__ = [
     "RetrievalResult",
     "Retriever",
     "InMemoryRetriever",
     "QdrantRetriever",
+    "HybridRetriever",
     "RerankedRetriever",
     "PassageMappedRetriever",
     "TextLookup",
     "RerankFn",
+    "DEFAULT_HYBRID_BRANCH_K",
 ]
 
 #: 检索单元 id → 文本。重排与切断检测都需要原文，但不应为此让评测依赖 MySQL：
@@ -197,6 +209,14 @@ class QdrantRetriever(Retriever):
         score_threshold: 缺省取 ``config.retrieval_score_threshold``，与线上默认一致
         query_filter: 可选 Qdrant Filter
         client: 可注入客户端（测试用）
+        using: 显式指定稠密向量名。缺省 ``None`` 时**自动探测**：混合布局的集合
+            使用 :data:`app.core.vector_db.NAMED_DENSE_VECTOR`，旧布局不传 ``using``。
+
+    Note:
+        自动探测不是便利功能而是**正确性要求**：混合布局集合的稠密向量是命名的，
+        对它发匿名向量查询会被 Qdrant 以 400 拒绝（实测 100/100 查询全部失败，
+        但报告仍会正常生成一份全 0 指标）。探测逻辑与线上
+        ``KnowledgeBaseService`` 的判定同源，故评测侧看到的就是线上会看到的。
     """
 
     def __init__(
@@ -207,6 +227,7 @@ class QdrantRetriever(Retriever):
         query_filter: Optional[object] = None,
         client: Optional[object] = None,
         name: Optional[str] = None,
+        using: Optional[str] = None,
     ) -> None:
         self.collection_name = collection_name
         self._embed_fn = embed_fn
@@ -215,7 +236,23 @@ class QdrantRetriever(Retriever):
         )
         self.query_filter = query_filter
         self._client = client
+        self._explicit_using = using
+        self._resolved_using: Optional[str] = None
+        self._using_resolved = False
         self.name = name or f"qdrant:{collection_name}"
+
+    @property
+    def using(self) -> Optional[str]:
+        """实际发给 Qdrant 的向量名（首次访问时解析并缓存）"""
+        if not self._using_resolved:
+            if self._explicit_using is not None:
+                self._resolved_using = self._explicit_using
+            elif collection_layout(self.collection_name, client=self._client) == "hybrid":
+                self._resolved_using = NAMED_DENSE_VECTOR
+            else:
+                self._resolved_using = None
+            self._using_resolved = True
+        return self._resolved_using
 
     def _embed(self, query: str) -> Sequence[float]:
         if self._embed_fn is not None:
@@ -234,11 +271,152 @@ class QdrantRetriever(Retriever):
             score_threshold=self.score_threshold,
             query_filter=self.query_filter,
             client=self._client,
+            using=self.using,
         )
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return RetrievalResult(
             ids=[point.id for point in points],
             scores=[point.score for point in points],
+            retrieve_latency_ms=elapsed_ms,
+        )
+
+
+# ── 混合检索（稠密 + 词法）──────────────────────────────────────────────────
+
+
+#: 混合检索每一路（稠密/词法）的默认召回预算。
+#: 200 是「足够让融合有意义」与「回表/传输成本可接受」之间的折中；探针阶段用 100
+#: 已能观察到稳定增益，线上预算另由 ``config.retrieval_sparse_top_k`` 控制。
+DEFAULT_HYBRID_BRANCH_K = 200
+
+
+class HybridRetriever(Retriever):
+    """稠密 + 词法双路召回，应用层加权分数融合
+
+    **口径一致性（不可妥协）**：本实现必须经由
+    :func:`app.core.vector_db.search_points`、:func:`app.core.vector_db.search_sparse_points`
+    与 :func:`app.utils.retrieval_fusion.weighted_fuse` —— 三者与线上
+    ``KnowledgeBaseService.search_with_diagnostics`` 完全同源。评测侧若另写一份
+    融合逻辑（哪怕公式相同），α 的语义、归一化窗口、并列处理都可能分叉，评测结论
+    随即失去对线上的推断力。
+
+    **为什么不用 RRF**：见 :mod:`app.utils.retrieval_fusion` —— 等权 RRF 在本语料上
+    实测使 MRR@10 −7.33pp、nDCG@10 −6.03pp（词法分支显著弱于稠密，等权融合让它的
+    噪声排名挤掉稠密的正确项）。
+
+    **失败即报错（刻意设计）**：若目标集合没有命名稀疏向量，:meth:`retrieve` 抛
+    ``RuntimeError`` 而不是静默退化为纯稠密。评测工具静默降级会产生「标签写着 hybrid、
+    数据其实是 dense-only」的失真结论——这比直接失败危险得多。
+
+    Args:
+        collection_name: 形如 ``kb_{kb_id}``，须为混合布局
+        alpha: 稠密分支权重；缺省取 ``config.retrieval_hybrid_alpha``
+        dense_k / sparse_k: 两路各自的召回条数（不是总量）
+        encoder: 稀疏编码器；缺省为生产默认（无状态）编码器
+        embed_fn: ``query -> List[float]``；缺省使用线上一致的 EmbeddingClient
+        score_threshold: **只作用于稠密分支**。BM25 分数无界，不存在可跨库迁移的
+            绝对阈值，故词法分支不设阈值。
+        query_filter: 可选 Qdrant Filter，两路共用
+        client: 可注入客户端（测试用）
+    """
+
+    def __init__(
+        self,
+        collection_name: str,
+        *,
+        alpha: Optional[float] = None,
+        dense_k: int = DEFAULT_HYBRID_BRANCH_K,
+        sparse_k: int = DEFAULT_HYBRID_BRANCH_K,
+        encoder: Optional[object] = None,
+        embed_fn: Optional[Callable[[str], Sequence[float]]] = None,
+        score_threshold: Optional[float] = None,
+        query_filter: Optional[object] = None,
+        client: Optional[object] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        if dense_k < 1 or sparse_k < 1:
+            raise ValueError("dense_k and sparse_k must be >= 1")
+        self.collection_name = collection_name
+        self.alpha = alpha if alpha is not None else config.retrieval_hybrid_alpha
+        self.dense_k = dense_k
+        self.sparse_k = sparse_k
+        self._encoder = encoder
+        self._embed_fn = embed_fn
+        self.score_threshold = (
+            score_threshold if score_threshold is not None else config.retrieval_score_threshold
+        )
+        self.query_filter = query_filter
+        self._client = client
+        self._layout_verified = False
+        self.name = name or f"hybrid(alpha={self.alpha}):{collection_name}"
+
+    @property
+    def encoder(self):
+        if self._encoder is None:
+            from app.utils.sparse import default_encoder
+
+            self._encoder = default_encoder()
+        return self._encoder
+
+    def _embed(self, query: str) -> Sequence[float]:
+        if self._embed_fn is not None:
+            return self._embed_fn(query)
+        from app.utils.embedding import get_embedding_client
+
+        return get_embedding_client().embed([query])[0]  # noqa: E501
+
+    def _verify_layout(self) -> None:
+        """首次检索前确认集合确实具备稀疏分支（避免静默降级为稠密）"""
+        if self._layout_verified:
+            return
+        if not supports_sparse_vectors(self.collection_name, client=self._client):
+            raise RuntimeError(
+                f"Collection {self.collection_name} has no named sparse vector; "
+                f"hybrid retrieval would silently degrade to dense-only. "
+                f"Rebuild it with scripts/backfill_hybrid_collection.py first."
+            )
+        self._layout_verified = True
+
+    def retrieve(self, query: str, top_k: int) -> RetrievalResult:
+        self._verify_layout()
+        started = time.perf_counter()
+
+        dense_limit = max(self.dense_k, top_k)
+        sparse_limit = max(self.sparse_k, top_k)
+
+        dense_points = search_points(
+            collection_name=self.collection_name,
+            query_vector=self._embed(query),
+            limit=dense_limit,
+            score_threshold=self.score_threshold,
+            query_filter=self.query_filter,
+            client=self._client,
+            using=NAMED_DENSE_VECTOR,
+        )
+        indices, values = self.encoder.query_vector(query)
+        sparse_points = search_sparse_points(
+            collection_name=self.collection_name,
+            indices=indices,
+            values=values,
+            limit=sparse_limit,
+            query_filter=self.query_filter,
+            client=self._client,
+        )
+        fused = weighted_fuse(
+            [point.id for point in dense_points],
+            [point.score for point in dense_points],
+            [point.id for point in sparse_points],
+            [point.score for point in sparse_points],
+            alpha=self.alpha,
+        )
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        sliced = fused[:top_k]
+        return RetrievalResult(
+            ids=[doc_id for doc_id, _ in sliced],
+            scores=[score for _, score in sliced],
+            # 宽召回集合即融合后的完整候选池，供上层区分「召回损失」与「排序损失」
+            candidate_ids=[doc_id for doc_id, _ in fused],
+            candidate_scores=[score for _, score in fused],
             retrieve_latency_ms=elapsed_ms,
         )
 

@@ -15,6 +15,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { canManageSystem } from '@/utils/permission'
 
 const { Sider } = Layout
 
@@ -73,8 +74,7 @@ export default function Sidebar() {
   const location = useLocation()
 
   // 系统管理与平台管理仅对（租户/平台）管理员可见
-  const canManage =
-    isPlatformAdmin || (user?.roles?.some((r) => r.code.includes('admin')) ?? false)
+  const canManage = canManageSystem(user)
 
   const menuItems = [
     ...baseMenuItems,

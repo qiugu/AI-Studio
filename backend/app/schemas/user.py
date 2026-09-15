@@ -18,6 +18,7 @@ class RoleOut(BaseModel):
     code: str
     description: Optional[str] = None
     status: bool = True
+    is_admin: bool = False
     permissions: List[PermissionOut] = []
 
     model_config = {"from_attributes": True}
@@ -31,6 +32,8 @@ class UserOut(BaseModel):
     avatar: Optional[str] = None
     status: bool = True
     is_platform_admin: bool = False
+    email_verified: bool = False
+    is_tenant_owner: bool = False
     last_login_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

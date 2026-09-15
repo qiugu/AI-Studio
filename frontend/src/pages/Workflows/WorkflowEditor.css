@@ -54,7 +54,10 @@
    ============================================================================ */
 
 .workflow-editor-container {
-  height: 100vh;
+  /* 必须填满 AppLayout 的 Content（= 视口高 - Header），而不是视口高的 100%：
+     后者会比可用空间高出整整一个 Header 的高度，在 Canvas 下方留下一条无意义的
+     滚动条。与 AgentChat.css 的 .agent-chat-container 采用同一策略。 */
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--wf-bg-canvas);

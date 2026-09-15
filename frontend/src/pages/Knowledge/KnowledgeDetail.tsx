@@ -30,6 +30,7 @@ import * as kbApi from "@/api/knowledge";
 import { type KnowledgeBase, type KnowledgeDocument, type KnowledgeChunk, type SearchResult } from "@/types/knowledge";
 import type { ColumnsType } from "antd/es/table";
 import type { RcFile } from "antd/es/upload";
+import { getErrorMessage } from "@/utils/request";
 
 const DocumentStatusTag: Record<string, any> = {
   pending: { color: "default", label: "待处理" },
@@ -37,6 +38,15 @@ const DocumentStatusTag: Record<string, any> = {
   completed: { color: "success", label: "完成" },
   failed: { color: "error", label: "失败" },
 };
+
+/**
+ * 检索请求的召回条数。
+ *
+ * 后端会先超额召回再按内容去重，因此**返回条数允许少于该值**：库里同一段落存在
+ * 等值副本时，副本会被折叠成一条，折叠后的数量就是可用内容的上限。界面据此提示
+ * 用户「少于 N 条」的原因，避免把「去重生效」误读为「检索坏了」。
+ */
+const SEARCH_TOP_K = 10;
 
 export default function KnowledgeDetail() {
   const { kbId } = useParams<{ kbId: string }>();
@@ -84,13 +94,15 @@ export default function KnowledgeDetail() {
   const handleUploadDocument = async (file: RcFile) => {
     setUploading(true);
     try {
-      await kbApi.uploadDocument(kbId || '', file);
+      await kbApi.uploadDocument(kbId || '', file, { _suppressErrorMessage: true });
       message.success("文档上传成功，正在处理中...");
       loadDocuments();
       loadKnowledgeBase();
     } catch (error) {
       console.error("Failed to upload document:", error);
-      message.error("文档上传失败");
+      // 上传失败几乎都是可预期的业务拒绝（类型不符、同名同大小重复上传等），
+      // 后端 message 已包含具体原因与处置建议，直接透出比笼统的「上传失败」有用。
+      message.error(getErrorMessage(error));
     } finally {
       setUploading(false);
     }
@@ -119,13 +131,13 @@ export default function KnowledgeDetail() {
     try {
       const { data } = await kbApi.searchKnowledgeBase(kbId || '', {
         query: searchQuery,
-        top_k: 10,
+        top_k: SEARCH_TOP_K,
         score_threshold: 0.3,
       });
       setSearchResults(data);
     } catch (error) {
       console.error("Failed to search:", error);
-      message.error("检索失败");
+      message.error(getErrorMessage(error));
     } finally {
       setChunksLoading(false);
     }
@@ -211,6 +223,13 @@ export default function KnowledgeDetail() {
       ),
     },
   ];
+
+  // 本次检索中被折叠掉的等值副本总数：用于向用户解释结果条数与「内容重复的文档」
+  // 之间的关系，而不是让用户对着变少的条数自行猜测。
+  const foldedCopyCount = searchResults.reduce(
+    (sum, result) => sum + (result.duplicate_count || 0),
+    0
+  );
 
   if (!kb) {
     return <Spin />;
@@ -298,11 +317,27 @@ export default function KnowledgeDetail() {
 
                   {searchResults.length > 0 && (
                     <div>
-                      <h3>检索结果 ({searchResults.length})</h3>
+                      <h3>
+                        检索结果 ({searchResults.length}
+                        {searchResults.length < SEARCH_TOP_K ? ` / ${SEARCH_TOP_K}` : ""})
+                      </h3>
+                      {foldedCopyCount > 0 && (
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#999",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          已折叠 {foldedCopyCount} 条内容重复的分块：知识库中存在内容相同的
+                          重复文档，同一内容只保留相似度最高的那一条。结果条数少于{" "}
+                          {SEARCH_TOP_K} 表示去重后可用内容不足，可考虑清理重复文档。
+                        </div>
+                      )}
                       <List
                         dataSource={searchResults}
                         renderItem={(result) => (
-                          <List.Item>
+                          <List.Item key={result.id}>
                             <List.Item.Meta
                               title={
                                 <>
@@ -313,6 +348,11 @@ export default function KnowledgeDetail() {
                                   <span style={{ color: "#666", marginLeft: "12px" }}>
                                     相似度: {(result.score * 100).toFixed(1)}%
                                   </span>
+                                  {!!result.duplicate_count && (
+                                    <Tag color="orange" style={{ marginLeft: "12px" }}>
+                                      另有 {result.duplicate_count} 份同内容副本
+                                    </Tag>
+                                  )}
                                 </>
                               }
                               description={

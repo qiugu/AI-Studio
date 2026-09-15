@@ -100,7 +100,6 @@ async def list_agents(
     response_model=ResponseBase,
 )
 async def get_agent_tool_catalog(
-    plugin_type: Optional[str] = Query(None, description="按能力形态过滤：tool/connector/processor"),
     keyword: Optional[str] = Query(None, max_length=100, description="按插件名称模糊搜索"),
     limit: int = Query(MAX_BINDABLE_PLUGINS, ge=1, le=500, description="返回上限"),
     db: Session = Depends(get_session),
@@ -119,13 +118,12 @@ async def get_agent_tool_catalog(
     try:
         service = PluginService(db=db, tenant_id=current_user.tenant_id)
         bindable = service.list_bindable_for_agent(
-            plugin_type=plugin_type, keyword=keyword, limit=limit
+            keyword=keyword, limit=limit
         )
         items = [
             {
                 "id": plugin.id,
                 "name": plugin.name,
-                "plugin_type": plugin.plugin_type,
                 "source_type": plugin.source_type,
                 "description": plugin.description,
                 "icon": plugin.icon,

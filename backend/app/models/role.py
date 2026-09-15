@@ -20,6 +20,8 @@ class Role(Base):
     code: Mapped[str] = mapped_column(String(100), unique=True)
     description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 是否为管理员角色；显式声明，替代前端/后端按角色 code 子串判断的脆弱做法
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 

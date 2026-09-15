@@ -16,3 +16,11 @@ class RegisterForm(BaseModel):
 
 class RefreshForm(BaseModel):
     refresh_token: str
+
+
+class VerifyEmailForm(BaseModel):
+    token: str
+
+
+class ResendVerifyForm(BaseModel):
+    email: str

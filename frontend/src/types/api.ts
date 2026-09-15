@@ -26,6 +26,8 @@ export interface User {
   avatar: string | null
   status: boolean
   is_platform_admin: boolean
+  email_verified: boolean
+  is_tenant_owner: boolean
   last_login_at: string | null
   created_at: string | null
   updated_at: string | null
@@ -39,6 +41,7 @@ export interface Role {
   code: string
   description?: string | null
   status: boolean
+  is_admin: boolean
   permissions: Permission[]
 }
 
@@ -65,6 +68,26 @@ export interface RegisterRequest {
   nickname?: string
   password: string
   password_repeat: string
+}
+
+/** 注册响应：受控自助模式下注册成功后不签发令牌，仅返回验证引导信息。 */
+export interface RegisterResponse {
+  email_verified: boolean
+  verification_token: string | null
+  message: string
+}
+
+/** 邮箱验证成功响应：与登录响应同构，验证后直接签发令牌免登录进入。 */
+export interface VerifyEmailResponse {
+  access_token: string
+  refresh_token: string
+  user: User
+}
+
+/** 重发验证邮件响应。 */
+export interface ResendVerificationResponse {
+  verification_token: string | null
+  message: string
 }
 
 export interface RefreshRequest {

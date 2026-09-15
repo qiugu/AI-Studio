@@ -18,7 +18,6 @@ import type {
 export async function listPlugins(
   params?: PageParams & {
     include_public?: boolean
-    plugin_type?: string
     source_type?: string
     status?: string
   }

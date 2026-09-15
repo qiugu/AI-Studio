@@ -23,6 +23,8 @@ class User(Base):
     status: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 邮箱是否已验证；未验证用户不能登录 / 不能行使租户管理员能力
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

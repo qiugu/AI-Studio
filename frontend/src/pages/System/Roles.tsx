@@ -95,7 +95,7 @@ export default function Roles() {
   }
 
   const handleDelete = async (record: Role) => {
-    if (record.code.startsWith('tenant_admin')) {
+    if (record.is_admin) {
       message.error('内置管理员角色不可删除')
       return
     }

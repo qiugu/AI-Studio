@@ -1,7 +1,7 @@
 """知识库 API 路由"""
 from typing import Optional
 import uuid
-from fastapi import APIRouter, Depends, UploadFile, File, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
@@ -354,6 +354,7 @@ async def get_document_chunks(
     "/knowledge-bases/{kb_id}/search",
 )
 async def search_knowledge_base(
+    response: Response,
     kb_id: str,
     query: str = Query(..., min_length=1),
     top_k: int = Query(5, ge=1, le=50),
@@ -366,17 +367,29 @@ async def search_knowledge_base(
     db: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    """检索知识库"""
+    """检索知识库
+
+    降级时（Qdrant 集合缺失 / 后端不可用）仍返回 200 与空结果，以保持既有调用方
+    （前端 ``SearchResult[]``、Agent 工具、工作流节点）行为不变；同时通过
+    ``X-Retrieval-Degraded`` 与 ``X-Retrieval-Reason`` 响应头把「后端故障」与
+    「确无相关内容」区分开——调用方与排障者据此判断，而不必翻日志、更不必去猜。
+
+    之所以用响应头而非修改响应体：响应体结构已被前端直接消费，改成
+    ``{results, degraded}`` 属破坏性变更，而该诊断信息的价值不足以抵偿联调成本。
+    """
     try:
         service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
-        results = service.search(
+        outcome = service.search_with_diagnostics(
             kb_id=kb_id,
             query=query,
             top_k=top_k,
             score_threshold=score_threshold,
         )
+        if outcome.degraded:
+            response.headers["X-Retrieval-Degraded"] = "1"
+            response.headers["X-Retrieval-Reason"] = outcome.reason or "unknown"
         return ResponseBase.ok(
-            data=results
+            data=outcome.results
         )
     except AppException as e:
         raise e

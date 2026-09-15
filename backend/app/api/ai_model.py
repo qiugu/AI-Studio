@@ -18,14 +18,14 @@ router = APIRouter(dependencies=[Depends(require_tenant_admin)])
 
 @router.get("", response_model=ResponseBase)
 def list_models(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     model_type: str | None = Query(None),
     provider_id: str | None = Query(None),
     include_public: bool = Query(False),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     items, total = svc.list(
@@ -47,10 +47,10 @@ def list_models(
 
 @router.post("", response_model=ResponseBase)
 def create_model(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     data: AIModelCreate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     model = svc.create(data)
@@ -61,10 +61,10 @@ def create_model(
 
 @router.get("/{model_id}", response_model=ResponseBase)
 def get_model(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     model_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     model = svc.get(model_id)
@@ -73,11 +73,11 @@ def get_model(
 
 @router.put("/{model_id}", response_model=ResponseBase)
 def update_model(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     model_id: str,
     data: AIModelUpdate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     model = svc.update(model_id, data)
@@ -88,10 +88,10 @@ def update_model(
 
 @router.delete("/{model_id}", response_model=ResponseBase)
 def delete_model(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     model_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     svc.delete(model_id)
@@ -101,11 +101,11 @@ def delete_model(
 
 @router.post("/{model_id}/test", response_model=ResponseBase)
 def test_model(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     model_id: str,
     data: ModelTestRequest,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AIModelService(db, tenant_id)
     result = svc.test_model(model_id, data.messages)

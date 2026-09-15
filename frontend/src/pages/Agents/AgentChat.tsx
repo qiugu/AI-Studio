@@ -204,9 +204,9 @@ export default function AgentChat() {
           abortControllerRef.current = null
           loadConversations()
         },
-        onError: (error) => {
-          // 将错误消息添加到聊天记录中
-          addErrorToChat(error)
+        onError: (error, errorCode) => {
+          // 将错误消息按发生位置追加到聊天记录中（不再被抽到会话顶部）
+          addErrorToChat(error, errorCode)
           // 移除助手消息占位符
           setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessageId))
           setIsStreaming(false)

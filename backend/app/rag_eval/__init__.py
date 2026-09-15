@@ -37,6 +37,7 @@ from app.rag_eval.report import (
     write_markdown,
 )
 from app.rag_eval.retrievers import (
+    HybridRetriever,
     InMemoryRetriever,
     PassageMappedRetriever,
     QdrantRetriever,
@@ -64,6 +65,7 @@ __all__ = [
     "IndexManifest",
     "load_index_manifest",
     # retrievers
+    "HybridRetriever",
     "InMemoryRetriever",
     "PassageMappedRetriever",
     "QdrantRetriever",

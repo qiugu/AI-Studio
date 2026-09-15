@@ -93,6 +93,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--name", help="本次运行名称，用于报告标题与基线文件名")
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="报告输出目录")
 
+    hybrid = parser.add_argument_group("混合检索")
+    hybrid.add_argument(
+        "--hybrid",
+        action="store_true",
+        help="启用稠密 + 词法双路加权融合。要求目标集合为「命名稠密 + 命名稀疏」布局"
+             "（先用 scripts/backfill_hybrid_collection.py 回填）。"
+             "集合没有稀疏向量时**直接报错**，不会静默退化为纯稠密——"
+             "否则会产出「标签写着 hybrid、数据其实是 dense-only」的失真结论。",
+    )
+    hybrid.add_argument(
+        "--hybrid-alpha",
+        type=float,
+        default=None,
+        help="稠密分支权重 α（默认取 config.retrieval_hybrid_alpha）。"
+             "实测 α∈{0.6,0.7,0.8} 均优于纯稠密，0.7 最优。"
+             "**不要改用等权 RRF**：实测 MRR@10 −7.33pp。",
+    )
+    hybrid.add_argument(
+        "--hybrid-dense-k", type=int, default=200, help="稠密分支召回条数（默认 200）"
+    )
+    hybrid.add_argument(
+        "--hybrid-sparse-k", type=int, default=200, help="词法分支召回条数（默认 200）"
+    )
+
     rerank = parser.add_argument_group("精排")
     rerank.add_argument("--rerank", action="store_true", help="启用宽召回 + 精排")
     rerank.add_argument(
@@ -235,6 +259,7 @@ def build_retriever(
     顺序不可颠倒：精排作用在分块上（与线上一致），折叠发生在最后（评测口径）。
     """
     from app.rag_eval import (
+        HybridRetriever,
         InMemoryRetriever,
         PassageMappedRetriever,
         QdrantRetriever,
@@ -249,7 +274,17 @@ def build_retriever(
         collection = args.collection or (index.collection if index else None)
         if not collection:
             raise SystemExit("--retriever qdrant 需要 --collection，或提供 --index-dir 以从清单读取")
-        base = QdrantRetriever(collection_name=collection)
+        if args.hybrid:
+            # 混合检索必须在精排/折叠**之前**完成融合，顺序与线上一致：
+            # 线上也是先融合出候选，再（可选）精排，最后才截断。
+            base = HybridRetriever(
+                collection_name=collection,
+                alpha=args.hybrid_alpha,
+                dense_k=args.hybrid_dense_k,
+                sparse_k=args.hybrid_sparse_k,
+            )
+        else:
+            base = QdrantRetriever(collection_name=collection)
 
     if args.rerank:
         base = RerankedRetriever(

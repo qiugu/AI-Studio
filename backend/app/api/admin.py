@@ -31,11 +31,11 @@ router = APIRouter()
 # ── 租户管理 ────────────────────────────────────────────────────────────────
 @router.get("/tenants", response_model=ResponseBase)
 def list_tenants_api(
+    _admin: PlatformAdmin,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None),
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     items, total = list_tenants(db, page=page, page_size=page_size, search=search)
     return ResponseBase.ok(
@@ -50,9 +50,9 @@ def list_tenants_api(
 
 @router.post("/tenants", response_model=ResponseBase)
 def create_tenant_api(
+    _admin: PlatformAdmin,
     data: TenantCreate,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     tenant = create_tenant(data.model_dump(), db)
     db.commit()
@@ -62,19 +62,19 @@ def create_tenant_api(
 
 @router.get("/tenants/{tenant_id}", response_model=ResponseBase)
 def get_tenant_api(
+    _admin: PlatformAdmin,
     tenant_id: str,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     return ResponseBase.ok(data=TenantOut(**get_tenant(tenant_id, db)).model_dump())
 
 
 @router.put("/tenants/{tenant_id}", response_model=ResponseBase)
 def update_tenant_api(
+    _admin: PlatformAdmin,
     tenant_id: str,
     data: TenantUpdate,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     result = update_tenant(tenant_id, data.model_dump(exclude_none=True), db)
     db.commit()
@@ -83,10 +83,10 @@ def update_tenant_api(
 
 @router.put("/tenants/{tenant_id}/quota", response_model=ResponseBase)
 def set_quota_api(
+    _admin: PlatformAdmin,
     tenant_id: str,
     data: TenantQuotaUpdate,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     result = set_quota(
         tenant_id, data.max_users, data.max_models, db
@@ -97,9 +97,9 @@ def set_quota_api(
 
 @router.delete("/tenants/{tenant_id}", response_model=ResponseBase)
 def delete_tenant_api(
+    _admin: PlatformAdmin,
     tenant_id: str,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     delete_tenant(tenant_id, db)
     db.commit()
@@ -109,10 +109,10 @@ def delete_tenant_api(
 # ── 平台公共模型（tenant_id=NULL 的 ai_models）────────────────────────────────
 @router.get("/models", response_model=ResponseBase)
 def list_public_models_api(
+    _admin: PlatformAdmin,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     query = db.query(AIModel).filter(AIModel.tenant_id.is_(None))
     total = query.count()
@@ -134,9 +134,9 @@ def list_public_models_api(
 
 @router.post("/models", response_model=ResponseBase)
 def create_public_model_api(
+    _admin: PlatformAdmin,
     data: AIModelCreate,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     model = AIModel(
         tenant_id=None,
@@ -160,10 +160,10 @@ def create_public_model_api(
 
 @router.put("/models/{model_id}", response_model=ResponseBase)
 def update_public_model_api(
+    _admin: PlatformAdmin,
     model_id: str,
     data: AIModelUpdate,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     model = (
         db.query(AIModel).filter(AIModel.id == model_id, AIModel.tenant_id.is_(None)).first()
@@ -180,9 +180,9 @@ def update_public_model_api(
 
 @router.delete("/models/{model_id}", response_model=ResponseBase)
 def delete_public_model_api(
+    _admin: PlatformAdmin,
     model_id: str,
     db: Session = Depends(get_session),
-    _admin: PlatformAdmin = None,
 ):
     model = (
         db.query(AIModel).filter(AIModel.id == model_id, AIModel.tenant_id.is_(None)).first()

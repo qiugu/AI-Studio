@@ -1,14 +1,23 @@
-import type { PluginSourceType, PluginType } from '@/types/plugin'
+import type { PluginSourceType } from '@/types/plugin'
 
 /**
- * 插件类型展示元数据。
+ * 插件接入方式展示元数据。
  *
- * 插件由两个正交维度描述，二者含义不同、不可混用：
- * - 维度 A `plugin_type`  能力形态：插件「做什么」，取值 tool / connector / processor；
- * - 维度 B `source_type`  接入方式：插件「怎么接进来」，取值 http / mcp / skill。
+ * 插件形态由**单一**维度承载：`source_type` 接入方式——插件「怎么接进来」，
+ * 取值 http / mcp / skill。
  *
- * 本文件是前端侧的唯一事实源，需与后端 `backend/app/core/plugin_types.py` 及
- * `docs/plugin-types.md` 保持口径一致；`Record<...>` 类型可保证取值无遗漏。
+ * 历史沿革（M2.0 移除）：本文件原同时维护「能力形态」维度 `plugin_type`
+ * （tool / connector / processor）。该维度经评审确认立不住，故整体移除：
+ *
+ * 1. 边界不可判定——同一插件可同时满足多个取值（调外部 API 做摘要既是 tool 又是
+ *    processor；查数据库既是 connector 又是 tool）；
+ * 2. 零行为差异——全仓不存在 `if plugin_type ==` 分支，它只用于列表筛选与展示；
+ * 3. 定义混入他者语义——connector 的「地址 / 凭据 / 协议」属接入方式维度。
+ *
+ * 连带删除：`PLUGIN_TYPE_META`、`PLUGIN_TYPE_OPTIONS`、`pluginTypeMeta()`。
+ *
+ * 本文件是前端侧的唯一事实源，需与后端 `backend/app/core/plugin_source_types.py`
+ * 及 `docs/plugin-types.md` 保持口径一致；`Record<...>` 类型可保证取值无遗漏。
  */
 export interface PluginMetaItem {
   /** 中文名 */
@@ -21,29 +30,7 @@ export interface PluginMetaItem {
   color: string
 }
 
-/** 维度 A · 能力形态（插件「做什么」）。 */
-export const PLUGIN_TYPE_META: Record<PluginType, PluginMetaItem> = {
-  tool: {
-    label: '工具',
-    description: '原子化、可被 Agent 调用的单个动作。',
-    useCases: '让 Agent 在对话中执行动作：网页搜索、计算、发起 HTTP 请求等。',
-    color: 'blue',
-  },
-  connector: {
-    label: '连接器',
-    description: '对接外部系统，负责数据的接入与回传。',
-    useCases: '把外部数据源或业务系统接进平台：数据库、企业 IM、对象存储、CRM 等。',
-    color: 'orange',
-  },
-  processor: {
-    label: '处理器',
-    description: '对数据做转换/加工，形如「输入 → 输出」的纯处理。',
-    useCases: '数据清洗、格式转换、文本切分、摘要、脱敏等。',
-    color: 'purple',
-  },
-}
-
-/** 维度 B · 接入方式（插件「怎么接进来」）。 */
+/** 接入方式（插件「怎么接进来」）。 */
 export const PLUGIN_SOURCE_META: Record<PluginSourceType, PluginMetaItem> = {
   http: {
     label: 'HTTP / OpenAPI',
@@ -65,11 +52,6 @@ export const PLUGIN_SOURCE_META: Record<PluginSourceType, PluginMetaItem> = {
   },
 }
 
-/** 能力形态下拉选项（供表单渲染）。 */
-export const PLUGIN_TYPE_OPTIONS = (Object.keys(PLUGIN_TYPE_META) as PluginType[]).map(
-  (value) => ({ value, label: `${PLUGIN_TYPE_META[value].label} (${value})` })
-)
-
 /** 接入方式下拉选项（供表单渲染）。 */
 export const PLUGIN_SOURCE_OPTIONS = (
   Object.keys(PLUGIN_SOURCE_META) as PluginSourceType[]
@@ -82,17 +64,9 @@ const UNKNOWN_META = (value?: string | null): PluginMetaItem => ({
   color: 'default',
 })
 
-/** 取能力形态的展示元数据；未知取值降级为原值展示，避免历史脏值渲染异常。 */
-export function pluginTypeMeta(value?: string | null): PluginMetaItem {
-  // 用 hasOwnProperty 而非直接取键：避免 'constructor' 等原型链键被误判为已登记取值。
-  if (value && Object.prototype.hasOwnProperty.call(PLUGIN_TYPE_META, value)) {
-    return PLUGIN_TYPE_META[value as PluginType]
-  }
-  return UNKNOWN_META(value)
-}
-
 /** 取接入方式的展示元数据；未知取值降级为原值展示。 */
 export function pluginSourceMeta(value?: string | null): PluginMetaItem {
+  // 用 hasOwnProperty 而非直接取键：避免 'constructor' 等原型链键被误判为已登记取值。
   if (value && Object.prototype.hasOwnProperty.call(PLUGIN_SOURCE_META, value)) {
     return PLUGIN_SOURCE_META[value as PluginSourceType]
   }

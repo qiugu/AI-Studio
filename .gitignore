@@ -18,3 +18,14 @@ backend/data/rag_eval/reports/
 backend/data/rag_eval/corpus.jsonl
 backend/data/rag_eval/chunks.jsonl
 backend/data/rag_eval/index_manifest.json
+# pytest basetemp 变体目录（每次更换 basetemp 防守卫冲突，均可删除再生）
+backend/.pytest-tmp*/
+backend/.pytest-p5*/
+
+# Phase 5 评测重建产物（脚本可复现，不入库）
+backend/data/rag_eval/v3_448_64/
+backend/data/rag_eval/smoke_448_64/
+backend/data/rag_eval/reports_smoke/
+
+# 数据库备份 dump（含业务内容，仅留本机）
+backend/data/backups/

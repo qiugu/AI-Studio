@@ -1,7 +1,11 @@
 """插件服务：CRUD / OpenAPI 解析 / 端点管理 / 租户配置 / 连通性测试"""
 from __future__ import annotations
 
+import json
+from typing import Any, Optional
+
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 
 from app.models.plugin import Plugin, PluginConfig, PluginEndpoint
 from app.schemas.plugin import (
@@ -25,14 +29,36 @@ from app.core.plugin_policy import (
     check_plugin_bindable,
 )
 from app.core.tenant_scope import public_or_tenant_filter
+from app.utils.encryption import encrypt, decrypt
 from app.utils.plugin_executor import execute_plugin_call
 
 _SUPPORTED_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH"}
 
 # 候选目录的返回上限。候选面是给用户挑选的，不应无界返回——插件数量增长时
-# 响应体会线性膨胀。超限时应通过 keyword / plugin_type 收窄，而不是翻页：
+# 响应体会线性膨胀。超限时应通过 keyword / source_type 收窄，而不是翻页：
 # 用户的挑选动作是一次性的，翻页只会割裂候选的整体视图。
 MAX_BINDABLE_PLUGINS = 200
+
+# 敏感配置项名称的子串（命中即视为密钥，回显脱敏、存储加密）。
+_SECRET_KEY_HINTS = (
+    "key", "secret", "token", "password", "pwd", "credential",
+    "authorization", "auth",
+)
+
+
+def _is_secret_key(name: str) -> bool:
+    return any(hint in name.lower() for hint in _SECRET_KEY_HINTS)
+
+
+def _mask_config(value: Any, name_hint: str = "") -> Any:
+    """递归脱敏：命中敏感键名的字符串叶子替换为 "********"，结构（dict/list）保留。"""
+    if isinstance(value, dict):
+        return {k: _mask_config(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_config(v) for v in value]
+    if isinstance(value, str) and value and _is_secret_key(name_hint):
+        return "********"
+    return value
 
 
 class PluginService:
@@ -65,13 +91,10 @@ class PluginService:
         page: int = 1,
         page_size: int = 20,
         include_public: bool = True,
-        plugin_type: str | None = None,
         source_type: str | None = None,
         status: str | None = None,
     ):
         query = self.db.query(Plugin).filter(self._base_filter(include_public))
-        if plugin_type:
-            query = query.filter(Plugin.plugin_type == plugin_type)
         if source_type:
             query = query.filter(Plugin.source_type == source_type)
         if status:
@@ -100,7 +123,6 @@ class PluginService:
 
     def list_bindable_for_agent(
         self,
-        plugin_type: str | None = None,
         keyword: str | None = None,
         limit: int = MAX_BINDABLE_PLUGINS,
     ) -> list[tuple[Plugin, list[PluginEndpoint]]]:
@@ -123,13 +145,11 @@ class PluginService:
             Plugin.status.in_(sorted(AGENT_EXPOSABLE_PLUGIN_STATUSES)),
             Plugin.source_type.in_(sorted(BINDABLE_SOURCE_TYPES)),
         )
-        if plugin_type:
-            query = query.filter(Plugin.plugin_type == plugin_type)
         if keyword:
             query = query.filter(Plugin.name.like(f"%{keyword}%"))
 
         plugins = (
-            query.order_by(Plugin.plugin_type, Plugin.name)
+            query.order_by(Plugin.name)
             .limit(max(1, limit))
             .all()
         )
@@ -164,7 +184,6 @@ class PluginService:
         plugin = Plugin(
             tenant_id=None if data.is_public else self.tenant_id,
             name=data.name,
-            plugin_type=data.plugin_type,
             source_type=data.source_type,
             version=data.version,
             description=data.description,
@@ -332,6 +351,11 @@ class PluginService:
     # ── 租户级配置 ───────────────────────────────────────────────────────────
 
     def _load_config_dict(self, plugin_id: str) -> dict:
+        """运行时消费：返回解密后的真实配置值（供执行器发请求使用）。
+
+        优先读 ``value_encrypted`` 密文并解密；legacy 行（迁移前、无密文）回退到明文
+        ``value``。解密失败时回退到脱敏值（不含明文），避免泄露。
+        """
         rows = (
             self.db.query(PluginConfig)
             .filter(
@@ -340,9 +364,19 @@ class PluginService:
             )
             .all()
         )
-        return {r.name: r.value for r in rows}
+        out: dict = {}
+        for r in rows:
+            if r.value_encrypted:
+                try:
+                    out[r.name] = json.loads(decrypt(r.value_encrypted))
+                except Exception:
+                    out[r.name] = r.value  # 解密失败：脱敏值（无明文）
+            else:
+                out[r.name] = r.value  # legacy 明文
+        return out
 
     def get_config(self, plugin_id: str) -> PluginConfigResponse:
+        """读取配置（回显）。敏感值永不回显明文/占位，仅以 ``has_value`` 告知已设置（review §3.2）。"""
         self._get_or_404(plugin_id)
         rows = (
             self.db.query(PluginConfig)
@@ -352,34 +386,110 @@ class PluginService:
             )
             .all()
         )
-        items = [PluginConfigItem(name=r.name, value=r.value) for r in rows]
+        items = [self._config_item_for_echo(r) for r in rows]
         return PluginConfigResponse(items=items)
 
+    @staticmethod
+    def _config_item_for_echo(row: PluginConfig) -> PluginConfigItem:
+        """构造回显项：敏感项 value 恒为 None + has_value=True；非敏感项回显真实值。"""
+        present = row.value_encrypted is not None or row.value is not None
+        if present and _is_secret_key(row.name):
+            # 敏感项不回显任何值（明文或脱敏占位都不暴露），前端据此渲染「已设置/点击修改」
+            return PluginConfigItem(name=row.name, value=None, has_value=True)
+        return PluginConfigItem(name=row.name, value=PluginService._masked_value(row), has_value=present)
+
+    @staticmethod
+    def _masked_value(row: PluginConfig) -> Any:
+        """回显时的脱敏值（仅用于非敏感项）：legacy 明文行即时脱敏。"""
+        if row.value_encrypted is None and row.value is not None:
+            return _mask_config(row.value)
+        return row.value
+
     def update_config(self, plugin_id: str, req) -> PluginConfigResponse:
-        self._get_or_404(plugin_id)
-        for item in req.items:
-            existing = (
-                self.db.query(PluginConfig)
-                .filter(
+        """写入租户配置（明确契约，review P1-C1 / §3.2 / P1-C4）。
+
+        语义：
+        - ``items`` 按 name upsert（新增或覆盖）；
+        - ``remove`` 显式删除指定配置项；
+        - 提交前校验 ``config_schema`` 的 required（缺失即抛 ``ValidationException``，整次失败）；
+        - 真实值以 Fernet 密文落库（``value_encrypted``），``value`` 仅保留脱敏结构。
+        """
+        plugin = self._get_or_404(plugin_id)
+
+        # 1. 计算最终配置集合（现有 + 传入 - 待删除），用于 required 校验。
+        #    传入值为 None 视为「未改动」：不覆盖既有值（避免前端回显空值/脱敏占位时
+        #    把真实凭据误写成空），也用于「敏感项不回显、留空即保留」的契约。
+        existing_rows = (
+            self.db.query(PluginConfig)
+            .filter(
+                PluginConfig.plugin_id == plugin_id,
+                PluginConfig.tenant_id == self.tenant_id,
+            )
+            .all()
+        )
+        incoming = {it.name: it.value for it in req.items if it.value is not None}
+        final = {r.name: r.value for r in existing_rows}
+        final.update(incoming)
+        for name in req.remove or []:
+            final.pop(name, None)
+
+        # 2. required 校验（fail-closed，早于任何写入）
+        self._validate_required(plugin.config_schema, set(final.keys()))
+
+        # 3. 应用：先删待移除项，再 upsert 传入项（跳过 value=None）
+        if req.remove:
+            self.db.query(PluginConfig).filter(
+                and_(
                     PluginConfig.plugin_id == plugin_id,
                     PluginConfig.tenant_id == self.tenant_id,
-                    PluginConfig.name == item.name,
+                    PluginConfig.name.in_(req.remove),
                 )
-                .first()
-            )
-            if existing:
-                existing.value = item.value
-            else:
-                self.db.add(
-                    PluginConfig(
-                        plugin_id=plugin_id,
-                        tenant_id=self.tenant_id,
-                        name=item.name,
-                        value=item.value,
-                    )
-                )
+            ).delete(synchronize_session=False)
+        for item in req.items:
+            if item.value is None:
+                continue
+            self._upsert_config_row(plugin_id, item.name, item.value)
         self.db.flush()
         return self.get_config(plugin_id)
+
+    def _upsert_config_row(self, plugin_id: str, name: str, value: Any) -> None:
+        """写入单行配置：密文落库 + 脱敏结构回显。"""
+        ciphertext = encrypt(json.dumps(value, ensure_ascii=False))
+        masked = _mask_config(value, name)
+        existing = (
+            self.db.query(PluginConfig)
+            .filter(
+                PluginConfig.plugin_id == plugin_id,
+                PluginConfig.tenant_id == self.tenant_id,
+                PluginConfig.name == name,
+            )
+            .first()
+        )
+        if existing:
+            existing.value_encrypted = ciphertext
+            existing.value = masked
+        else:
+            self.db.add(
+                PluginConfig(
+                    plugin_id=plugin_id,
+                    tenant_id=self.tenant_id,
+                    name=name,
+                    value_encrypted=ciphertext,
+                    value=masked,
+                )
+            )
+
+    @staticmethod
+    def _validate_required(schema: Optional[dict], present_names) -> None:
+        """校验 config_schema.required 中的字段是否均已提供（review P1-C4）。"""
+        if not schema:
+            return
+        required = schema.get("required") or []
+        if not required:
+            return
+        missing = [r for r in required if r not in present_names]
+        if missing:
+            raise ValidationException(f"缺少必填配置项：{', '.join(missing)}")
 
     # ── 测试 / 调用 ──────────────────────────────────────────────────────────
 

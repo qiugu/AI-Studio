@@ -148,7 +148,9 @@ def test_agent_skips_disabled_plugin(monkeypatch):
     monkeypatch.setattr(
         PluginService,
         "get",
-        lambda self, pid: SimpleNamespace(status="disabled", name="p", api_spec=None),
+        lambda self, pid: SimpleNamespace(
+            status="disabled", name="p", api_spec=None, source_type="http"
+        ),
     )
 
     svc = _make_service()
@@ -162,7 +164,9 @@ def test_agent_skips_pending_review_plugin(monkeypatch):
     monkeypatch.setattr(
         PluginService,
         "get",
-        lambda self, pid: SimpleNamespace(status="pending_review", name="p", api_spec=None),
+        lambda self, pid: SimpleNamespace(
+            status="pending_review", name="p", api_spec=None, source_type="http"
+        ),
     )
 
     svc = _make_service()

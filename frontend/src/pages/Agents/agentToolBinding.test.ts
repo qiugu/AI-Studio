@@ -17,7 +17,6 @@ const catalog: ToolCatalogPlugin[] = [
   {
     id: 'p-weather',
     name: 'Weather',
-    plugin_type: 'tool',
     source_type: 'http',
     description: '天气查询服务',
     icon: null,
@@ -30,7 +29,6 @@ const catalog: ToolCatalogPlugin[] = [
   {
     id: 'p-cn-name',
     name: '订单处理',
-    plugin_type: 'connector',
     source_type: 'http',
     description: '订单系统对接',
     icon: null,

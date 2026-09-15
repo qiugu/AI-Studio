@@ -34,18 +34,12 @@ import {
 } from '@/api/plugin'
 import type {
   Plugin,
-  PluginType,
   PluginSourceType,
   PluginStatus,
   PluginTestResult,
   PluginCreateRequest,
 } from '@/types/plugin'
-import {
-  PLUGIN_SOURCE_OPTIONS,
-  PLUGIN_TYPE_OPTIONS,
-  pluginSourceMeta,
-  pluginTypeMeta,
-} from './pluginMeta'
+import { PLUGIN_SOURCE_OPTIONS, pluginSourceMeta } from './pluginMeta'
 import { useAuthStore } from '@/stores/auth'
 
 const { Title, Text } = Typography
@@ -83,7 +77,6 @@ export default function PluginList() {
     setEditing(null)
     form.resetFields()
     form.setFieldsValue({
-      plugin_type: 'tool',
       source_type: 'http',
       version: '1.0.0',
       status: 'active',
@@ -96,7 +89,6 @@ export default function PluginList() {
     setEditing(plugin)
     form.setFieldsValue({
       name: plugin.name,
-      plugin_type: plugin.plugin_type,
       source_type: plugin.source_type,
       version: plugin.version,
       description: plugin.description,
@@ -116,7 +108,6 @@ export default function PluginList() {
     try {
       const payload: PluginCreateRequest = {
         name: values.name,
-        plugin_type: values.plugin_type,
         source_type: values.source_type,
         version: values.version,
         description: values.description,
@@ -210,19 +201,6 @@ export default function PluginList() {
           )}
         </Space>
       ),
-    },
-    {
-      title: '类型',
-      dataIndex: 'plugin_type',
-      key: 'plugin_type',
-      render: (t: PluginType) => {
-        const meta = pluginTypeMeta(t)
-        return (
-          <Tooltip title={`${meta.description} 适用：${meta.useCases}`}>
-            <Tag color={meta.color}>{meta.label}</Tag>
-          </Tooltip>
-        )
-      },
     },
     {
       title: '接入方式',
@@ -354,14 +332,6 @@ export default function PluginList() {
             <Input placeholder="如：天气查询插件" />
           </Form.Item>
           <Space style={{ display: 'flex' }} size="large" wrap>
-            <Form.Item
-              name="plugin_type"
-              label="能力形态（做什么）"
-              tooltip="工具：可被 Agent 调用的动作；连接器：对接外部系统；处理器：数据转换加工。"
-              rules={[{ required: true }]}
-            >
-              <Select options={PLUGIN_TYPE_OPTIONS} style={{ width: 220 }} />
-            </Form.Item>
             <Form.Item
               name="source_type"
               label="接入方式（怎么接）"

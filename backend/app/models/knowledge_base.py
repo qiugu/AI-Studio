@@ -21,6 +21,13 @@ class KnowledgeBase(Base):
     # 统计信息
     document_count = Column(Integer, default=0)  # 文档数
     chunk_count = Column(BigInteger, default=0)  # 分块总数
+
+    # 灰度 / 回滚指针：重建完成后指向新集合（如 ``kb_{kb_id}_v2``），
+    # 置回 NULL 即立刻退回重建前的集合（旧集合与旧分块行都保留，故回滚是**即时**的）。
+    # NULL 表示「未重建」，行为与引入该列之前完全一致。
+    # 写入、检索、删除三处都必须经 ``collection_name_for(kb_id, active_collection)``
+    # 解析，使「当前生效集合」只有一个真值来源。
+    active_collection = Column(String(80), nullable=True)
     
     # 状态与时间戳
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

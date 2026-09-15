@@ -25,14 +25,21 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 _KB_MARKER_KWARGS = {"kb_id", "query", "query_text", "top_k", "score_threshold"}
 
 
-def _accepted_params() -> Set[str]:
-    """``KnowledgeBaseService.search`` 实际接受的参数名"""
-    signature = inspect.signature(KnowledgeBaseService.search)
+#: 承载知识库检索的方法名。
+#: ``search_with_diagnostics`` 是实际实现；``search`` 是只返回结果列表的兼容包装。
+#: 两者都必须纳入扫描——否则「把调用点从 search 迁到 search_with_diagnostics」会让
+#: 本文件的扫描静默失效（契约漂移正是本文件要防的那类缺陷）。
+_SEARCH_METHODS = ("search", "search_with_diagnostics")
+
+
+def _accepted_params(method_name: str) -> Set[str]:
+    """指定检索方法实际接受的参数名"""
+    signature = inspect.signature(getattr(KnowledgeBaseService, method_name))
     return {name for name in signature.parameters if name != "self"}
 
 
 def _iter_calls_with_kwargs() -> List[tuple]:
-    """扫描 app/ 下全部 ``.search(...)`` 调用，返回 (文件, 行号, 关键字集合)"""
+    """扫描 app/ 下全部检索调用，返回 (文件, 行号, 方法名, 关键字集合)"""
     found = []
     for path in sorted(APP_DIR.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -40,48 +47,67 @@ def _iter_calls_with_kwargs() -> List[tuple]:
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
-            if not isinstance(func, ast.Attribute) or func.attr != "search":
+            if not isinstance(func, ast.Attribute) or func.attr not in _SEARCH_METHODS:
                 continue
             kwargs = {kw.arg for kw in node.keywords if kw.arg}
             if kwargs & _KB_MARKER_KWARGS:
-                found.append((path.relative_to(APP_DIR), node.lineno, kwargs))
+                found.append((path.relative_to(APP_DIR), node.lineno, func.attr, kwargs))
     return found
 
 
 def test_search_accepts_query_keyword():
     """契约本身：检索方法必须接受 ``query``"""
-    assert "query" in _accepted_params()
+    assert "query" in _accepted_params("search_with_diagnostics")
 
 
 def test_search_does_not_accept_legacy_query_text():
     """契约本身：不得再保留 ``query_text``，否则两种写法并存会再次漂移"""
-    assert "query_text" not in _accepted_params()
+    for method_name in _SEARCH_METHODS:
+        assert "query_text" not in _accepted_params(method_name)
+
+
+def test_wrapper_signature_matches_implementation():
+    """兼容包装与实现的参数集合必须完全一致
+
+    否则「把调用点迁到包装方法」这一动作会引入参数不匹配，而失败点又在包装内部，
+    排查成本与 A1 类缺陷相同。
+    """
+    assert _accepted_params("search") == _accepted_params("search_with_diagnostics")
 
 
 def test_all_search_call_sites_match_signature():
-    """全量扫描：所有知识库检索调用点的关键字必须都在签名内"""
-    accepted = _accepted_params()
-    violations = [
-        f"{relative}:{lineno} 传入了签名外的关键字 {sorted(kwargs - accepted)}"
-        for relative, lineno, kwargs in _iter_calls_with_kwargs()
-        if kwargs - accepted
-    ]
+    """全量扫描：所有知识库检索调用点的关键字必须都在被调方法的签名内"""
+    violations = []
+    for relative, lineno, method_name, kwargs in _iter_calls_with_kwargs():
+        extra = kwargs - _accepted_params(method_name)
+        if extra:
+            violations.append(
+                f"{relative}:{lineno} 调用 {method_name} 传入了签名外的关键字 {sorted(extra)}"
+            )
     assert violations == [], "检索调用点与签名不一致：\n" + "\n".join(violations)
 
 
 def test_scan_actually_covers_call_sites():
-    """防止扫描本身失效：若一个调用点都没扫到，上面的测试就是空转通过
+    """防止扫描本身失效：若调用点没扫到，上面的测试就是空转通过
 
     已知调用点：`services/agent.py`（Agent 知识库工具）与
     `services/workflow_engine.py`（Workflow 知识库节点）。
     """
     call_sites = _iter_calls_with_kwargs()
     assert len(call_sites) >= 2, f"未扫描到预期的调用点，实际：{call_sites}"
+    covered = {str(relative) for relative, _, _, _ in call_sites}
+    assert {"services/agent.py", "services/workflow_engine.py"} <= covered, (
+        f"扫描未覆盖已知调用点，实际：{sorted(covered)}"
+    )
 
 
 def test_search_docstring_documents_types():
-    """文档字符串需说明 kb_id 为 UUID 字符串——类型注解曾误写为 int"""
-    docstring = inspect.getdoc(KnowledgeBaseService.search) or ""
+    """文档字符串需说明 kb_id 为 UUID 字符串——类型注解曾误写为 int
+
+    详细说明随实现迁至 ``search_with_diagnostics``（``search`` 现为兼容包装），
+    因此校验承载实现的那个方法。
+    """
+    docstring = inspect.getdoc(KnowledgeBaseService.search_with_diagnostics) or ""
     assert "kb_id" in docstring
     assert "query" in docstring
 

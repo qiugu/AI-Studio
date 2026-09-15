@@ -16,6 +16,8 @@ router = APIRouter()
 
 @router.get("/logs", response_model=ResponseBase)
 def list_audit_logs(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     user_id: Optional[str] = Query(None),
@@ -24,9 +26,7 @@ def list_audit_logs(
     status_code: Optional[int] = Query(None),
     start_time: Optional[datetime] = Query(None),
     end_time: Optional[datetime] = Query(None),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     svc = AuditService(db, tenant_id)
     items, total = svc.list_audit_logs(
@@ -51,6 +51,8 @@ def list_audit_logs(
 
 @router.get("/model-calls", response_model=ResponseBase)
 def list_model_calls(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     user_id: Optional[str] = Query(None),
@@ -59,9 +61,7 @@ def list_model_calls(
     status: Optional[str] = Query(None),
     start_time: Optional[datetime] = Query(None),
     end_time: Optional[datetime] = Query(None),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     svc = AuditService(db, tenant_id)
     items, total = svc.list_model_calls(
@@ -86,13 +86,13 @@ def list_model_calls(
 
 @router.get("/token-stats", response_model=ResponseBase)
 def token_stats(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     days: int = Query(30, ge=1, le=365),
     agent_id: Optional[str] = Query(None),
     user_id: Optional[str] = Query(None),
     model_id: Optional[str] = Query(None),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AuditService(db, tenant_id)
     return ResponseBase.ok(data=TokenStatsOut(**svc.token_stats(days=days, agent_id=agent_id, user_id=user_id, model_id=model_id)).model_dump())
@@ -100,9 +100,9 @@ def token_stats(
 
 @router.get("/dashboard", response_model=ResponseBase)
 def dashboard(
-    tenant_id: CurrentTenantId = None,
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = AuditService(db, tenant_id)
     return ResponseBase.ok(data=DashboardOut(**svc.dashboard()).model_dump())

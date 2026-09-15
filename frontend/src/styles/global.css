@@ -34,6 +34,14 @@ a:hover {
   color: #4096ff;
 }
 
-.ant-layout {
-  min-height: 100vh;
-}
+/*
+ * 注意：这里**不能**再写 `.ant-layout { min-height: 100vh }`。
+ *
+ * 该选择器会同时命中 AppLayout 中**嵌套的内层** `<Layout>`（Header + Content 的
+ * 父容器）。内层一旦带上 `min-height: 100vh`，就无法收缩到 100vh 以下；而它内部
+ * 已包含 64px 的 Header，于是当 Content 变长时内层整体会超过外层 `h-screen`
+ * （100vh）容器，溢出的部分穿出布局，Header / Sider 的视觉结构随之被破坏。
+ *
+ * 现在：高度收敛由外层 Layout 的 `h-screen` 单独承担，滚动归属由 Content 的
+ * `overflow: auto` 单独承担，二者配合才能得到「外壳固定、内容区滚动」的结构。
+ */

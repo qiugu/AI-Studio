@@ -36,7 +36,7 @@ import type {
   ToolCatalogPlugin,
 } from '@/types/agent'
 import { type AIModel } from '@/types/ai-model'
-import { pluginSourceMeta, pluginTypeMeta } from '@/pages/Plugins/pluginMeta'
+import { pluginSourceMeta } from '@/pages/Plugins/pluginMeta'
 import {
   isDestructiveMethod,
   missingSelectionKeys,
@@ -266,7 +266,6 @@ export default function AgentForm() {
     return (
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         {catalog.map((plugin) => {
-          const typeMeta = pluginTypeMeta(plugin.plugin_type)
           const sourceMeta = pluginSourceMeta(plugin.source_type)
           const visibleEndpoints = showDestructive
             ? plugin.endpoints
@@ -283,9 +282,6 @@ export default function AgentForm() {
             >
               <Space size="small" wrap>
                 <Text strong>{plugin.name}</Text>
-                <Tooltip title={typeMeta.description}>
-                  <Tag color={typeMeta.color}>{typeMeta.label}</Tag>
-                </Tooltip>
                 <Tooltip title={sourceMeta.description}>
                   <Tag color={sourceMeta.color}>{sourceMeta.label}</Tag>
                 </Tooltip>

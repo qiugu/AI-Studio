@@ -1,6 +1,4 @@
 """角色与权限管理 API（租户维度，需租户管理员权限）。"""
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -23,11 +21,11 @@ router = APIRouter()
 
 @router.get("", response_model=ResponseBase)
 def list_roles_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=200),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     items, total = list_roles(tenant_id, db, page=page, page_size=page_size)
     return ResponseBase.ok(
@@ -42,10 +40,10 @@ def list_roles_api(
 
 @router.post("", response_model=ResponseBase)
 def create_role_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     data: RoleCreate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     role = create_role(data, tenant_id, db)
     db.commit()
@@ -55,10 +53,10 @@ def create_role_api(
 
 @router.get("/{role_id}", response_model=ResponseBase)
 def get_role_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     role_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     role = get_role(role_id, tenant_id, db)
     return ResponseBase.ok(data=RoleOut.model_validate(role).model_dump())
@@ -66,11 +64,11 @@ def get_role_api(
 
 @router.put("/{role_id}", response_model=ResponseBase)
 def update_role_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     role_id: str,
     data: RoleUpdate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     role = update_role(role_id, data, tenant_id, db)
     db.commit()
@@ -80,10 +78,10 @@ def update_role_api(
 
 @router.delete("/{role_id}", response_model=ResponseBase)
 def delete_role_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     role_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     delete_role(role_id, tenant_id, db)
     db.commit()
@@ -92,9 +90,9 @@ def delete_role_api(
 
 @router.get("/permissions/all", response_model=ResponseBase)
 def list_permissions_api(
-    tenant_id: CurrentTenantId = None,
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     perms = list_permissions(db)
     return ResponseBase.ok(data=[PermissionOut.model_validate(p).model_dump() for p in perms])
@@ -102,11 +100,11 @@ def list_permissions_api(
 
 @router.put("/{role_id}/permissions", response_model=ResponseBase)
 def set_role_permissions_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     role_id: str,
     data: RolePermissionAssign,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     role = set_role_permissions(role_id, data.permission_ids, tenant_id, db)
     db.commit()

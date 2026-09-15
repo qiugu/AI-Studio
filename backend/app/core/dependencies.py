@@ -13,6 +13,7 @@ from app.core.security import decode_token
 from app.core.exceptions import UnauthorizedException, ForbiddenException
 from app.core.tenant_scope import set_tenant_scope
 from app.models.user import User
+from app.models.tenant import Tenant
 from app.models.permission import Permission
 from app.models.role_permission import role_permission
 from app.models.user_role import user_role
@@ -83,9 +84,9 @@ def require_permission(resource: str, action: str):
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_session),
     ) -> User:
-        for role in current_user.roles:
-            if 'admin' in role.code:
-                return current_user  # 管理员角色绕过权限检查
+        # 管理员角色（显式 is_admin）绕过细粒度权限检查
+        if any(role.is_admin for role in current_user.roles):
+            return current_user
         perm = (
             db.query(Permission)
             .select_from(Permission)
@@ -113,17 +114,41 @@ async def require_platform_admin(
 
 async def require_tenant_admin(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
 ) -> User:
-    """租户管理员守卫 - 平台管理员或拥有 admin 角色的用户可通过。"""
+    """租户管理员守卫 - 平台管理员、租户所有者(owner_id)或拥有 admin 角色的用户可通过。"""
     if current_user.is_platform_admin:
         return current_user
-    for role in current_user.roles:
-        if "admin" in role.code:
-            return current_user
+    # 邮箱未验证的账户不得行使管理权限（纵深防御：login 网关已拦截其登录，此处再兜底）
+    if not current_user.email_verified:
+        raise ForbiddenException("tenant", "admin")
+    # 租户所有者：管理能力由 owner_id 推导，与「被显式提升的 admin 角色」解耦
+    tenant = (
+        db.query(Tenant)
+        .filter(Tenant.id == current_user.tenant_id, Tenant.owner_id == current_user.id)
+        .first()
+    )
+    if tenant is not None:
+        return current_user
+    if any(role.is_admin for role in current_user.roles):
+        return current_user
     raise ForbiddenException("tenant", "admin")
 
 
 # 类型别名，简化路由参数声明
+#
+# 使用约定（三条均为踩过的坑，改动前务必确认）：
+#   1. 依赖参数必须置于**签名前部**且**不带默认值**。在带默认值的参数之后再声明
+#      无默认值参数会触发 Python 语法错误
+#      （SyntaxError: parameter without a default follows parameter with a default）。
+#   2. 不可写成 `x: TenantAdmin = None`。别名静态类型是 User / str，默认值 None
+#      会被 mypy / pyright 判为 `Incompatible default for argument`。
+#   3. 更不可写成 `x: TenantAdmin | None = None`。Optional 包裹 Annotated 会让
+#      FastAPI 取不到 `Annotated.__metadata__` 中的 Depends，转而把 User 当作
+#      请求/响应字段建模，导致应用**导入期**崩溃
+#      （FastAPIError: Invalid args for response field），表现为全站 502。
+#
+# 正确写法：`def endpoint(_admin: TenantAdmin, tenant_id: CurrentTenantId, page: int = Query(1), ...)`
 SessionDep = Annotated[Session, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentTenantId = Annotated[str, Depends(get_current_tenant)]

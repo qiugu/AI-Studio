@@ -2,9 +2,13 @@
 
 关注的不是精排质量（那是评测集的职责），而是**集成契约**：
 
-* 关闭精排时与改造前严格等价（只查 top_k 条、不做任何重排）；
+* 关闭精排**且关闭内容去重**时与改造前严格等价（只查 top_k 条、不做任何重排）；
+  这条等价路径必须显式保留并断言，否则去重叠加精排后再也无法判断回归来自哪一层；
 * 开启精排时按 ``candidate_k`` 宽召回，且返回顺序与展示分数一致；
 * 精排不可用时**回落**而非让检索失败——权重缺失不应导致知识库整体不可用。
+
+内容去重本身（折叠、``duplicate_count``、超额召回）由
+``tests/test_knowledge_search_dedup.py`` 单独覆盖，本文件只断言它与精排的边界。
 
 全部依赖以替身注入，不连 Qdrant、不加载真实模型。
 """
@@ -55,13 +59,15 @@ def _build_service():
             doc_id="doc-1",
             document=SimpleNamespace(file_name="doc.pdf"),
             chunk_index=index,
+            source_page=None,
+            heading_path=None,
         )
         for index, vector_id in enumerate(VECTORS)
     }
 
     service = KnowledgeBaseService(db=MagicMock(), tenant_id=TENANT)
     service.get_knowledge_base = lambda _kb_id: SimpleNamespace(
-        id=KB_ID, tenant_id=TENANT, embedding_model="fake/model"
+        id=KB_ID, tenant_id=TENANT, embedding_model="fake/model", active_collection=None
     )
     service.chunk_repo = SimpleNamespace(
         list_by_vector_ids=lambda ids: [
@@ -96,23 +102,34 @@ def patched(monkeypatch, config_defaults):
 
 @pytest.fixture
 def config_defaults(monkeypatch):
-    """把精排相关配置复位到默认，避免用例之间相互污染"""
+    """把精排与去重相关配置复位到默认，避免用例之间相互污染"""
     from app.core import config as config_module
 
     monkeypatch.setattr(config_module.config, "reranker_enabled", False, raising=False)
     monkeypatch.setattr(config_module.config, "reranker_candidate_k", 20, raising=False)
     monkeypatch.setattr(config_module.config, "retrieval_score_threshold", 0.0, raising=False)
+    monkeypatch.setattr(config_module.config, "retrieval_dedup_enabled", True, raising=False)
+    monkeypatch.setattr(config_module.config, "retrieval_fetch_multiplier", 2, raising=False)
     return config_module.config
 
 
 class TestRerankDisabled:
-    def test_default_queries_only_top_k(self, patched, config_defaults):
-        """默认关闭：只查 top_k 条，不做任何重排——与改造前严格等价"""
+    def test_dedup_disabled_queries_only_top_k(self, patched, config_defaults):
+        """关闭去重：只查 top_k 条、不做任何重排——与改造前严格等价的回归基线"""
+        config_defaults.retrieval_dedup_enabled = False
         service = _build_service()
         result = service.search(KB_ID, "查询", top_k=2)
 
         assert patched["search_calls"][0]["limit"] == 2
         assert [item["id"] for item in result] == ["chunk-v1", "chunk-v2"]
+        assert all("rerank_score" not in item for item in result)
+
+    def test_dedup_enabled_widens_recall(self, patched, config_defaults):
+        """开启去重：召回量必须按倍数放大（折叠细节见去重专用测试文件）"""
+        service = _build_service()
+        result = service.search(KB_ID, "查询", top_k=2)
+
+        assert patched["search_calls"][0]["limit"] == 2 * config_defaults.retrieval_fetch_multiplier
         assert all("rerank_score" not in item for item in result)
 
     def test_score_equals_retrieval_score_without_rerank(self, patched, config_defaults):
@@ -123,6 +140,9 @@ class TestRerankDisabled:
             assert item["score"] == item["retrieval_score"]
 
     def test_explicit_false_overrides_enabled_config(self, patched, config_defaults):
+        # 关闭去重，使本用例只考察「显式入参覆盖配置」这一件事，
+        # 不把召回量断言与去重的超额召回混在一起。
+        config_defaults.retrieval_dedup_enabled = False
         config_defaults.reranker_enabled = True
         service = _build_service()
         service.search(KB_ID, "查询", top_k=2, use_rerank=False)
@@ -146,6 +166,9 @@ class TestRerankEnabled:
         assert patched["search_calls"][0]["limit"] == 5
 
     def test_candidate_k_never_below_top_k(self, patched, config_defaults, fake_reranker):
+        # 关闭去重：本用例考察的是「candidate_k 不得低于 top_k」，
+        # 开启去重后召回量会再被放大，断言会失去区分度。
+        config_defaults.retrieval_dedup_enabled = False
         service = _build_service()
         service.search(KB_ID, "查询", top_k=4, use_rerank=True, candidate_k=2)
 

@@ -32,6 +32,13 @@ class KnowledgeDocument(Base):
     # 内容元数据
     original_content = Column(Text, nullable=True)  # 原始文本（存储解析后的全文）
     chunk_count = Column(Integer, default=0)  # 该文档的分块数
+
+    # 该文档**当前生效**的分块代次（"448-64"），与 knowledge_chunks.chunk_epoch 配对。
+    # 重建期间新旧两代分块行会同时存活（旧行支撑回滚窗口），因此「这份文档现在该看
+    # 哪一代」必须显式记录，否则分块列表与计数会把两代混在一起。
+    # **不能**用 config.chunk_epoch 顶替：配置在重建前就已变成新值，
+    # 拿它过滤会让该文档的分块列表在重建完成前静默返回空。NULL 表示从未产出分块。
+    active_chunk_epoch = Column(String(32), nullable=True)
     
     # 处理状态与错误信息
     status = Column(Enum(DocumentStatus), default=DocumentStatus.PENDING, nullable=False, index=True)

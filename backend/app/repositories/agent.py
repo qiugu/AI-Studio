@@ -53,9 +53,20 @@ class AgentToolRepository(BaseRepository[AgentTool]):
             .all()
         )
 
-    def delete_by_agent(self, agent_id: str) -> None:
-        """删除Agent的所有工具"""
-        self.db.query(AgentTool).filter(
-            and_(AgentTool.tenant_id == self.tenant_id, AgentTool.agent_id == agent_id)
-        ).delete(synchronize_session=False)
+    def delete_by_agent(self, agent_id: str, tool_type: Optional[str] = None) -> None:
+        """删除 Agent 的工具。
+
+        ``tool_type`` 为 ``None`` 时删除全部（兼容旧调用）；指定类型时仅删除该类型，
+        用于「更新 Agent 时只重建 plugin 类工具、保留 knowledge/api/function/workflow
+        等其它类型」的场景（修复 §3.1：UI 仅提交 plugin 工具时会误删其它类型）。
+        """
+        filters = [
+            AgentTool.tenant_id == self.tenant_id,
+            AgentTool.agent_id == agent_id,
+        ]
+        if tool_type is not None:
+            filters.append(AgentTool.tool_type == tool_type)
+        self.db.query(AgentTool).filter(and_(*filters)).delete(
+            synchronize_session=False
+        )
         self.db.flush()

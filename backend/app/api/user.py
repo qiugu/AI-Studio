@@ -22,13 +22,13 @@ router = APIRouter()
 
 @router.get("", response_model=ResponseBase)
 def list_users_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None),
     status: Optional[bool] = Query(None),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     items, total = list_users(
         tenant_id, db, page=page, page_size=page_size, search=search, status=status
@@ -45,10 +45,10 @@ def list_users_api(
 
 @router.post("", response_model=ResponseBase)
 def create_user_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     data: UserCreate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     user = create_user(
         email=data.email,
@@ -65,10 +65,10 @@ def create_user_api(
 
 @router.get("/{user_id}", response_model=ResponseBase)
 def get_user_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     user_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     user = get_user_by_id(user_id, tenant_id, db)
     return ResponseBase.ok(data=UserOut.model_validate(user).model_dump())
@@ -76,11 +76,11 @@ def get_user_api(
 
 @router.put("/{user_id}", response_model=ResponseBase)
 def update_user_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     user_id: str,
     data: UserUpdate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     user = update_user(user_id, data, tenant_id, db)
     db.commit()
@@ -90,10 +90,10 @@ def update_user_api(
 
 @router.delete("/{user_id}", response_model=ResponseBase)
 def delete_user_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     user_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     delete_user(user_id, tenant_id, db)
     db.commit()
@@ -102,11 +102,11 @@ def delete_user_api(
 
 @router.post("/{user_id}/roles", response_model=ResponseBase)
 def assign_roles_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     user_id: str,
     data: UserRoleAssign,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     user = assign_roles(user_id, data, tenant_id, db)
     db.commit()

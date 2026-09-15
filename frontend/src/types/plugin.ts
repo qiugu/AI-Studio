@@ -1,9 +1,7 @@
 // ── 插件系统 ────────────────────────────────────────────────────────────────
 
-// 维度 A · 能力形态（插件「做什么」）
-export type PluginType = 'tool' | 'connector' | 'processor'
-
-// 维度 B · 接入方式（插件「怎么接进来」）
+// 接入方式（插件「怎么接进来」）——插件形态的**唯一**维度。
+// 「能力形态」plugin_type 已随 M2.0 移除（边界不可判定、零行为差异）。
 export type PluginSourceType = 'http' | 'mcp' | 'skill'
 
 export type PluginStatus = 'active' | 'disabled' | 'pending_review'
@@ -24,7 +22,6 @@ export interface Plugin {
   id: string
   tenant_id: string | null
   name: string
-  plugin_type: PluginType
   source_type: PluginSourceType
   version: string
   description?: string | null
@@ -42,7 +39,6 @@ export interface Plugin {
 
 export interface PluginCreateRequest {
   name: string
-  plugin_type?: PluginType
   source_type?: PluginSourceType
   version?: string
   description?: string
@@ -57,7 +53,6 @@ export interface PluginCreateRequest {
 
 export interface PluginUpdateRequest {
   name?: string
-  plugin_type?: PluginType
   source_type?: PluginSourceType
   version?: string
   description?: string
@@ -73,6 +68,9 @@ export interface PluginUpdateRequest {
 export interface PluginConfigItem {
   name: string
   value: unknown
+  // 是否已设置真实值。敏感项（api_key/secret 等）回显时 value 为 null、has_value 为 true，
+  // 前端据此在保存时跳过「空值且原本已设置」的字段，避免把脱敏/缺省值当成新值覆盖。
+  has_value?: boolean
 }
 
 export interface PluginEndpointCreateRequest {

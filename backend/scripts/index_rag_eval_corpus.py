@@ -1,11 +1,29 @@
 #!/usr/bin/env python
 """Phase 2.4–2.6：把采样语料走**真实分块 + 向量化 + Qdrant** 链路入库，并做分块切断检测。
 
-产出（默认 ``backend/data/rag_eval/``）::
+产出（默认 ``backend/data/rag_eval/``，可用 ``--out-dir`` 改到别处）::
 
     chunks.jsonl           每个索引点一行：``{point_id, passage_id, chunk_index, text}``
-    index_manifest.json    索引清单：collection / 模型 / 维度 / 分块参数 / 统计
+    index_manifest.json    索引清单：collection / 模型 / 维度 / 分块参数 / 布局 / 统计
     cut_report.json        分块切断检测报告
+    sparse_encoder.json    仅 ``--idf``：拟合出的 k1/b/avgdl/idf（供复现与对账）
+
+为什么需要 ``--out-dir``（而不是永远写回 ``--data-dir``）
+--------------------------------------------------------
+
+稠密与混合两次索引的 ``chunks.jsonl`` 必须能**同时留存**：Phase 5 的对照结论
+（「混合相对稠密提升了多少」）依赖两次运行的分块集合完全一致，若第二次运行把
+第一次的产物覆盖掉，事后就无法回答「两次用的是不是同一份分块」。因此两次运行
+各写一个目录，把「同一份分块」变成可核对的事实而非假设。
+
+``--hybrid`` 与 ``--idf`` 的关系
+--------------------------------
+
+两者独立：``--hybrid`` 决定**集合布局**（命名稠密 + 命名稀疏，混合检索的前提），
+``--idf`` 决定**文档侧稀疏权重**（默认无状态、IDF 恒为 1；开启后用语料拟合的 IDF，
+离线对照下增益约高 30%，但**新增文档会使 df/avgdl 失效**，故只用于离线评测）。
+查询侧一律是二值权重（词出现即 1），故评测运行器无需读取 ``sparse_encoder.json``——
+该文件是给复现与对账看的。
 
 为什么必须走真实链路
 --------------------
@@ -39,7 +57,7 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
@@ -50,15 +68,23 @@ if str(BACKEND_DIR) not in sys.path:
 os.environ.setdefault("AI_STUDIO_SKIP_ENV_FILE", "1")
 
 from app.core.config import config  # noqa: E402
-from app.core.vector_db import get_or_create_collection, get_qdrant_client  # noqa: E402
+from app.core.vector_db import (  # noqa: E402
+    collection_name_for,
+    get_or_create_collection,
+    get_qdrant_client,
+    hybrid_point_vector,
+)
 from app.rag_eval.dataset import load_jsonl  # noqa: E402
-from app.utils.document import TextSplitter  # noqa: E402
+from app.utils.document import TextSegment, TextSplitter  # noqa: E402
 from app.utils.embedding import get_embedding_client  # noqa: E402
+from app.utils.sparse import SparseEncoder, default_encoder  # noqa: E402
 
 DEFAULT_DATA_DIR = BACKEND_DIR / "data" / "rag_eval"
 DEFAULT_KB_SLUG = "rageval_t2r"
-DEFAULT_CHUNK_SIZE = 1024
-DEFAULT_CHUNK_OVERLAP = 128
+# 分块默认值取自**配置**而非写死，避免「评测用的分块参数」与「线上入库的分块参数」
+# 悄悄漂移——一旦漂移，评测结论就不再能代表线上行为。命令行仍可覆盖以便做参数扫描。
+DEFAULT_CHUNK_SIZE = config.chunk_size
+DEFAULT_CHUNK_OVERLAP = config.chunk_overlap
 EMBED_BATCH = 32
 UPSERT_BATCH = 256
 
@@ -88,24 +114,69 @@ def build_chunks(
 ) -> List[dict]:
     """按线上同一 ``TextSplitter`` 分块，返回分块记录列表
 
-    Note:
-        当前 ``TextSplitter`` 的 ``chunk_overlap`` 实际未生效（已登记为 D11），
-        此处仍显式传入线上参数，以便 Phase 5 修复后本脚本无需改动即可反映新行为。
+    走 ``split_segments([TextSegment(text)])`` 而非 ``split(text)``：评测语料的
+    每段本身就是一段纯文本，两者结果**当下**等价，但只有前者与线上入库
+    (``knowledge_processor``) 是同一调用路径。若将来线上改为「按页/按标题切段
+    再段内分块」，此处会自动跟随，不会悄悄分叉成两套分块口径。
+
+    ``chunk_overlap`` 现在**真实生效**（D11 已修复）：块之间会有实际重叠，
+    因此块数会随重叠增大而增加，这是与历史基线比较时必须注意的口径变化。
     """
     splitter = TextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     chunks: List[dict] = []
     for passage_id, text in corpus:
-        pieces = splitter.split(text)
+        pieces = splitter.split_segments([TextSegment(text=text)])
         for index, piece in enumerate(pieces):
             chunks.append(
                 {
                     "point_id": point_id_for(passage_id, index),
                     "passage_id": passage_id,
                     "chunk_index": index,
-                    "text": piece,
+                    "text": piece.text,
                 }
             )
     return chunks
+
+
+def build_sparse_encoder(
+    chunks: Sequence[dict],
+    use_idf: bool,
+    sample_limit: Optional[int] = None,
+) -> SparseEncoder:
+    """构造文档侧稀疏编码器
+
+    ``use_idf=False``（默认）取生产一致的**无状态**编码器：IDF 恒为 1，
+    编码结果与语料规模无关，因此评测索引与线上索引在权重口径上逐位一致。
+
+    ``use_idf=True`` 在**分块文本**（而非段落原文）上拟合 df/avgdl：被索引的
+    就是分块，用段落原文统计会让长度归一化项失真。该模式的用途是离线对照
+    「IDF 能带来多少增益」，代价是语料一变 df 即失效，故不作为默认。
+    """
+    if not use_idf:
+        return default_encoder()
+    return SparseEncoder.fit([item["text"] for item in chunks], sample_limit=sample_limit)
+
+
+def build_point_vectors(
+    dense_vectors: Sequence[Sequence[float]],
+    chunks: Sequence[dict],
+    encoder: Optional[SparseEncoder],
+) -> List[Union[List[float], Dict]]:
+    """把稠密向量（+ 可选稀疏向量）组装为可直接 upsert 的向量字段
+
+    返回项的形态取决于布局：``encoder is None`` 时是匿名稠密列表（旧布局，
+    与改造前逐位一致）；否则是 ``{"dense": [...], "text": SparseVector}``
+    ——向量名由 :func:`hybrid_point_vector` 单点给出，避免入库侧与检索侧
+    各自硬编码名字而产生「写进去但查不到」的静默故障。
+    """
+    if encoder is None:
+        return [list(vector) for vector in dense_vectors]
+
+    vectors: List[Union[List[float], Dict]] = []
+    for offset, item in enumerate(chunks):
+        indices, values = encoder.document_vector(item["text"])
+        vectors.append(hybrid_point_vector(dense_vectors[offset], indices, values))
+    return vectors
 
 
 def embed_chunks(chunks: Sequence[dict], model: str) -> List[List[float]]:
@@ -123,8 +194,18 @@ def embed_chunks(chunks: Sequence[dict], model: str) -> List[List[float]]:
     return vectors
 
 
-def upsert_points(collection: str, chunks: Sequence[dict], vectors: Sequence[Sequence[float]]) -> None:
-    """写入 Qdrant；payload 只带定位所需字段（与线上 payload 风格一致）"""
+def upsert_points(
+    collection: str,
+    chunks: Sequence[dict],
+    vectors: Sequence[Union[Sequence[float], Dict]],
+) -> None:
+    """写入 Qdrant；payload 只带定位所需字段（与线上 payload 风格一致）
+
+    ``vectors`` 的元素形态随布局而变（匿名稠密列表 / 命名稠密+稀疏字典），
+    此处**不做任何转换**直接透传：``list(vector)`` 之类的"规范化"会命中字典
+    并把它变成键列表，最终写入一个维度错乱的向量——Qdrant 不会报错，
+    只会让检索结果与文本对不上。
+    """
     from qdrant_client.models import PointStruct
 
     client = get_qdrant_client()
@@ -133,7 +214,7 @@ def upsert_points(collection: str, chunks: Sequence[dict], vectors: Sequence[Seq
         points = [
             PointStruct(
                 id=item["point_id"],
-                vector=list(vectors[start + offset]),
+                vector=vectors[start + offset],
                 payload={
                     "passage_id": item["passage_id"],
                     "chunk_index": item["chunk_index"],
@@ -205,6 +286,13 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="数据集目录")
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="产物输出目录（chunks/manifest/cut_report 落在此处；缺省与 --data-dir 相同）。"
+             "稠密与混合两次索引应各写一个目录，否则后一次会覆盖前一次的产物，"
+             "导致「两次用的是不是同一份分块」无法事后核对",
+    )
     parser.add_argument("--kb-slug", default=DEFAULT_KB_SLUG,
                         help="collection 标识，最终 collection 名为 kb_{slug}")
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
@@ -215,6 +303,27 @@ def build_parser() -> argparse.ArgumentParser:
                         help="仅索引前 N 段，用于快速冒烟验证")
     parser.add_argument("--recreate", action="store_true",
                         help="先删除同名 collection 再重建（全量重索引时必须显式指定）")
+
+    layout = parser.add_argument_group("集合布局与稀疏权重")
+    layout.add_argument(
+        "--hybrid",
+        action="store_true",
+        help="以混合布局（命名稠密 + 命名稀疏）建集合并写入稀疏向量。"
+             "不指定时与改造前逐位一致（匿名稠密集合）。"
+             "注意：匿名稠密集合**无法原地升级**为混合布局，重索引时须配合 --recreate",
+    )
+    layout.add_argument(
+        "--idf",
+        action="store_true",
+        help="文档侧稀疏权重改用**语料拟合的 IDF**（离线对照用，增益相对高约三成）。"
+             "新增文档会使 df/avgdl 失效，故生产默认无状态（IDF 恒为 1）",
+    )
+    layout.add_argument(
+        "--idf-sample-limit",
+        type=int,
+        default=None,
+        help="--idf 拟合时只统计前 N 个分块（大规模语料下的抽样近似，控制耗时）",
+    )
     return parser
 
 
@@ -234,27 +343,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     dim = len(get_embedding_client(model=model).embed(["dimension probe"])[0])
     print(f"[1/5] 模型 {model} | device={config.embedding_device} | 维度={dim}")
 
-    collection = f"kb_{args.kb_slug}"
+    collection = collection_name_for(args.kb_slug)
     if args.recreate:
         client = get_qdrant_client()
         existing = {c.name for c in client.get_collections().collections}
         if collection in existing:
             client.delete_collection(collection_name=collection)
             print(f"      已删除旧 collection: {collection}")
-    collection = get_or_create_collection(args.kb_slug, vector_size=dim)
-    print(f"[2/5] collection 就绪: {collection}")
+    collection = get_or_create_collection(
+        args.kb_slug, vector_size=dim, hybrid=args.hybrid
+    )
+    layout_name = "hybrid" if args.hybrid else "legacy_dense"
+    print(f"[2/5] collection 就绪: {collection} | 布局={layout_name}")
 
     corpus = load_corpus(corpus_path, limit=args.limit_passages)
     print(f"[3/5] 载入语料 {len(corpus)} 段")
     chunks = build_chunks(corpus, args.chunk_size, args.chunk_overlap)
     print(f"      分块后 {len(chunks)} 块（平均 {len(chunks)/max(len(corpus),1):.3f} 块/段）")
 
+    # 稀疏编码器只在混合布局下需要；稠密索引传入 None，走与改造前完全一致的路径。
+    encoder = (
+        build_sparse_encoder(chunks, args.idf, args.idf_sample_limit)
+        if args.hybrid
+        else None
+    )
+    if encoder is not None:
+        print(
+            f"      稀疏编码器: mode={'stateless' if encoder.is_stateless else 'idf'} "
+            f"k1={encoder.k1} b={encoder.b} avgdl={encoder.avgdl:.1f}"
+        )
+
     print("[4/5] 向量化并写入 Qdrant")
-    vectors = embed_chunks(chunks, model)
-    upsert_points(collection, chunks, vectors)
+    dense_vectors = embed_chunks(chunks, model)
+    point_vectors = build_point_vectors(dense_vectors, chunks, encoder)
+    upsert_points(collection, chunks, point_vectors)
 
     print("[5/5] 写出索引清单与切断检测报告")
-    chunks_path = data_dir / "chunks.jsonl"
+    out_dir = Path(args.out_dir) if args.out_dir else data_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    chunks_path = out_dir / "chunks.jsonl"
     with chunks_path.open("w", encoding="utf-8") as handle:
         for item in chunks:
             handle.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -262,6 +390,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     manifest = {
         "collection": collection,
         "kb_slug": args.kb_slug,
+        "layout": layout_name,
         "embedding_model": model,
         "embedding_device": config.embedding_device,
         "vector_dim": dim,
@@ -272,19 +401,49 @@ def main(argv: Sequence[str] | None = None) -> int:
         "corpus_file": corpus_path.name,
         "golden_file": golden_path.name,
         "limit_passages": args.limit_passages,
+        "out_dir": str(out_dir),
+        # 稀疏编码器的参数一并固化：没有它，事后无法判断「两次混合运行的差异」
+        # 是来自分块、来自 α，还是来自稀疏权重的拟合口径。
+        "sparse_encoder": (
+            {
+                "mode": "stateless" if encoder.is_stateless else "idf",
+                "k1": encoder.k1,
+                "b": encoder.b,
+                "avgdl": encoder.avgdl,
+                "idf_terms": len(encoder.idf) if encoder.idf else 0,
+                "idf_sample_limit": args.idf_sample_limit,
+            }
+            if encoder is not None
+            else None
+        ),
     }
-    (data_dir / "index_manifest.json").write_text(
+    (out_dir / "index_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
+    if encoder is not None and encoder.idf:
+        (out_dir / "sparse_encoder.json").write_text(
+            json.dumps(
+                {
+                    "k1": encoder.k1,
+                    "b": encoder.b,
+                    "avgdl": encoder.avgdl,
+                    "idf": {str(index): value for index, value in encoder.idf.items()},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
     corpus_len = {passage_id: len(text) for passage_id, text in corpus}
     cut_report = build_cut_report(golden_path, chunks, corpus_len) if golden_path.exists() else {}
-    (data_dir / "cut_report.json").write_text(
+    (out_dir / "cut_report.json").write_text(
         json.dumps(cut_report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     print(f"      {chunks_path} ({chunks_path.stat().st_size/1e6:.1f} MB)")
-    print(f"      {data_dir / 'index_manifest.json'}")
+    print(f"      {out_dir / 'index_manifest.json'}")
     if cut_report:
         print()
         print("分块切断检测：")

@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Form, Input, Button, Card, Typography, message, Tabs } from 'antd'
-import { MailOutlined, LockOutlined, UserOutlined } from '@ant-design/icons'
+import { Form, Input, Button, Card, Typography, message, Tabs, Alert } from 'antd'
+import { MailOutlined, LockOutlined, UserOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
+import { getErrorMessage } from '@/utils/request'
 
 const { Title } = Typography
 
@@ -18,28 +19,40 @@ interface RegisterFormValues {
   password_repeat: string
 }
 
+/** 登录被「邮箱未验证」拦截时的提示文案特征，用于区分并引导验证。 */
+const UNVERIFIED_HINT = /(邮箱尚未验证|请.*验证.*邮箱|验证邮件)/
+
 export default function Login() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
   const register = useAuthStore((s) => s.register)
   const loading = useAuthStore((s) => s.loading)
   const [activeTab, setActiveTab] = useState('login')
+  // 邮箱未验证被拒时记录邮箱，展示「去验证」引导
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null)
 
   const handleLogin = async (values: LoginFormValues) => {
+    setUnverifiedEmail(null)
     try {
       await login(values.email, values.password)
       message.success('登录成功')
       navigate('/')
-    } catch {
-      // 错误提示已由全局响应拦截器统一弹出，此处无需重复处理
+    } catch (err) {
+      // 错误提示已由全局响应拦截器统一弹出；此处仅区分「未验证邮箱」场景做引导
+      const msg = getErrorMessage(err)
+      if (UNVERIFIED_HINT.test(msg)) {
+        setUnverifiedEmail(values.email)
+      }
     }
   }
 
   const handleRegister = async (values: RegisterFormValues) => {
     try {
       await register(values.email, values.password, values.password_repeat, values.nickname)
-      message.success('注册成功')
-      navigate('/')
+      // 注册成功进入邮箱验证流程，不再自动登录
+      const devToken = useAuthStore.getState().pendingVerification?.devToken ?? null
+      message.success('注册成功，请验证邮箱以激活账号')
+      navigate('/verify-email', { state: { email: values.email, devToken } })
     } catch {
       // 错误提示已由全局响应拦截器统一弹出，此处无需重复处理
     }
@@ -56,6 +69,30 @@ export default function Login() {
       }}
     >
       <Card style={{ width: 420, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+        {unverifiedEmail && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="邮箱尚未验证"
+            description={
+              <div>
+                <div>该账号已完成注册但未验证邮箱，请先完成验证后再登录。</div>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<SafetyCertificateOutlined />}
+                  style={{ paddingLeft: 0 }}
+                  onClick={() =>
+                    navigate(`/verify-email?email=${encodeURIComponent(unverifiedEmail)}`)
+                  }
+                >
+                  去验证邮箱
+                </Button>
+              </div>
+            }
+          />
+        )}
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <Title level={3} style={{ marginBottom: 4 }}>
             AI Studio

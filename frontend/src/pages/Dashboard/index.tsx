@@ -13,12 +13,15 @@ import { LineChart, BarChart } from '@/components/Charts'
 import { getDashboard } from '@/api/audit'
 import type { DashboardStats } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
+import { canManageSystem } from '@/utils/permission'
 
 const { Title, Text } = Typography
 
 export default function Dashboard() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
+  // 普通租户成员不展示「审计日志 / 用户管理」快捷入口，与侧边栏系统管理可见性保持一致
+  const canManage = canManageSystem(user)
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<DashboardStats | null>(null)
 
@@ -102,21 +105,27 @@ export default function Dashboard() {
             <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/agents')}>
               我的 Agent
             </Button>
-            <Button icon={<BarChartOutlined />} onClick={() => navigate('/system/audit-logs')}>
-              审计日志
-            </Button>
-            <Button icon={<TeamOutlined />} onClick={() => navigate('/system/users')}>
-              用户管理
-            </Button>
+            {canManage && (
+              <Button icon={<BarChartOutlined />} onClick={() => navigate('/system/audit-logs')}>
+                审计日志
+              </Button>
+            )}
+            {canManage && (
+              <Button icon={<TeamOutlined />} onClick={() => navigate('/system/users')}>
+                用户管理
+              </Button>
+            )}
             <Button icon={<FileTextOutlined />} onClick={() => navigate('/knowledge')}>
               知识库
             </Button>
           </Space>
-          <div style={{ marginTop: 12 }}>
-            <Text type="secondary">
-              审计与监控数据每 30 天为一个统计周期，可在「系统管理 → 审计日志」中查看完整明细。
-            </Text>
-          </div>
+          {canManage && (
+            <div style={{ marginTop: 12 }}>
+              <Text type="secondary">
+                审计与监控数据每 30 天为一个统计周期，可在「系统管理 → 审计日志」中查看完整明细。
+              </Text>
+            </div>
+          )}
         </Card>
       </Spin>
     </div>

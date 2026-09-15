@@ -80,14 +80,13 @@ class _FakeSession:
         raise AssertionError(f"未预期的查询模型：{model}")
 
 
-def make_orm_plugin(plugin_id: str, name: str, status="active", source_type="http", plugin_type="tool"):
+def make_orm_plugin(plugin_id: str, name: str, status="active", source_type="http"):
     return SimpleNamespace(
         id=plugin_id,
         tenant_id="tenant-1",
         name=name,
         status=status,
         source_type=source_type,
-        plugin_type=plugin_type,
         description="描述",
         icon=None,
     )

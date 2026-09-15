@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 import uuid
 
+from pydantic import create_model
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
@@ -16,6 +17,7 @@ from app.core.tenant_scope import public_or_tenant_filter
 from app.core.plugin_policy import (
     binding_rejection_reason,
     check_plugin_method_gate,
+    check_plugin_source_gate,
     check_plugin_status_gate,
     has_explicit_endpoint_ref,
     resolve_bound_endpoint,
@@ -39,6 +41,90 @@ def _exc_message(exc: Exception) -> str:
     ``str(exc)`` 会渲染成 ``400: xxx`` 这类带状态码的字符串，直接回给模型可读性差。
     """
     return str(getattr(exc, "detail", None) or exc)
+
+
+# JSON Schema 原子类型 -> Python 类型（用于端点入参 schema 生成 args_schema）。
+_JSON_TYPE_MAP = {
+    "string": str,
+    "integer": int,
+    "number": float,
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def _build_args_schema(schema: Dict[str, Any]):
+    """从端点入参 JSON Schema 生成 Pydantic ``args_schema``（review P1-C11）。
+
+    仅消费 ``properties`` / ``required``；未知类型回落为 ``str``。生成失败（或结构非法）
+    由调用方捕获并退化到单字符串 ``query``，不影响工具可用性。
+    """
+    properties = schema.get("properties", {}) or {}
+    required = set(schema.get("required", []) or [])
+    fields = {}
+    for name, prop in properties.items():
+        py_type = _JSON_TYPE_MAP.get(
+            prop.get("type") if isinstance(prop, dict) else None, str
+        )
+        fields[name] = (py_type, ...) if name in required else (Optional[py_type], None)
+    return create_model("PluginToolArgs", **fields)
+
+
+# 单字符串入参工具的共享 Schema。
+# 原生工具调用下模型按 JSON 回传入参，只有显式声明字段名才能让模型知道该写哪个键；
+# 历史上用 dict 之外的一个裸字符串（旧 ``Tool`` 的位置参数），模型无法判断语义。
+_QUERY_ARGS = create_model("ToolQueryArgs", query=(str, ...))
+
+
+class AgentAssemblyError(Exception):
+    """智能体装配失败（工具/提示词/Executor 构建阶段）。
+
+    与「模型调用失败」严格区分：这类错误**根本没走到模型**（例如模型不支持工具调用、
+    提示词缺少必需变量），把它报成模型问题是误导——用户去查 API Key 会一无所获。
+    """
+
+
+def _content_text(chunk: Any) -> str:
+    """从 LangChain 流块/消息中提取纯文本。
+
+    兼容两种 ``content`` 形态：``str``，以及多模态/推理模型返回的
+    ``[{"type": "text", "text": ...}, ...]`` 块列表（后者直接当字符串用会得到
+    list 的 repr）。
+    """
+    content = getattr(chunk, "content", chunk)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+        return "".join(parts)
+    return ""
+
+
+async def _iter_plain_llm_output(stream: Any):
+    """把无工具路径的 LLM 流包装成与工具路径一致的「内容块 / 用量」序列。
+
+    两个路径产出同一种事件形状后，``chat_stream`` 的打字机下发、token 记账与
+    ``done`` 事件只需写一份，不会随改动漂移。
+    """
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    async for chunk in stream:
+        text = _content_text(chunk)
+        if text:
+            yield {"type": "content", "content": text}
+        meta = getattr(chunk, "usage_metadata", None) or {}
+        if meta:
+            usage = {
+                "input_tokens": int(meta.get("input_tokens") or 0),
+                "output_tokens": int(meta.get("output_tokens") or 0),
+                "total_tokens": int(meta.get("total_tokens") or 0),
+            }
+    yield {"type": "usage", **usage}
 
 
 def _assert_plugin_tool_bindable(index: int, tool: Any, lookup) -> None:
@@ -154,7 +240,7 @@ class AgentService:
     def create_agent(
         self,
         data: AgentCreate,
-        user_id: uuid.UUID,
+        user_id: str,
     ) -> Agent:
         """创建Agent"""
         # 验证AI模型存在
@@ -242,10 +328,16 @@ class AgentService:
             # 设计期门禁：必须先校验再删除旧工具。若先删后校验，一次非法提交
             # 会连带把已有的合法授权清空（虽在同一事务内可回滚，但语义上不该走到那一步）。
             self._validate_tool_bindings(data.tools)
-            # 删除旧工具
-            self.tool_repo.delete_by_agent(agent_id)
-            # 创建新工具
-            for tool_data in data.tools:
+            # 仅重建 plugin 类工具：knowledge / api / function / workflow 等其它类型
+            # 由各自流程管理，此处不得触碰——否则 UI 仅提交 plugin 工具时会把它们
+            # 静默清空（历史 bug，详见 review §3.1）。
+            plugin_tools = [
+                t for t in data.tools
+                if getattr(t, "tool_type", None) == "plugin"
+            ]
+            self.tool_repo.delete_by_agent(agent_id, tool_type="plugin")
+            # 创建新工具（仅 plugin 类；其它类型不在本端点的职责范围内）
+            for tool_data in plugin_tools:
                 self.tool_repo.create(
                     agent_id=agent.id,
                     tool_type=tool_data.tool_type,
@@ -290,8 +382,23 @@ class AgentService:
     # ── Agent工具构建 ───────────────────────────────────────────────────────
 
     def _build_langchain_tools(self, agent: Agent) -> List[Any]:
-        """构建LangChain工具列表"""
-        from langchain_core.tools import Tool
+        """构建LangChain工具列表。
+
+        所有工具统一构建为 ``StructuredTool``（旧版是 ``Tool``），原因是二者的入参
+        语义不兼容：
+
+        - ``langchain_core.tools.Tool`` 是**单入参**工具，``_to_args_and_kwargs``
+          会把任何输入折叠成一个**位置参数**。多字段 ``args_schema`` 的插件端点被它
+          驱动时，dict 入参直接抛 ``ToolException: Too many arguments to
+          single-input tool``；字符串入参则整个塞进第一个形参（本项目里第一个形参是
+          闭包用的 ``_plugin``），工具静默不执行。
+        - 原生工具调用（function calling）下模型回传的是 ``dict``，只有
+          ``StructuredTool`` 会按关键字展开为 ``func(**kwargs)``。
+
+        因此单字符串工具也显式声明 ``_QUERY_ARGS``，而不是省略 ``args_schema``——
+        省略会让模型看到一个语义不明的裸字符串参数。
+        """
+        from langchain_core.tools import StructuredTool
 
         tools = []
         for agent_tool in agent.tools:
@@ -307,18 +414,48 @@ class AgentService:
                 top_k = config.get("top_k", 5)
                 kb_service = KnowledgeBaseService(self.db, self.tenant_id)
                 
-                def knowledge_search_func(query: str) -> str:
+                # kb_id / top_k 必须经**默认参数**绑定，不可直接在函数体内引用：
+                # 二者是 `_build_langchain_tools` 的函数级局部变量，闭包捕获的是同一个
+                # cell，循环结束后全部取最后一个知识库的值。表现为「一个 Agent 绑定多个
+                # 知识库时，所有工具都只查最后一个库」——不报错、不告警的静默串库。
+                # 同文件的 api / function / workflow 分支早已采用默认参数绑定，此处遗漏。
+                def knowledge_search_func(
+                    query: str, _kb_id=kb_id, _top_k=top_k, _tool_name=agent_tool.name
+                ) -> str:
                     """知识库检索"""
-                    results = kb_service.search(kb_id=kb_id, query=query, top_k=top_k)
-                    if not results:
+                    try:
+                        outcome = kb_service.search_with_diagnostics(
+                            kb_id=_kb_id, query=query, top_k=_top_k
+                        )
+                    except Exception as exc:
+                        # LangChain 的 Tool 默认不吞异常：抛出会中断整个 ReAct 执行，
+                        # 并把内部异常文本暴露给模型。工具失败应作为一条**可读的观察
+                        # 结果**返回，由模型自行决定换用其它工具或直接作答。
+                        # 只回传异常类别，不回传栈或原始消息，避免泄漏内部结构。
+                        logger.warning(
+                            "Agent 知识库工具执行失败（tool=%s kb=%s）：%s",
+                            _tool_name, _kb_id, exc,
+                        )
+                        return f"知识库检索失败：{type(exc).__name__}"
+
+                    if outcome.degraded:
+                        # 故障与「确实没有相关内容」必须区分：否则模型会把一次后端
+                        # 故障当成事实依据，向用户断言「知识库中不存在该内容」。
+                        return (
+                            f"知识库检索未生效（降级原因：{outcome.reason}）。"
+                            "该结果不能作为「知识库中没有相关内容」的依据，"
+                            "请勿据此给出否定性结论。"
+                        )
+                    if not outcome.results:
                         return "未找到相关知识"
-                    return "\n".join([r.get("content", "") for r in results])
+                    return "\n".join([r.get("content", "") for r in outcome.results])
 
                 tools.append(
-                    Tool(
+                    StructuredTool.from_function(
+                        func=knowledge_search_func,
                         name=agent_tool.name,
                         description=agent_tool.description or f"搜索知识库 {kb_id}",
-                        func=knowledge_search_func,
+                        args_schema=_QUERY_ARGS,
                     )
                 )
 
@@ -379,11 +516,12 @@ class AgentService:
                         return f"API 调用异常：{_exc_message(e)}"
 
                 tools.append(
-                    Tool(
+                    StructuredTool.from_function(
+                        func=api_call_func,
                         name=agent_tool.name,
                         description=agent_tool.description
                         or f"调用外部 API（{method} {url}）",
-                        func=api_call_func,
+                        args_schema=_QUERY_ARGS,
                     )
                 )
 
@@ -449,10 +587,11 @@ class AgentService:
                         return f"Function 工具执行异常：{str(e)}"
 
                 tools.append(
-                    Tool(
+                    StructuredTool.from_function(
+                        func=function_call_func,
                         name=agent_tool.name,
                         description=agent_tool.description or f"执行自定义函数 {agent_tool.name}",
-                        func=function_call_func,
+                        args_schema=_QUERY_ARGS,
                     )
                 )
 
@@ -493,10 +632,11 @@ class AgentService:
                         return f"工作流执行异常：{str(e)}"
 
                 tools.append(
-                    Tool(
+                    StructuredTool.from_function(
+                        func=workflow_run_func,
                         name=agent_tool.name,
                         description=agent_tool.description or f"执行工作流 {workflow_id}",
-                        func=workflow_run_func,
+                        args_schema=_QUERY_ARGS,
                     )
                 )
 
@@ -523,6 +663,15 @@ class AgentService:
                     plugin = plugin_svc.get(plugin_id)
                 except Exception:
                     logger.warning("Agent 插件工具跳过：插件 %s 不存在", plugin_id)
+                    continue
+
+                # 门禁 0：接入方式必须已实现。插件被改为 mcp / skill 后，原有 http
+                # 绑定必须立即失能（与设计期共用 BINDABLE_SOURCE_TYPES，避免 fail-open）。
+                source_reason = check_plugin_source_gate(getattr(plugin, "source_type", None))
+                if source_reason:
+                    logger.warning(
+                        "Agent 插件工具跳过：%s（插件 %s）", source_reason, plugin_id
+                    )
                     continue
 
                 # 门禁 2：插件状态必须允许暴露。禁用 / 待审插件不得被 Agent 调用，
@@ -564,47 +713,102 @@ class AgentService:
 
                 config_values = plugin_svc._load_config_dict(plugin_id)
 
-                def plugin_func(
-                    query: str,
-                    _plugin=plugin,
-                    _endpoint=endpoint,
-                    _method=method,
-                    _config_values=config_values,
-                ) -> str:
-                    """调用插件端点，入参可为 JSON 字符串或纯文本。"""
-                    import json
-
+                # 若端点声明了入参 Schema，将其作为结构化参数提供给模型（review P1-C11）；
+                # 否则退化为单字符串 query（历史行为）。
+                request_schema = getattr(endpoint, "request_body_schema", None) or {}
+                args_schema = None
+                param_hint = ""
+                if isinstance(request_schema, dict) and request_schema.get("properties"):
                     try:
-                        params = (
-                            json.loads(query)
-                            if isinstance(query, str) and query.strip().startswith("{")
-                            else {"query": query}
+                        args_schema = _build_args_schema(request_schema)
+                        props = request_schema["properties"]
+                        param_hint = "；参数：" + "、".join(
+                            f"{k}:{props[k].get('type', 'any')}" for k in props
                         )
                     except Exception:
-                        params = {"query": query}
-                    try:
-                        result = execute_plugin_call(
-                            plugin_name=_plugin.name,
-                            api_spec=_plugin.api_spec,
-                            endpoint_path=_endpoint.endpoint,
-                            method=_method,
-                            endpoint_headers=_endpoint.headers,
-                            config_values=_config_values,
-                            params=params,
-                        )
-                    except Exception as e:
-                        return f"插件调用异常：{_exc_message(e)}"
-                    if not result["success"]:
-                        return f"插件调用失败：{result.get('error')}"
-                    return json.dumps(result.get("data"), ensure_ascii=False, default=str)
+                        args_schema = None
 
-                tools.append(
-                    Tool(
-                        name=agent_tool.name,
-                        description=agent_tool.description or f"调用插件 {plugin.name}",
-                        func=plugin_func,
+                base_desc = agent_tool.description or f"调用插件 {plugin.name}"
+
+                if args_schema is not None:
+                    def plugin_func(
+                        _plugin=plugin,
+                        _endpoint=endpoint,
+                        _method=method,
+                        _config_values=config_values,
+                        **kwargs,
+                    ) -> str:
+                        """调用插件端点，入参为端点声明的结构化参数。"""
+                        import json
+
+                        params = {k: v for k, v in kwargs.items() if v is not None}
+                        try:
+                            result = execute_plugin_call(
+                                plugin_name=_plugin.name,
+                                api_spec=_plugin.api_spec,
+                                endpoint_path=_endpoint.endpoint,
+                                method=_method,
+                                endpoint_headers=_endpoint.headers,
+                                config_values=_config_values,
+                                params=params,
+                            )
+                        except Exception as e:
+                            return f"插件调用异常：{_exc_message(e)}"
+                        if not result["success"]:
+                            return f"插件调用失败：{result.get('error')}"
+                        return json.dumps(result.get("data"), ensure_ascii=False, default=str)
+
+                    tools.append(
+                        StructuredTool.from_function(
+                            func=plugin_func,
+                            name=agent_tool.name,
+                            description=base_desc + param_hint,
+                            args_schema=args_schema,
+                        )
                     )
-                )
+                else:
+                    def plugin_func(
+                        query: str,
+                        _plugin=plugin,
+                        _endpoint=endpoint,
+                        _method=method,
+                        _config_values=config_values,
+                    ) -> str:
+                        """调用插件端点，入参可为 JSON 字符串或纯文本。"""
+                        import json
+
+                        try:
+                            params = (
+                                json.loads(query)
+                                if isinstance(query, str) and query.strip().startswith("{")
+                                else {"query": query}
+                            )
+                        except Exception:
+                            params = {"query": query}
+                        try:
+                            result = execute_plugin_call(
+                                plugin_name=_plugin.name,
+                                api_spec=_plugin.api_spec,
+                                endpoint_path=_endpoint.endpoint,
+                                method=_method,
+                                endpoint_headers=_endpoint.headers,
+                                config_values=_config_values,
+                                params=params,
+                            )
+                        except Exception as e:
+                            return f"插件调用异常：{_exc_message(e)}"
+                        if not result["success"]:
+                            return f"插件调用失败：{result.get('error')}"
+                        return json.dumps(result.get("data"), ensure_ascii=False, default=str)
+
+                    tools.append(
+                        StructuredTool.from_function(
+                            func=plugin_func,
+                            name=agent_tool.name,
+                            description=base_desc,
+                            args_schema=_QUERY_ARGS,
+                        )
+                    )
 
         return tools
 
@@ -636,6 +840,139 @@ class AgentService:
             max_tokens=agent.max_tokens,
         )
 
+    # ── 工具调用型 Agent 的装配与驱动 ────────────────────────────────────────
+
+    def _build_tool_agent_executor(self, agent: Agent, tools: List[Any], llm: Any = None):
+        """构建「原生工具调用」型 AgentExecutor。
+
+        替代旧版的文本 ReAct（``create_react_agent``）。旧实现有三处硬伤：
+        ① 提示词缺 ``{tool_names}``，LangChain 直接 ``ValueError``（本函数下方有说明）；
+        ② 文本协议要求模型把入参写成 ``Action Input:`` 的裸文本，与结构化参数天然冲突；
+        ③ 它绕开了模型的 function calling 能力，参数全靠字符串解析，易错且无法校验。
+
+        原生工具调用把参数以 JSON Schema 交给模型、以 ``dict`` 收回，与本项目已落地的
+        端点入参 schema（review P1-C11）才是配套的。
+        """
+        from langchain.agents import AgentExecutor, create_tool_calling_agent
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+        if not hasattr(llm, "bind_tools"):
+            raise AgentAssemblyError(
+                f"当前模型（{type(llm).__name__}）不支持工具调用，无法绑定 {len(tools)} 个工具。"
+                "请改用支持 function calling 的模型，或移除该 Agent 的工具绑定。"
+            )
+
+        system_prompt = (getattr(agent, "system_prompt", None) or "").strip() or (
+            "你是一个可以使用工具完成任务的助手。需要外部信息时先调用工具，"
+            "拿到结果后再作答；不要编造工具未返回的内容。"
+        )
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                # optional=True：无历史时（新会话）该占位符允许为空，不必强制传参
+                MessagesPlaceholder("chat_history", optional=True),
+                ("human", "{input}"),
+                # create_tool_calling_agent 要求该占位符存在，用于回灌工具调用与结果
+                MessagesPlaceholder("agent_scratchpad"),
+            ]
+        )
+
+        try:
+            lc_agent = create_tool_calling_agent(llm=llm, tools=tools, prompt=prompt)
+        except Exception as exc:
+            raise AgentAssemblyError(f"工具调用智能体装配失败：{_exc_message(exc)}") from exc
+
+        return AgentExecutor(
+            agent=lc_agent,
+            tools=tools,
+            verbose=False,
+            # 解析失败时把错误回灌给模型让它自我修正，而不是中断整轮对话
+            handle_parsing_errors=True,
+        )
+
+    async def _iter_tool_agent_output(self, executor: Any, inputs: Dict[str, Any]):
+        """驱动工具调用型 Agent，产出内容块 / 工具事件 / 用量。
+
+        **不能用 ``executor.astream``**：它只产出 ``actions`` / ``steps`` / ``output``
+        这类**聚合**事件（实测 3 条 AddableDict），没有 ``.content``，拿不到逐字内容；
+        而产品依赖打字机式的逐字流式。故订阅 ``astream_events(v2)`` 里底层 chat model
+        的 ``on_chat_model_stream``。
+
+        用量按**多次模型调用累加**：工具调用会触发多轮 LLM 请求，只取最后一次会严重
+        低报 token（实测一轮工具调用 input 已达 10k）。
+        """
+        usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        async for event in executor.astream_events(inputs, version="v2"):
+            kind = event.get("event")
+            if kind == "on_chat_model_stream":
+                # 中间轮（生成工具调用）的 content 通常为空，靠空串过滤即可
+                text = _content_text(event.get("data", {}).get("chunk"))
+                if text:
+                    yield {"type": "content", "content": text}
+            elif kind == "on_tool_start":
+                yield {"type": "tool_start", "tool": event.get("name")}
+            elif kind == "on_tool_end":
+                yield {"type": "tool_end", "tool": event.get("name")}
+            elif kind == "on_chat_model_end":
+                meta = getattr(event.get("data", {}).get("output"), "usage_metadata", None) or {}
+                for key in ("input_tokens", "output_tokens", "total_tokens"):
+                    usage[key] += int(meta.get(key) or 0)
+        yield {"type": "usage", **usage}
+
+    def _build_chat_history(
+        self,
+        conversation_id: Optional[str],
+        message: str,
+        history_messages: Optional[List[Any]],
+    ) -> List[Any]:
+        """构建**当前轮之前**的对话历史（LangChain 消息列表）。
+
+        只返回历史轮次、**不含当前这条用户消息**：调用方统一以 ``{input}`` / 末尾
+        ``HumanMessage`` 的形式单独传入当前消息。两条来源都可能已经包含当前消息，
+        故末尾需要按内容去重，否则当前问题在上下文里出现两次。
+
+        容错两处历史遗留差异：
+        ① 入参既有 ``dict``（``chat`` 的类型标注）也有 API 层实际传入的 ``MessageBase``
+           对象（``ChatRequest.messages``）——旧代码分别用 ``msg["role"]`` / ``msg.role``
+           取值，其中阻塞式路径一旦收到对象即 ``TypeError``；
+        ② 前端会把它自己持有的消息一并回传，需去重。
+        """
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        def _role_content(item: Any):
+            if isinstance(item, dict):
+                return item.get("role"), item.get("content")
+            return getattr(item, "role", None), getattr(item, "content", None)
+
+        lc_history: List[Any] = []
+
+        if history_messages:
+            source = [_role_content(item) for item in history_messages]
+        elif conversation_id:
+            # API 层会先把当前用户消息落库，所以这里通常已含当前消息
+            source = [
+                (item.get("role"), item.get("content"))
+                for item in self.conv_service.get_conversation_history(conversation_id)
+            ]
+        else:
+            return lc_history
+
+        for role, content in source:
+            if role == "user":
+                lc_history.append(HumanMessage(content=content or ""))
+            elif role == "assistant":
+                lc_history.append(AIMessage(content=content or ""))
+
+        # 去重：末尾若是与当前提问同文的用户消息，说明它就是当前轮，剔除
+        if (
+            lc_history
+            and isinstance(lc_history[-1], HumanMessage)
+            and lc_history[-1].content == message
+        ):
+            lc_history.pop()
+
+        return lc_history
+
     async def chat(
         self,
         agent_id: str,
@@ -654,8 +991,6 @@ class AgentService:
             history_messages: 前端传递的历史消息数组（可选），格式：[{"role": "user", "content": "..."}]
         """
         from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        from langchain.agents import AgentExecutor, create_react_agent
-        from langchain_core.prompts import PromptTemplate
         import httpx
         from openai import (
             APIConnectionError,
@@ -671,81 +1006,38 @@ class AgentService:
         # 构建LLM和工具
         llm = self._build_llm_client(agent)
         tools = self._build_langchain_tools(agent)
+        # 历史只含「当前轮之前」，当前消息统一由 {input} / 末尾 HumanMessage 传入
+        chat_history = self._build_chat_history(conversation_id, message, history_messages)
 
         try:
-            # 如果有工具，构建ReAct Agent
+            # 如果有工具，走原生工具调用（function calling）
             if tools:
-                # ReAct提示词模板
-                template = """你是一个助手，可以使用工具完成任务。
+                executor = self._build_tool_agent_executor(agent, tools, llm)
 
-可用工具:
-{tools}
-
-使用工具时，请遵循以下格式：
-Thought: 思考下一步应该做什么
-Action: 工具名称
-Action Input: 工具输入参数
-Observation: 工具执行结果
-... (重复Thought/Action/Action Input/Observation直到完成)
-Thought: 我现在知道最终答案了
-Final Answer: 最终答案
-
-开始！
-
-问题: {input}
-{agent_scratchpad}"""
-
-                prompt = PromptTemplate.from_template(template)
-                lc_agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
-                agent_executor = AgentExecutor(agent=lc_agent, tools=tools, verbose=True)
-
-                # 执行
-                result = await agent_executor.ainvoke({"input": message})
-                response_content = result.get("output", "")
-
-                # Token统计（ReAct Agent暂不精确统计，后续可优化）
+                collected: List[str] = []
                 prompt_tokens = 0
                 completion_tokens = 0
                 total_tokens = 0
+                async for item in self._iter_tool_agent_output(
+                    executor, {"input": message, "chat_history": chat_history}
+                ):
+                    if item["type"] == "content":
+                        collected.append(item["content"])
+                    elif item["type"] == "usage":
+                        prompt_tokens = item["input_tokens"]
+                        completion_tokens = item["output_tokens"]
+                        total_tokens = item["total_tokens"]
+
+                response_content = "".join(collected)
             else:
                 # 无工具，直接对话
                 messages = []
                 if agent.system_prompt:
                     messages.append(SystemMessage(content=agent.system_prompt))
 
-                # 添加对话历史
-                # 优先使用前端传递的历史消息，如果没有则从数据库查询
-                if history_messages:
-                    # 使用前端传递的历史消息
-                    for hist_msg in history_messages:
-                        if hist_msg["role"] == "user":
-                            messages.append(HumanMessage(content=hist_msg["content"]))
-                        elif hist_msg["role"] == "assistant":
-                            messages.append(AIMessage(content=hist_msg["content"]))
-                elif conversation_id:
-                    # 从数据库查询历史消息
-                    # 注意：API 层会先添加用户消息到数据库，所以历史消息中已包含当前用户消息
-                    history = self.conv_service.get_conversation_history(conversation_id)
-                    # 检查最后一条消息是否是当前用户消息（避免重复添加）
-                    last_is_current = (
-                        history and
-                        history[-1]["role"] == "user" and
-                        history[-1]["content"] == message
-                    )
-
-                    # 添加历史消息
-                    for hist_msg in history:
-                        if hist_msg["role"] == "user":
-                            messages.append(HumanMessage(content=hist_msg["content"]))
-                        elif hist_msg["role"] == "assistant":
-                            messages.append(AIMessage(content=hist_msg["content"]))
-
-                    # 如果历史消息中没有当前用户消息，则添加
-                    if not last_is_current:
-                        messages.append(HumanMessage(content=message))
-                else:
-                    # 新对话，没有历史消息，直接添加当前用户消息
-                    messages.append(HumanMessage(content=message))
+                # 添加对话历史（不含当前消息，故下面显式补当前消息）
+                messages.extend(chat_history)
+                messages.append(HumanMessage(content=message))
 
                 response = await llm.ainvoke(messages)
                 response_content = response.content
@@ -899,6 +1191,23 @@ Final Answer: 最终答案
             )
             raise LLMException(error_msg)
 
+        except AgentAssemblyError as e:
+            # 装配失败（工具/提示词/Executor）：根本没走到模型，不能报成「模型调用失败」。
+            # 必须排在通用 ``except Exception`` **之前**——Python 自上而下匹配，
+            # 否则会先被通用分支吞掉，这里成为死代码。
+            error_msg = f"智能体执行失败：{e}"
+            logger.error(
+                f"Agent assembly failed for agent {agent_id}: {e}",
+                extra={
+                    "agent_id": agent_id,
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "error_type": "agent_assembly_error",
+                },
+                exc_info=True,
+            )
+            raise LLMException(error_msg)
+
         except Exception as e:
             # Ollama 特定错误处理
             error_str = str(e)
@@ -922,7 +1231,7 @@ Final Answer: 最终答案
                 raise LLMException(error_msg)
 
             # 其他未知错误
-            error_msg = f"模型调用失败：{str(e)[:100]}"
+            error_msg = f"智能体执行失败：{str(e)[:300]}"
             logger.error(
                 f"Unexpected LLM error for agent {agent_id}: {e}",
                 extra={
@@ -953,8 +1262,6 @@ Final Answer: 最终答案
             history_messages: 前端传递的历史消息数组（可选），格式：[{"role": "user", "content": "..."}]
         """
         from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        from langchain.agents import AgentExecutor, create_react_agent
-        from langchain_core.prompts import PromptTemplate
         from openai import (
             APIConnectionError,
             APIStatusError,
@@ -969,106 +1276,52 @@ Final Answer: 最终答案
         # 构建LLM
         llm = self._build_llm_client(agent)
         tools = self._build_langchain_tools(agent)
- 
+        # 历史只含「当前轮之前」，当前消息统一由 {input} / 末尾 HumanMessage 传入
+        chat_history = self._build_chat_history(conversation_id, message, history_messages)
 
         try:
             if tools:
-                # ReAct提示词模板
-                template = """你是一个助手，可以使用工具完成任务。
-
-可用工具:
-{tools}
-
-使用工具时，请遵循以下格式：
-Thought: 思考下一步应该做什么
-Action: 工具名称
-Action Input: 工具输入参数
-Observation: 工具执行结果
-... (重复Thought/Action/Action Input/Observation直到完成)
-Thought: 我现在知道最终答案了
-Final Answer: 最终答案
-
-开始！
-
-问题: {input}
-{agent_scratchpad}"""
-
-                prompt = PromptTemplate.from_template(template)
-                lc_agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
-                agent_executor = AgentExecutor(agent=lc_agent, tools=tools, verbose=True)
-
-                # 执行
-                response_content = await agent_executor.astream({"input": message})
-                # response_content = result.get("output", "")
+                executor = self._build_tool_agent_executor(agent, tools, llm)
+                # 工具路径与无工具路径统一成「内容块 + 用量」的异步序列，
+                # 后面的打字机下发、token 记账、done 事件三者共用，避免两套逻辑漂移。
+                stream_source = self._iter_tool_agent_output(
+                    executor, {"input": message, "chat_history": chat_history}
+                )
             else:
                 messages = []
                 if agent.system_prompt:
                     messages.append(SystemMessage(content=agent.system_prompt))
 
-                # 添加对话历史
-                # 优先使用前端传递的历史消息，如果没有则从数据库查询
-                if history_messages:
-                    # 调试日志：显示接收到的历史消息数量和内容
-                    logger.info(
-                        f"[DEBUG] Received history_messages: {len(history_messages)} items",
-                        extra={
-                            "agent_id": agent_id,
-                            "conversation_id": conversation_id,
-                            "history_count": len(history_messages),
-                            "history_preview": [
-                                {"role": msg.role, "content": msg.content[:50]}
-                                for msg in history_messages[:3]
-                            ],
-                        }
-                    )
-                    # 使用前端传递的历史消息（Pydantic MessageBase 对象列表）
-                    for hist_msg in history_messages:
-                        if hist_msg.role == "user":
-                            messages.append(HumanMessage(content=hist_msg.content))
-                        elif hist_msg.role == "assistant":
-                            messages.append(AIMessage(content=hist_msg.content))
-                elif conversation_id:
-                    # 从数据库查询历史消息
-                    # 注意：API 层会先添加用户消息到数据库，所以历史消息中已包含当前用户消息
-                    history = self.conv_service.get_conversation_history(conversation_id)
-                    # 检查最后一条消息是否是当前用户消息（避免重复添加）
-                    last_is_current = (
-                        history and
-                        history[-1]["role"] == "user" and
-                        history[-1]["content"] == message
-                    )
+                # 添加对话历史（不含当前消息，故下面显式补当前消息）
+                messages.extend(chat_history)
+                messages.append(HumanMessage(content=message))
 
-                    # 添加历史消息
-                    for hist_msg in history:
-                        if hist_msg["role"] == "user":
-                            messages.append(HumanMessage(content=hist_msg["content"]))
-                        elif hist_msg["role"] == "assistant":
-                            messages.append(AIMessage(content=hist_msg["content"]))
+                stream_source = _iter_plain_llm_output(llm.astream(messages))
 
-                    # 如果历史消息中没有当前用户消息，则添加
-                    if not last_is_current:
-                        messages.append(HumanMessage(content=message))
-                else:
-                    # 新对话，没有历史消息，直接添加当前用户消息
-                    messages.append(HumanMessage(content=message))
+            # 流式生成
+            full_content = ""
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
 
-                # 流式生成
-                full_content = ""
-                prompt_tokens = 0
-                completion_tokens = 0
-                total_tokens = 0
-                response_content = llm.astream(messages)
-            async for chunk in response_content:
-                content = chunk.content
+            async for item in stream_source:
+                if item["type"] == "usage":
+                    # 工具路径为多轮调用累加值；无工具路径为末块用量（此前行为）
+                    prompt_tokens = item["input_tokens"]
+                    completion_tokens = item["output_tokens"]
+                    total_tokens = item["total_tokens"]
+                    continue
+
+                if item["type"] != "content":
+                    # tool_start / tool_end：当前 SSE 契约里没有对应事件类型，
+                    # 前端也无处渲染，先跳过（保留产出便于后续做"正在调用工具"提示）。
+                    # 注意不能直接取 item["content"]——这些事件没有该键。
+                    continue
+
+                content = item["content"]
                 if not content:
                     continue
                 full_content += content
-
-                # 尝试获取Token统计（流式时可能不完整）
-                usage = getattr(chunk, "usage_metadata", None) or {}
-                if usage:
-                    prompt_tokens = usage.get("input_tokens", 0)
-                    completion_tokens = usage.get("output_tokens", 0)
 
                 # 打字机效果：将 LangChain 聚合后的大块内容按字符逐步下发，
                 # 避免一次推送一整段导致“部分消息”式输出。
@@ -1105,7 +1358,8 @@ Final Answer: 最终答案
 
             yield {
                 "type": "done",
-                "content": chunk,
+                # 此前这里回传的是 LangChain 的 chunk 对象（既不可 JSON 序列化，
+                # 其 content 又只是最后一块），现已统一为完整正文
                 "full_content": full_content,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
@@ -1249,6 +1503,26 @@ Final Answer: 最终答案
                 "error_code": "SERVICE_CONNECTION_ERROR",
             }
 
+        except AgentAssemblyError as e:
+            # 装配失败（工具/提示词/Executor）：根本没走到模型，不能报成「模型调用失败」。
+            # 必须排在通用 ``except Exception`` **之前**，否则会被其吞掉。
+            error_msg = f"智能体执行失败：{e}"
+            logger.error(
+                f"Agent assembly failed for agent {agent_id}: {e}",
+                extra={
+                    "agent_id": agent_id,
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "error_type": "agent_assembly_error",
+                },
+                exc_info=True,
+            )
+            yield {
+                "type": "error",
+                "error": error_msg,
+                "error_code": "AGENT_ASSEMBLY_ERROR",
+            }
+
         except Exception as e:
             # Ollama 特定错误处理
             error_str = str(e)
@@ -1276,7 +1550,7 @@ Final Answer: 最终答案
                 }
             else:
                 # 其他未知错误
-                error_msg = f"模型调用失败：{str(e)[:100]}"
+                error_msg = f"智能体执行失败：{str(e)[:300]}"
                 logger.error(
                     f"Unexpected LLM error for agent {agent_id}: {e}",
                     extra={

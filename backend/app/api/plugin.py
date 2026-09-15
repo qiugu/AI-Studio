@@ -30,22 +30,20 @@ def _svc(db: Session, tenant_id: str, current_user: CurrentUser) -> PluginServic
 
 @router.get("", response_model=ResponseBase)
 def list_plugins(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     include_public: bool = Query(True, description="是否包含平台公共插件"),
-    plugin_type: str | None = Query(None, description="能力形态过滤：tool/connector/processor"),
     source_type: str | None = Query(None, description="接入方式过滤：http/mcp/skill"),
     status: str | None = Query(None),
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     items, total = svc.list(
         page=page,
         page_size=page_size,
         include_public=include_public,
-        plugin_type=plugin_type,
         source_type=source_type,
         status=status,
     )
@@ -61,10 +59,10 @@ def list_plugins(
 
 @router.post("", response_model=ResponseBase)
 def create_plugin(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     data: PluginCreate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     plugin = svc.create(data)
@@ -75,10 +73,10 @@ def create_plugin(
 
 @router.get("/{plugin_id}", response_model=ResponseBase)
 def get_plugin(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     plugin = svc.get(plugin_id)
@@ -90,11 +88,11 @@ def get_plugin(
 
 @router.put("/{plugin_id}", response_model=ResponseBase)
 def update_plugin(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
     data: PluginUpdate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     plugin = svc.update(plugin_id, data)
@@ -105,10 +103,10 @@ def update_plugin(
 
 @router.delete("/{plugin_id}", response_model=ResponseBase)
 def delete_plugin(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     svc.delete(plugin_id)
@@ -118,11 +116,11 @@ def delete_plugin(
 
 @router.post("/{plugin_id}/test", response_model=ResponseBase)
 def test_plugin(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
     data: PluginTestRequest = None,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     result = svc.test(plugin_id, data or PluginTestRequest())
@@ -131,10 +129,10 @@ def test_plugin(
 
 @router.get("/{plugin_id}/endpoints", response_model=ResponseBase)
 def list_endpoints(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     endpoints = svc.list_endpoints(plugin_id)
@@ -145,11 +143,11 @@ def list_endpoints(
 
 @router.post("/{plugin_id}/endpoints", response_model=ResponseBase)
 def add_endpoint(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
     data: PluginEndpointCreate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     endpoint = svc.add_endpoint(plugin_id, data)
@@ -160,10 +158,10 @@ def add_endpoint(
 
 @router.post("/{plugin_id}/endpoints/import", response_model=ResponseBase)
 def import_endpoints(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     count = svc.import_endpoints_from_spec(plugin_id)
@@ -175,12 +173,12 @@ def import_endpoints(
 
 @router.put("/{plugin_id}/endpoints/{ep_id}", response_model=ResponseBase)
 def update_endpoint(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
     ep_id: str,
     data: PluginEndpointUpdate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     endpoint = svc.update_endpoint(plugin_id, ep_id, data)
@@ -191,11 +189,11 @@ def update_endpoint(
 
 @router.delete("/{plugin_id}/endpoints/{ep_id}", response_model=ResponseBase)
 def delete_endpoint(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
     ep_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     svc.delete_endpoint(plugin_id, ep_id)
@@ -205,10 +203,10 @@ def delete_endpoint(
 
 @router.get("/{plugin_id}/config", response_model=ResponseBase)
 def get_config(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     config = svc.get_config(plugin_id)
@@ -217,11 +215,11 @@ def get_config(
 
 @router.put("/{plugin_id}/config", response_model=ResponseBase)
 def update_config(
+    _current_user: CurrentUser,
+    tenant_id: CurrentTenantId,
     plugin_id: str,
     data: PluginConfigUpdateRequest,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _current_user: CurrentUser = None,
 ):
     svc = _svc(db, tenant_id, _current_user)
     config = svc.update_config(plugin_id, data)

@@ -46,6 +46,16 @@ export interface SearchResult {
   doc_id: string;
   doc_name?: string;
   chunk_index: number;
+  /**
+   * 被折叠掉的等值副本数。
+   *
+   * 后端按内容去重后，本条是唯一保留的副本；该字段记录同内容还有多少份副本被
+   * 折叠（无副本时为 0）。存在它的意义是让界面能解释「结果条数为何少于请求的
+   * top_k」——那是去重在生效，而不是召回不足。
+   *
+   * 可选：服务端去重关闭时不返回该字段。
+   */
+  duplicate_count?: number;
 }
 
 // 请求参数类型

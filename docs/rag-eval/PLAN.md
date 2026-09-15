@@ -62,7 +62,7 @@
 | 环节 | 实现位置 | 现状 |
 |------|----------|------|
 | 文档上传 | `api/knowledge.py` | 落盘 + 投递 Celery 任务 |
-| 解析/分块 | `knowledge_processor.py` | `DocumentParser` + `TextSplitter()`，`chunk_size=1024 / overlap=128`（**overlap 实际未生效，见 D11**） |
+| 解析/分块 | `knowledge_processor.py` | `DocumentParser` + `TextSplitter()`，**参数已提升为配置项**：`chunk_size=448 / overlap=64`（原先 1024/128 会导致 49.7% 的块被 512 token 窗口静默截断；D11 重叠失效已修） |
 | 向量化 | `knowledge_processor.py` | `get_embedding_client(model=kb.embedding_model)`，默认本地 `bge-base-zh-v1.5`（768 维） |
 | 入库 | `knowledge_processor.py` | Qdrant `upsert`，`vector_id = uuid5(NS_DNS, f"{doc_id}_{index}")` |
 | Payload | `knowledge_processor.py` | 仅 `tenant_id / kb_id / doc_id / chunk_index`（**无标题路径、无页码**） |
@@ -102,7 +102,7 @@ query → embedding → Qdrant.search(limit=top_k) → 批量 MySQL 回查 chunk
 | D1 | 阻塞 | `EMBEDDING_API_BASE` 被 `.env` 行内注释污染 | ⚪ 已不适用（provider 已切本地） |
 | D2 | 阻塞 | `EMBEDDING_API_KEY` 为空 | ⚪ 已不适用（同上） |
 | D5 | 高 | provider 默认值不一致致恒走 siliconflow | ⚪ 已不适用（工厂已改为读 config） |
-| **D11** | 高 | `TextSplitter._merge_splits` 未计入 `chunk_overlap`，声明的 128 字符重叠**实际未生效** | ⏳ Phase 5 |
+| **D11** | 高 | `TextSplitter._merge_splits` 未计入 `chunk_overlap`，声明的 128 字符重叠**实际未生效** | ✅ **已修复**（P3-G）：改为标准回溯合并，实测重叠 119~125 字符；并已按 P3-G 结论把 `chunk_size/overlap` 重新标定为 **448/64**（原 1024 触发 512 token 静默截断）。见 [FIX-AND-HYBRID-RETRIEVAL-REPORT.md](./FIX-AND-HYBRID-RETRIEVAL-REPORT.md) §3 |
 | **D12** | 中 | `source_page` 恒为 `None`，无标题路径，无法页码级引用 | ⏳ Phase 5 |
 | D8 | 中 | `client.search()` 在 qdrant-client 1.14 已废弃（推荐 `query_points`） | ✅ 已完成（实测 top-10 排序与分数均等价） |
 | D9 | 中 | 软删文档的向量仍参与召回，依赖回查过滤，属隐式行为 | ✅ 已核实并修复（存量化校准：301 条失效分块 + 301 个残留向量 → 0/0） |
@@ -164,6 +164,8 @@ docs/rag-eval/                        # 统一文档目录
 ├── PLAN.md                           # 本文件
 ├── RERANKER-DESIGN.md                # Phase 3 产出
 ├── HYBRID-RETRIEVAL-DESIGN.md        # Phase 5 产出
+├── FIX-AND-HYBRID-RETRIEVAL-REPORT.md # Phase 5 已实施部分的实施报告
+├── PHASE5-REBUILD-PLAN.md            # Phase 5 5.4/5.6/5.8 合流重索引方案
 └── EVALUATION-REPORT.md              # Phase 4 / Phase 6 产出（before/after 对照）
 ```
 
@@ -302,6 +304,25 @@ docs/rag-eval/                        # 统一文档目录
 | 5.10 | 混合检索对照实测（同 Phase 4 口径） | 指标 JSON | 与 Phase 4 结果可逐项对比 |
 
 > **前置校验**：5.8 执行前须校验 `UPLOAD_DIR` 内原文件在位率，缺失项需提示用户重新上传。
+> **已实测（2026-09-15）：1/1 在位** ✓（`Happy-LLM-0727.pdf`，19.76 MB，md5 `d1a4820c…`）。
+
+> ### Phase 5 完成状态（2026-09-15 更新）
+>
+> 详见 [FIX-AND-HYBRID-RETRIEVAL-REPORT.md](./FIX-AND-HYBRID-RETRIEVAL-REPORT.md)（已实施部分）
+> 与 [PHASE5-REBUILD-PLAN.md](./PHASE5-REBUILD-PLAN.md)（5.4 / 5.6 / 5.8 的合流重索引方案）。
+>
+> | # | 状态 | 说明 |
+> |---|------|------|
+> | 5.1 | ✅ 完成 | **结论：不能原地扩列**，Qdrant 拒绝向匿名稠密集合追加稀疏向量 → 必须新建/回填 |
+> | 5.2 | ✅ 完成 | **结论：自实现无状态 BM25**（ASCII 词 + 中文单字 + 二字组 + CRC32 稳定索引），无需 `jieba`/`fastembed`，不增镜像体积 |
+> | 5.3 | ✅ 完成 | `app/utils/sparse.py` + 集合 schema 扩展（命名稠密 `dense` + 命名稀疏 `text`） |
+> | 5.4 | ✅ 完成 | 元数据已落位：`parse_segments`/`split_segments` 段内切分，`source_page`/`heading_path` 入库并在 `search()` 返回；迁移 `i3j4k5l6m7n8` 已执行。见 [PHASE5-REBUILD-PLAN.md](./PHASE5-REBUILD-PLAN.md) §2 |
+> | 5.5 | ✅ 完成 | D11 重叠修复（实测重叠 119~125 字符）+ 分块参数重新标定为 **448/64**（原 1024 触发 512 token 静默截断） |
+> | 5.6 | ✅ 完成 | 迁移已执行并三项验证：`heading_path` / `chunk_epoch` / `active_chunk_epoch` / `active_collection`，并**取消分块软删**（删 `deleted_at`，905 墓碑先行物理清除）。见方案 §3 |
+> | 5.7 | ✅ 完成 | `search()` 混合召回已实施。**融合方式经实测改为应用层 min-max 加权（α=0.7），不用服务端等权 RRF**（等权 RRF 实测 MRR@10 −7.33pp） |
+> | 5.8 | 🔄 执行中 | 业务库重建 + cutover **已完成**（635 块，v2 集合，计数一致，回滚可用）；评测语料重建后台运行中（实测 ≈21h，编排入口 `run_phase5_eval_rebuild.py`）。见方案 §4 |
+> | 5.9 | ✅ 完成 | D8：`client.search()` → `query_points()` |
+> | 5.10 | ✅ 完成 | 对照实测见报告 §2.3（α ∈ {0.6,0.7,0.8} 三点均不劣于同集合稠密对照）；新分块下的复测并入方案 §4.4（进行中） |
 
 ### Phase 6 — 测试、审查与交付
 
@@ -331,7 +352,7 @@ docs/rag-eval/                        # 统一文档目录
 | Q3 | Embedding 方案 | **维持现状**（本地 `sentence-transformers` + `BAAI/bge-base-zh-v1.5`）。切换 `bge-m3` 作为可选优化项，非本期必做——存量 602 chunk 为 768 维，切换需重索引，与 Phase 5 合并执行更经济 |
 | Q4 | Reranker 集成范围 | 仅 `KnowledgeBaseService.search()`；Agent 工具与工作流节点不单独集成（其检索路径经由同一 Service，自动受益） |
 | Q5 | Reranker 模型 | `BAAI/bge-reranker-v2-m3`（离线缓存） |
-| Q6 | 混合检索方案 | Qdrant 原生稀疏向量 + 服务端 RRF |
+| Q6 | 混合检索方案 | ~~Qdrant 原生稀疏向量 + 服务端 RRF~~ → **改为「命名稠密 + 命名稀疏」双路查询 + 应用层 min-max 归一化加权融合（α 默认 0.7）」**。实测等权 RRF 使 MRR@10 −7.33pp / nDCG@10 −6.03pp，已被否决 |
 | Q7 | 计划归属 | 单计划单目录（`docs/rag-eval/`） |
 
 > **Q3 说明**：v1.1 原决策为「切换到 bge-m3」。经复核，当前存量数据为 `bge-base-zh-v1.5`（768 维），切换 embedding 模型**必然触发全量重索引**，而 Phase 5 本就需要重索引——故建议将 embedding 切换并入 Phase 5 评估，避免两次重建。**此项需确认**。
@@ -405,3 +426,5 @@ docs/rag-eval/                        # 统一文档目录
 | 2026-09-11 | v1.0 → v1.1 | 初版编制；锁定 Q1–Q4 决策 |
 | 2026-09-11 | **v2.0** | 与 `plan-knowledge-retrieval-p0-p2.md` 合并；A 系列缺陷修复标记为已完成；新增 Phase 5 混合检索；Reranker 模型锁定 `bge-reranker-v2-m3`；环境验证记录更新为最新实测 |
 | 2026-09-12 | **v2.1** | 批次 1 交付完成：Phase 0 剩余验证全部闭环（0.2–0.4、0.6），Phase 1 评测框架落地并通过 137 项测试；D9 生产数据完成校准（301 → 0）；D4 解除；D8 等价性实测通过。交付物与证据见 [batch1-delivery.md](./batch1-delivery.md) |
+| 2026-09-15 | **v2.2** | Phase 5 主体实施：**Q6 决策改写**（服务端 RRF → 应用层加权融合，实测依据见报告 §2.1）；D11 关闭；**分块参数由 1024/128 重新标定为 448/64**（原值触发 512 token 静默截断，实测 49.7% 块被截断 / 28.3% 词元未编码）；Phase 5 完成状态表补入。交付物见 [FIX-AND-HYBRID-RETRIEVAL-REPORT.md](./FIX-AND-HYBRID-RETRIEVAL-REPORT.md) |
+| 2026-09-15 | **v2.3** | 5.4 / 5.6 / 5.8 由独立排期**合并为一次重建**，产出 [PHASE5-REBUILD-PLAN.md](./PHASE5-REBUILD-PLAN.md)：元数据落位（段内切分 + 页码/标题）、一次迁移两列（`heading_path` + `active_collection` 灰度指针）、双写/灰度/回滚，并实测重建规模（评测 28,771 → 52,068 块 ≈10.3 h；生产 301 → 634 块 ≈7.5 min）。前置校验闭环：上传原件 1/1 在位 |

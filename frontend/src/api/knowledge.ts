@@ -65,7 +65,14 @@ export const deleteKnowledgeBase = (kbId: string) => {
  */
 
 // 上传文档
-export const uploadDocument = (kbId: string, file: File) => {
+// config._suppressErrorMessage：上传失败多为「可预期的业务拒绝」（类型不符、同名
+// 重复上传等），后端已返回可直接展示给用户的处置建议，交由调用方提示即可，
+// 避免全局拦截器再弹一次造成重复提示。
+export const uploadDocument = (
+  kbId: string,
+  file: File,
+  config?: { _suppressErrorMessage?: boolean }
+) => {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -76,6 +83,7 @@ export const uploadDocument = (kbId: string, file: File) => {
       headers: {
         "Content-Type": "multipart/form-data",
       },
+      ...config,
     }
   );
 };

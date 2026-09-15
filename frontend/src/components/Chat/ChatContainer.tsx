@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { Alert } from 'antd'
 import MessageBubble from './MessageBubble'
 import type { Message } from '@/types/agent'
 
@@ -18,30 +17,9 @@ export default function ChatContainer({ messages, isStreaming = false }: ChatCon
     }
   }, [messages])
 
-  // 分离错误消息和正常消息
-  const errorMessages = messages.filter((msg) => msg.is_error)
-  const normalMessages = messages.filter((msg) => !msg.is_error)
-
   return (
     <div ref={containerRef} className="messages-container">
-      {/* 错误消息列表 */}
-      {errorMessages.length > 0 && (
-        <div style={{ marginBottom: '16px' }}>
-          {errorMessages.map((msg) => (
-            <Alert
-              key={msg.id}
-              type="error"
-              message="模型调用失败"
-              description={msg.content}
-              showIcon
-              style={{ marginBottom: '12px' }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* 正常消息列表 */}
-      {normalMessages.length === 0 ? (
+      {messages.length === 0 ? (
         <div className="messages-empty">
           <div className="messages-empty-icon">💬</div>
           <div className="messages-empty-text">开始新对话</div>
@@ -49,11 +27,17 @@ export default function ChatContainer({ messages, isStreaming = false }: ChatCon
         </div>
       ) : (
         <div>
-          {normalMessages.map((msg, index) => (
+          {messages.map((msg, index) => (
             <MessageBubble
               key={msg.id}
               message={msg}
-              isStreaming={isStreaming && index === normalMessages.length - 1 && msg.role === 'assistant'}
+              // 流式光标只跟随最后一条助手消息；错误消息本身不是流式内容
+              isStreaming={
+                isStreaming &&
+                index === messages.length - 1 &&
+                msg.role === 'assistant' &&
+                !msg.is_error
+              }
             />
           ))}
         </div>

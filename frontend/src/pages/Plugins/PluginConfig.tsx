@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Card,
   Form,
@@ -50,7 +50,7 @@ import type {
   PluginEndpointCreateRequest,
   PluginEndpointUpdateRequest,
 } from '@/types/plugin'
-import { pluginSourceMeta, pluginTypeMeta } from './pluginMeta'
+import { pluginSourceMeta } from './pluginMeta'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -206,6 +206,10 @@ export default function PluginConfig() {
   const [epReqSchema, setEpReqSchema] = useState('')
   const [epRespSchema, setEpRespSchema] = useState('')
 
+  // 记录各配置项「加载时是否已设置真实值」，用于保存时跳过「空值且原本已设置」的敏感字段，
+  // 避免把脱敏/缺省值当成新值覆盖真实凭据（后端敏感项回显 value 为 null + has_value=true）。
+  const hasValueRef = useRef<Record<string, boolean>>({})
+
   // 测试
   const [testModalOpen, setTestModalOpen] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -225,7 +229,12 @@ export default function PluginConfig() {
       setPlugin(p)
       const cfgItems: PluginConfigItem[] = configRes.data?.items ?? []
       const cfgMap: Record<string, unknown> = {}
-      cfgItems.forEach((it) => (cfgMap[it.name] = it.value))
+      const nextHasValue: Record<string, boolean> = {}
+      cfgItems.forEach((it) => {
+        cfgMap[it.name] = it.value
+        nextHasValue[it.name] = !!it.has_value
+      })
+      hasValueRef.current = nextHasValue
 
       const schema = (p.config_schema as Record<string, unknown>) || null
       if (schema && (schema.properties as Record<string, unknown>)) {
@@ -254,6 +263,13 @@ export default function PluginConfig() {
     return (schema.properties as Record<string, Record<string, unknown>>) || {}
   }, [plugin])
 
+// 与后端 _SECRET_KEY_HINTS 保持一致：命中即视为敏感项，回显不暴露、留空即保留。
+const SECRET_NAME_HINTS = ['key', 'secret', 'token', 'password', 'pwd', 'credential', 'authorization', 'auth']
+function isSecretName(name: string): boolean {
+  const n = (name || '').toLowerCase()
+  return SECRET_NAME_HINTS.some((h) => n.includes(h))
+}
+
   const handleSaveConfig = async () => {
     if (!id) return
     setSaving(true)
@@ -273,6 +289,12 @@ export default function PluginConfig() {
               return null as unknown as PluginConfigItem
             }
           }
+          // 敏感项：若用户留空且加载时本已设置真实值，则跳过发送，保留既有凭据
+          // （后端敏感项回显为 value=null + has_value=true，空值不能作为新值覆盖）。
+          const isEmpty = value === null || value === undefined || value === ''
+          if (isSecretName(name) && isEmpty && hasValueRef.current[name]) {
+            return null as unknown as PluginConfigItem
+          }
           return { name, value }
         }).filter(Boolean) as PluginConfigItem[]
       } else {
@@ -283,7 +305,10 @@ export default function PluginConfig() {
           return
         }
         const obj = parsed.value as Record<string, unknown>
-        items = Object.entries(obj).map(([name, value]) => ({ name, value }))
+        // 裸 JSON 模式：剥离 null 与脱敏占位 "********"，避免覆盖已设置的敏感项
+        items = Object.entries(obj)
+          .filter(([, v]) => v !== null && v !== '********')
+          .map(([name, value]) => ({ name, value }))
       }
       await updatePluginConfig(id, items)
       message.success('配置已保存')
@@ -458,7 +483,6 @@ export default function PluginConfig() {
     },
   ]
 
-  const typeMeta = pluginTypeMeta(plugin?.plugin_type)
   const sourceMeta = pluginSourceMeta(plugin?.source_type)
 
   if (loading) return null
@@ -478,11 +502,6 @@ export default function PluginConfig() {
         <Card style={{ marginBottom: 16 }}>
           <Descriptions column={2} size="small">
             <Descriptions.Item label="名称">{plugin.name}</Descriptions.Item>
-            <Descriptions.Item label="类型">
-              <Tooltip title={`${typeMeta.description} 适用：${typeMeta.useCases}`}>
-                <Tag color={typeMeta.color}>{typeMeta.label}</Tag>
-              </Tooltip>
-            </Descriptions.Item>
             <Descriptions.Item label="接入方式">
               <Tooltip title={`${sourceMeta.description} 适用：${sourceMeta.useCases}`}>
                 <Tag color={sourceMeta.color}>{sourceMeta.label}</Tag>

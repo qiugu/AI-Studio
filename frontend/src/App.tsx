@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/Layout/AppLayout'
 import Login from '@/pages/Login'
+import VerifyEmail from '@/pages/Login/VerifyEmail'
 import Dashboard from '@/pages/Dashboard'
 import ProviderList from '@/pages/AIModels/ProviderList'
 import ProviderForm from '@/pages/AIModels/ProviderForm'
@@ -79,6 +80,14 @@ export default function App() {
               element={
                 <GuestRoute>
                   <Login />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/verify-email"
+              element={
+                <GuestRoute>
+                  <VerifyEmail />
                 </GuestRoute>
               }
             />

@@ -310,13 +310,16 @@ Content-Type: application/json
 | GET | /plugins/{id}/config | 获取插件配置 | plugin:read |
 | PUT | /plugins/{id}/config | 更新插件配置 | plugin:update |
 
-**列表筛选参数**：`GET /plugins?plugin_type=tool&source_type=http&status=active&include_public=true`
+**列表筛选参数**：`GET /plugins?source_type=http&status=active&include_public=true`
 
-- `plugin_type` 能力形态（插件做什么）：`tool` / `connector` / `processor`；
 - `source_type` 接入方式（插件怎么接进来）：`http` / `mcp` / `skill`。
 
-创建/更新时的 `plugin_type` 与 `source_type` 均受枚举校验，非法值返回 `422`。
-两者的语义、使用场景与选型见 [plugin-types.md](plugin-types.md)。
+创建/更新时的 `source_type` 受枚举校验，非法值返回 `422`。
+其语义与使用场景见 [plugin-types.md](plugin-types.md)。
+
+> **M2.0 变更**：原 `plugin_type`（能力形态：tool / connector / processor）已移除，
+> 列表过滤参数与创建/更新字段均不再接受该字段；插件形态由 `source_type` 单一维度承载。
+> 移除理由见 [plugin-types.md](plugin-types.md) §8。
 
 ---
 

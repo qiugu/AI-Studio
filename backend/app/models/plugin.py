@@ -28,9 +28,7 @@ class Plugin(Base):
     # tenant_id 为 NULL 表示平台公共插件
     tenant_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # 能力形态（插件做什么）：tool / connector / processor —— 见 app/core/plugin_types.py
-    plugin_type: Mapped[str] = mapped_column(String(50), nullable=False, default="tool")
-    # 接入方式（插件怎么接进来）：http / mcp / skill —— 见 app/core/plugin_types.py
+    # 接入方式（插件怎么接进来）：http / mcp / skill —— 见 app/core/plugin_source_types.py
     source_type: Mapped[str] = mapped_column(
         String(50), nullable=False, default="http", server_default="http"
     )
@@ -73,8 +71,11 @@ class PluginConfig(Base):
     tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     # 配置项名称，例如 "api_key" / "base_url"
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # 配置值（按 config_schema 校验，由前端/调用方保证）
+    # 脱敏后的配置值（用于回显）：敏感字段已替换为 "********"，结构保留以便前端渲染表单。
+    # 真实凭据不在此列，见 ``value_encrypted``。
     value: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # 加密存储的真实配置值（Fernet）。明文不落库，修复凭据明文存储问题（review §3.2）。
+    value_encrypted: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, server_default=func.now()
     )

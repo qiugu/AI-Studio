@@ -54,11 +54,9 @@ export async function deleteAgent(agentId: string): Promise<ApiResponse<void>> {
  * 前端直接展示即可，不要重复判断「是否可用」，否则两端口径会漂移。
  */
 export async function getToolCatalog(params?: {
-  plugin_type?: string
   keyword?: string
 }): Promise<ApiResponse<ToolCatalogPlugin[]>> {
   const search = new URLSearchParams()
-  if (params?.plugin_type) search.set('plugin_type', params.plugin_type)
   if (params?.keyword) search.set('keyword', params.keyword)
   const query = search.toString()
   return client.get(

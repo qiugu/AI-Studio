@@ -21,19 +21,19 @@ class TenantSelfUpdate(BaseModel):
 
 @router.get("/tenant", response_model=ResponseBase)
 def get_tenant_api(
-    tenant_id: CurrentTenantId = None,
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     return ResponseBase.ok(data=TenantSettingsOut(**get_tenant_settings(tenant_id, db)).model_dump())
 
 
 @router.put("/tenant", response_model=ResponseBase)
 def update_tenant_api(
+    _admin: TenantAdmin,
+    tenant_id: CurrentTenantId,
     data: TenantSelfUpdate,
-    tenant_id: CurrentTenantId = None,
     db: Session = Depends(get_session),
-    _admin: TenantAdmin = None,
 ):
     result = update_tenant_settings(tenant_id, data.model_dump(exclude_none=True), db)
     db.commit()

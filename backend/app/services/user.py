@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
+import secrets
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -9,6 +10,7 @@ from app.schemas.user import UserOut, UserUpdate, UserRoleAssign
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.models.role import Role
+from app.models.email_verification import EmailVerification
 from app.models.role_permission import role_permission
 from app.models.user_role import user_role
 from app.core.security import hash_password
@@ -16,6 +18,8 @@ from app.core.exceptions import ConflictException, NotFoundException, Validation
 from app.services.quota import QuotaService
 
 import uuid
+
+from app.core.config import config
 
 
 # 内置角色 code 常量
@@ -30,6 +34,7 @@ def _init_builtin_roles(db: Session, tenant_id: str) -> tuple[Role, Role]:
         name="租户管理员",
         code=f"{ROLE_TENANT_ADMIN}_{tenant_id}",
         description="租户管理员，拥有租户内所有权限",
+        is_admin=True,
     )
     member_role = Role(
         tenant_id=tenant_id,
@@ -57,15 +62,18 @@ def _init_builtin_roles(db: Session, tenant_id: str) -> tuple[Role, Role]:
     return admin_role, member_role
 
 
-def register_user(form: RegisterForm, db: Session) -> User:
+def register_user(form: RegisterForm, db: Session) -> tuple[User, str]:
     """
-    原子事务注册：
+    原子事务注册（方案 B：受控自助）：
+
     1. 检查邮箱唯一性
-    2. 创建租户
-    3. 创建用户
-    4. 初始化内置角色 tenant_admin / tenant_member
-    5. 将用户分配为 tenant_admin
-    返回 (user, access_token, refresh_token)
+    2. 创建租户，并把创建者记录为 ``tenant.owner_id``（显式所有者语义）
+    3. 创建用户（``email_verified=False``，待邮箱验证激活）
+    4. 初始化内置角色 tenant_admin / tenant_member（**不再**默认把 admin 角色塞给用户）
+    5. 生成邮箱验证令牌并返回
+
+    返回 ``(user, verification_token)``。验证令牌用于激活账号；
+    未验证前账号不能登录、不能行使租户管理员能力。
     """
     existing = db.query(User).filter(User.email == form.email).first()
     if existing:
@@ -84,24 +92,95 @@ def register_user(form: RegisterForm, db: Session) -> User:
     db.add(tenant)
     db.flush()  # 获取 tenant.id
 
-    # 创建用户
+    # 创建用户（默认未验证）
     new_user = User(
         email=form.email,
         password_hash=hash_password(form.password),
         nickname=form.nickname,
         tenant_id=tenant.id,
+        email_verified=False,
     )
     db.add(new_user)
     db.flush()  # 获取 user.id
 
-    # 初始化内置角色
-    admin_role, _ = _init_builtin_roles(db, tenant.id)
+    # 创建者即租户所有者（管理权由 owner_id 推导，而非默认 admin 角色）
+    tenant.owner_id = new_user.id
 
-    # 将用户分配为 tenant_admin
-    db.execute(user_role.insert().values(user_id=new_user.id, role_id=admin_role.id))
+    # 初始化内置角色（tenant_admin / tenant_member 均可用，但需显式分配）
+    _init_builtin_roles(db, tenant.id)
+
+    # 生成邮箱验证令牌
+    verification_token = create_email_verification(new_user, db)
     db.flush()
 
-    return new_user
+    return new_user, verification_token
+
+
+def _generate_verification_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def create_email_verification(user: User, db: Session) -> str:
+    """为用户生成邮箱验证令牌；同一用户旧令牌先失效。返回新令牌。"""
+    db.query(EmailVerification).filter(EmailVerification.user_id == user.id).delete()
+    token = _generate_verification_token()
+    record = EmailVerification(
+        user_id=user.id,
+        token=token,
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(hours=config.email_verification_ttl_hours),
+    )
+    db.add(record)
+    db.flush()
+    return token
+
+
+def verify_email(token: str, db: Session) -> User:
+    """消费验证令牌，将用户标记为已验证。令牌无效或过期则抛错。"""
+    record = (
+        db.query(EmailVerification)
+        .filter(EmailVerification.token == token)
+        .first()
+    )
+    if not record:
+        raise ValidationException("无效的验证链接")
+    # MySQL DateTime 不存时区，读回为 naive；用 naive UTC 比较，避免 aware/naive 冲突
+    now = datetime.utcnow()
+    if record.expires_at < now:
+        db.delete(record)
+        db.flush()
+        raise ValidationException("验证链接已过期，请重新发送")
+
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user:
+        raise NotFoundException("用户不存在")
+    user.email_verified = True
+    db.delete(record)
+    db.flush()
+    return user
+
+
+def resend_verification(email: str, db: Session) -> Optional[str]:
+    """为重发验证邮件生成新令牌；用户不存在或已验证则返回 None。"""
+    user = db.query(User).filter(User.email == email).first()
+    if not user or user.email_verified:
+        return None
+    return create_email_verification(user, db)
+
+
+def build_user_payload(user: User, db: Session) -> dict:
+    """序列化用户为接口响应体，并补上 ``is_tenant_owner``（owner_id 推导）。"""
+    from app.models.tenant import Tenant
+
+    data = UserOut.model_validate(user).model_dump()
+    is_owner = (
+        db.query(Tenant)
+        .filter(Tenant.id == user.tenant_id, Tenant.owner_id == user.id)
+        .first()
+        is not None
+    )
+    data["is_tenant_owner"] = is_owner
+    return data
 
 
 def create_user(

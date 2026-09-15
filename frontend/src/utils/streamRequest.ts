@@ -128,8 +128,9 @@ export function createStreamRequest(
                   callbacks.onComplete?.(fullContent, conversationId)
                   return
                 } else if (eventType === 'error') {
-                  // 错误事件
-                  callbacks.onError?.(data.error || '模型调用失败', data.error_code)
+                  // 错误事件（后端未给 error 文案时的兜底措辞，不能写死成「模型调用失败」——
+                  // 认证/限流/工具装配等失败并未走到模型）
+                  callbacks.onError?.(data.error || '执行失败', data.error_code)
                   return
                 }
               } catch (e) {

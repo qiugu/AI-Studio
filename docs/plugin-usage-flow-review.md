@@ -19,7 +19,8 @@
 | 流程可用但有断层 | 插件管理（admin-only）与插件授权（任意登录用户）角色错位；插件与 Agent 之间缺少双向导航；插件「存在」与「对本租户可用」未解耦。 |
 | **配置层缺少写入契约** | 配置项只能新增/覆盖**无法删除**、`config_schema` 的 required 不生效且后端从不校验、凭据明文存取、测试按路径取端点会选错。详见 [§6](#6-插件配置流程专项)。 |
 | **能力模型覆盖面过窄（结构性）** | 端点层与执行器均为 **HTTP 专有**：本地 MCP 服务无 `base_url`、无路径动词、能力需运行时发现，**即便二期补上 MCP 客户端也无法录入**。详见 [§7](#7-能力模型的覆盖面诊断与改造建议待评审)。 |
-| 验证结果 | 后端 `test_plugin_types` + `test_plugin_governance` + `test_agent_tool_catalog` 共 **105 例通过**；前端 `agentToolBinding.test.ts` + `pluginMeta.test.ts` 共 **27 例通过**。配置写入语义（`update_config` / 端点增删 / OpenAPI 导入）**无单测覆盖**。 |
+| 验证结果 | M1（§3.1 / §3.2 / §3.3 / P1-C1 / P1-C4 / P1-C11）与 M2.0（移除 `plugin_type`）已实施并通过测试：后端全量 **596 passed**；前端 `tsc --noEmit` 通过、`pluginMeta`+`agentToolBinding` **26 例通过**。详见 [§8](#8-m1--m20-实施记录已落地)。 |
+| **P1 · 曾存在的问题（已修复）** | 「Agent 绑定工具后对话」这条路径此前**从未跑通**：文本 ReAct 模板缺 `{tool_names}` 直接崩、单入参 `Tool` 无法承载结构化参数、流式取不到逐字内容。示例插件是第一个绑定工具的场景，四条缺陷同时暴露。详见 [§8.7](#87-带工具对话链路的缺陷修复2026-09-15已落地)。 |
 
 ---
 
@@ -253,23 +254,23 @@
 
 > **前置决策已闭合**：§7 提出的「插件定位是 HTTP 工具注册中心，还是多协议能力中心」**已定调为「多协议能力中心」**（理由见 [plugin-capability-model-design.md](plugin-capability-model-design.md) §2.5）。该二选一本身不成立——`source_type` 三值早已声明，HTTP-only 是落地进度而非定位选择；且平台唯一的外部能力注册面若限 HTTP，非 HTTP 能力只能走无治理的内联旁路。故下表第 8、9 项属**应当投入**，非可选。
 
-| 优先级 | 项 | 理由 |
-|--------|-----|------|
-| 1 | §3.1 非插件工具被清空 | 造成既有数据丢失，且用户无感知；后端加一个类型过滤即可根治 |
-| 2 | §3.3 补 `source_type` 运行时门禁 | 一条常量即可闭合，消除「停用不生效」的语义矛盾 |
-| 3 | §6.5 P1-C1 配置无法删除 + P1-C4 required 不生效 | 二者共同定义「写入契约」，一次改动可同时解决；不动则「配置已保存」始终是无含义状态 |
-| 4 | §3.2 / §6.5 P1-C2 凭据加密 | 涉及安全基线，存在既有加密通道可复用；配置层与端点层需一并处理 |
-| 5 | §6.5 P1-C3 测试按端点 id 选择 | 测试是配置流程唯一的验证环节，不可靠则前面全部白做 |
-| 6 | §3.5 删除前展示影响面、§3.4 公共插件可管理 | 运维可控性 |
-| 7 | §3.6 权限模型与文档对齐 | 需先确认产品意图（admin-only 还是权限细分） |
-| 8 | §3.7 / §3.8 / §6.5 P2-C5～C10 | 体验与长期演进项 |
-| 9 | §4.4 `plugin_type` 三值无行为差异 | 需先定产品意图：明确为「分类标签」并弱化 UI 暗示，或补齐差异化行为 |
+| 优先级 | 项 | 理由 | 状态 |
+|--------|-----|------|------|
+| 1 | §3.1 非插件工具被清空 | 造成既有数据丢失，且用户无感知；后端加一个类型过滤即可根治 | **✅ 已实施**（M1-1） |
+| 2 | §3.3 补 `source_type` 运行时门禁 | 一条常量即可闭合，消除「停用不生效」的语义矛盾 | **✅ 已实施**（M1-2） |
+| 3 | §6.5 P1-C1 配置无法删除 + P1-C4 required 不生效 | 二者共同定义「写入契约」，一次改动可同时解决；不动则「配置已保存」始终是无含义状态 | **✅ 已实施**（M1-4） |
+| 4 | §3.2 / §6.5 P1-C2 凭据加密 | 涉及安全基线，存在既有加密通道可复用；配置层与端点层需一并处理 | **✅ 已实施**（M1-3） |
+| 5 | §6.5 P1-C3 测试按端点 id 选择 | 测试是配置流程唯一的验证环节，不可靠则前面全部白做 | ⬜ 待实施（P2） |
+| 6 | §3.5 删除前展示影响面、§3.4 公共插件可管理 | 运维可控性 | ⬜ 待实施（P2） |
+| 7 | §3.6 权限模型与文档对齐 | 需先确认产品意图（admin-only 还是权限细分） | ⬜ 待实施（P2） |
+| 8 | §3.7 / §3.8 / §6.5 P2-C5～C10 | 体验与长期演进项 | ⬜ 待实施（P2） |
+| 9 | §4.4 `plugin_type` 三值无行为差异 | 产品意图已定调：**该维度不成立，直接移除**（零行为差异 + 边界不可判定），保留 `source_type` 为唯一插件形态维度 | **✅ 已实施**（M2.0） |
 
-> 建议在实施第 3、4、5 项时同步补齐配置层单元测试——`update_config` / `get_config` / 端点增删 / OpenAPI 导入目前零覆盖，正是这些问题长期存留的原因（详见 §6.6 末）。
+> M1（优先级 1–4 及 P1-C11）已落地，详见 [§8](#8-m1--m20-实施记录已落地)。配置层单元测试缺口已补齐（`test_plugin_m1_fixes.py`）。P1-C11（端点 schema 接线）亦随 M1-5 完成。**优先级 9（§4.4 `plugin_type`）已随 M2.0 落地**，详见 [§8.6](#86-m20-实施记录已落地)。
 
 ### 4.4 关于「插件是否都是外部连接」：概念成立，但需两处限定
 
-一个常见的概括是：**插件本质就是「外部工具 / 连接器 / 处理器」的注册**。这个概括在概念上成立——它恰好等于 `plugin_type` 枚举的三个取值（`tool` / `connector` / `processor`，见 `core/plugin_types.py`）。但落到当前实现，需要两处限定。
+一个常见的概括是：**插件本质就是「外部工具 / 连接器 / 处理器」的注册**。这个概括在概念上成立——它曾恰好对应 `plugin_type` 枚举的三个取值（`tool` / `connector` / `processor`）。但落到当前实现，需要两处限定。**（M2.0 更新：`plugin_type` 已作为字段整体移除，见 [§8.6](#86-m20-实施记录已落地)；下文的「限定二」保留了移除前的诊断依据。）**
 
 **限定一：`api_key` 非必需，`base_url` 才是硬依赖，且校验发生在调用时。**
 
@@ -281,34 +282,43 @@
 
 更值得注意的是：这个必需性**只在首次调用时校验**——创建插件、保存配置、`/test` 之外的路径都不校验 `base_url`。因此「必须先配 base_url」不是插件的准入条件，而是**调用时才暴露的运行时约束**（与 P1-C4「写入无校验」同源）。
 
-**限定二：`plugin_type` 三个取值目前零行为差异，是纯分类标签。**
+**限定二（移除依据）：`plugin_type` 三个取值零行为差异，是纯分类标签——且边界不可判定，故 M2.0 已整体移除。**
 
 全仓检索 `plugin_type` 的消费点仅三处：①列表过滤（`services/plugin.py:73-74`、`126-127`）②排序（`:132`）③工具目录回显（`api/agent.py:128`）。**不存在任何 `if plugin_type == ...` 的执行分支**，三者走完全相同的调用链路。
 
 这意味着：`processor` 声明的「输入 → 输出纯处理」、`connector` 声明的「数据接入与回传」，在当前实现里都是**同一次 HTTP 调用**，没有独立的执行语义。把它理解为「工具/连接器/处理器」是**概念层面**的理解，实现层面三者尚未分化。
 
-**该概括唯一会被打破的维度是 `source_type`。** `source_type=http` 时"插件都是外部网络连接"成立；但 `mcp`（一个服务暴露多个工具）与 `skill`（**本地**技能包，无网络依赖）并非如此。当前 `BINDABLE_SOURCE_TYPES = {http}`（`plugin_policy.py:105`），后两者执行器未落地，故该概括在现状下成立，在未来不必然成立——这也是设计上预留的扩展点。
+更关键的是：**即使要补齐差异化行为，也无法给出可判定的边界**——一个既读数据又返回结果的 HTTP 端点，同时满足 `tool` / `connector` / `processor` 三种描述；选择权完全落在填表人手里，而非落在系统可观测的属性上。因此当时 §4.3 第 9 项记录的「需先定产品意图」有两条出路：
 
-**结论**：这是「**外部 HTTP 服务的注册 + 凭据托管 + 端点级授权**」的一套通用外壳，`tool` / `connector` / `processor` 是贴在同一个外壳上的三个语义标签。若产品意图是三者行为有别，需要补差异；若只是分类，则应在 UI 上弱化"选择即改变行为"的暗示（当前 `PLUGIN_TYPE_META.use_cases` 的描述会让用户预期不同行为）。
+1. 明确为「纯分类标签」并弱化 UI 暗示（原方案）；
+2. **判定该维度本身不成立，整体移除，只保留真正决定调用分发的 `source_type`（已采纳，M2.0）。**
+
+采纳方案 2 的理由是：一个既不驱动行为、又无法客观判定的字段，其唯一作用是让用户在创建时做一次无后果的选择，并为「选择即改变行为」制造错误的心理预期。移除后 `source_type`（`http` / `mcp` / `skill`）成为**唯一**插件形态维度，它是可判定的（决定走哪个执行器），也是运行时有真实判据的（`BINDABLE_SOURCE_TYPES` 门禁）。
+
+**该概括唯一会被打破的维度始终是 `source_type`。** `source_type=http` 时"插件都是外部网络连接"成立；但 `mcp`（一个服务暴露多个工具）与 `skill`（**本地**技能包，无网络依赖）并非如此。当前 `BINDABLE_SOURCE_TYPES = {http}`（`plugin_policy.py`），后两者执行器未落地，故该概括在现状下成立，在未来不必然成立——这也是设计上预留的扩展点。
+
+**结论**：这是「**外部 HTTP 服务的注册 + 凭据托管 + 端点级授权**」的一套通用外壳；`tool` / `connector` / `processor` 曾是贴在同一个外壳上的三个语义标签，M2.0 后已从数据模型、接口、前端与文档中全部剥离。能力形态的分化由 `source_type` 承担，而非由语义标签承担。
 
 ---
 
 ## 5. 验证记录
 
+> **M2.0 后文件名变更**：`tests/test_plugin_types.py` → `tests/test_plugin_source_types.py`（`app/core/plugin_types.py` → `app/core/plugin_source_types.py`）。下段为 M1 时点的原始记录，命令中的旧文件名已不再存在；复跑请用 §8.4 中的当前路径。
+
 ```
-# 后端（105 例通过）
+# 后端（105 例通过，M1 时点）
 cd backend && python -m pytest tests/test_plugin_types.py \
     tests/test_plugin_governance.py tests/test_agent_tool_catalog.py -q --basetemp=.pytest-tmp
 # → 105 passed in 4.24s
 
-# 前端（27 例通过）
+# 前端（27 例通过，M1 时点；M2.0 后 pluginMeta 为 7 例）
 cd frontend && npx vitest run src/pages/Agents/agentToolBinding.test.ts \
     src/pages/Plugins/pluginMeta.test.ts
 # → Test Files 2 passed (2) / Tests 27 passed (27)
 ```
 
 **覆盖盲区**：`grep -rn "update_config|get_config|add_endpoint|_sync_endpoints|import_endpoints" backend/tests/`
-→ 无匹配。即**配置写入与端点管理这一层零单测覆盖**，本章 §6 的多数缺陷据此由静态走查得出。
+→ 无匹配。即**配置写入与端点管理这一层零单测覆盖**，本章 §6 的多数缺陷据此由静态走查得出。（该盲区已由 M1-4 的 `test_plugin_m1_fixes.py` 部分填补。）
 
 ---
 
@@ -660,17 +670,240 @@ L2 端点层的字段（`endpoint` 路径 / `method` 动词 / `request_body_sche
 
 ---
 
+## 8. M1 / M2.0 实施记录（已落地）
+
+> M1 是 [design §路线图](../docs/plugin-capability-model-design.md) 中**不依赖大数据模型改造**即可落地的修复集合：沿用现有「插件 = HTTP 能力」模型，仅把已发现的五处行为缺陷与一处安全缺口补上。M2（多协议能力中心数据模型）、M3（命名空间 / 按需加载 / 审计配额）仍按计划待评审后实施。
+
+### 8.1 改动清单
+
+| 编号 | 问题（对应 §/review） | 文件 · 函数 | 改动要点 |
+|------|----------------------|-------------|----------|
+| M1-1 | 更新 Agent 误删非插件工具（§3.1） | `repositories/agent.py` · `AgentToolRepository.delete_by_agent`；`services/agent.py` · `update_agent` | 新增 `tool_type` 参数，更新时仅重建 `plugin` 类工具；`knowledge`/`api`/`function`/`workflow` 由各自流程管理，本端点不触碰 |
+| M1-2 | 运行时缺 `source_type` 判据（§3.3） | `core/plugin_policy.py` · `check_plugin_source_gate`；`services/agent.py` · `_build_langchain_tools` | 新增运行时门禁 0：插件被改为未实现的接入方式（mcp/skill）后，原有 http 绑定立即失能；与 `check_plugin_bindable` 共用 `BINDABLE_SOURCE_TYPES`，避免 fail-open |
+| M1-3 | 凭据明文落库（§3.2） | `models/plugin.py` · `PluginConfig.value_encrypted`；`utils/encryption`；`services/plugin.py` · `_load_config_dict`/`get_config`/`_upsert_config_row`；`schemas/plugin.py` · `PluginConfigItem.has_value`；`frontend/.../PluginConfig.tsx` + `types/plugin.ts` | 真实凭据以 Fernet 密文落库；`value` 列退化为脱敏回显；敏感项回显契约改为 `value=None + has_value=True`（详见 8.3） |
+| M1-4 | `update_config` 写入契约缺失删除与必填校验（P1-C1 / P1-C4） | `schemas/plugin.py` · `PluginConfigUpdateRequest.remove`；`services/plugin.py` · `update_config`/`_validate_required` | 支持按 name 显式删除；提交前校验 `config_schema.required`（fail-closed，早于任何写入）；`value=None` 语义为「未改动、保留既有」 |
+| M1-5 | 端点入参 schema 未接入工具参数（P1-C11） | `services/agent.py` · `_build_args_schema` + `_build_langchain_tools` | 端点声明 `request_body_schema` 时，构造 Pydantic `args_schema` 注入 LangChain Tool，并在描述中提示参数；否则退化单字符串 `query` |
+
+### 8.2 数据库迁移
+
+`backend/alembic/versions/g1h2i3j4k5l6_encrypt_plugin_config_values.py`
+
+- 为 `plugin_configs` 增加 `value_encrypted`（Text，可空）列。
+- 回填历史明文行：加密真实值 + 脱敏 `value`；依赖 `FERNET_KEY`，单行失败不影响整体迁移（legacy 回退逻辑兜底）。
+- `down_revision = "c8d9e0f1a2b3"`（当前合并头）；已确认 `alembic heads` 单一，且 `alembic upgrade head` 已在实库执行、`information_schema` 已验证列存在。
+
+### 8.3 敏感项回显契约（关键决策）
+
+**不用 `"********"` 占位回显，改用 `value=None + has_value=True`**，与 `AIProvider.has_api_key` 对齐。原因：
+
+- 若回显 `"********"`，前端表单会把占位当真实值回填，保存时以占位覆盖真实凭据 → 凭据被静默清空（regression）。
+- 采用 `value=None + has_value=True` 后，前端保存时跳过「空值且原本已设置」的敏感字段（见 `PluginConfig.tsx` 的 `isSecretName` + `hasValueRef` 逻辑与裸 JSON 模式下的占位过滤），既避免泄露也避免误覆盖。
+
+### 8.4 测试覆盖
+
+| 套件 | 范围 | 结果 |
+|------|------|------|
+| `tests/test_plugin_m1_fixes.py`（新增，121 例） | M1-1/2/3/4/5 全链路：门禁拒绝、Agent 更新保留非插件工具、`value_encrypted` 落库 + 解密、`has_value` 回显、删除、必填校验、`null` 保留既有、args_schema 注入 / `query` 退化 | 全部通过 |
+| `tests/test_plugin_governance.py`（对齐 2 处 fake 加 `source_type="http"`） | 设计期/运行时门禁、SSRF 护栏 | 通过 |
+| 后端全量 | 含 M1 改动 | 362 通过（3 例 `test_reranker` 为 `sentence_transformers` 未装之既有无关失败） |
+| 前端 | `tsc --noEmit` + `pluginMeta`(8) / `agentToolBinding`(19) | 类型检查 0 错误，27 例通过 |
+
+集成测试使用内存 SQLite（`Base.metadata.create_all`）+ `monkeypatch` 注入 `FERNET_KEY`，与 `test_encryption.py` 一致，无需真实数据库。
+
+### 8.5 验证命令（复跑）
+
+```bash
+# 后端 M1 针对性用例
+cd backend && .venv/bin/python -m pytest tests/test_plugin_m1_fixes.py tests/test_plugin_governance.py -q
+
+# 迁移一致性
+.venv/bin/python -m alembic heads        # M1 时点为 g1h2i3j4k5l6；M2.0 后为 h2i3j4k5l6m7
+.venv/bin/python -m alembic upgrade head
+
+# 前端
+cd frontend && npm run lint && npm run test -- pluginMeta agentToolBinding
+```
+
+---
+
+### 8.6 M2.0 实施记录（已落地）
+
+> **M2.0 是 M2 的零依赖前置**：不引入新的数据模型与执行器，只做一次**语义收敛**——把零行为差异、边界不可判定的 `plugin_type`（能力形态：tool / connector / processor）从全链路移除，保留 `source_type`（接入方式：http / mcp / skill）为**唯一**插件形态维度。它是 §4.3 第 9 项（§4.4）的落地，也是 M2.1（多协议数据模型）不再背负数形维度的前提。
+
+**决策依据**：见 §4.4「限定二」。核心两条：① `plugin_type` 零执行分支，三值走同一条调用链路；② 一个既读又写的 HTTP 端点同时满足三种描述，**边界不可判定**，故不能靠补差异化行为来救活该维度。方案对比见 [plugin-m2-m3-implementation-plan.md](plugin-m2-m3-implementation-plan.md) 决策 4。
+
+#### 8.6.1 改动清单
+
+| 层 | 文件 | 改动要点 |
+|----|------|----------|
+| 类型体系 | `core/plugin_types.py` → **`core/plugin_source_types.py`** | 模块重命名；删除 `PluginType` / `PLUGIN_TYPE_META` / 默认值；docstring 记录移除理由。`PluginSourceType` 成为唯一定义处 |
+| 数据模型 | `models/plugin.py` | 删除 `plugin_type` ORM 列 |
+| 接口契约 | `schemas/plugin.py` | 删除 `DEFAULT_PLUGIN_TYPE` / `PluginType` 导入；`PluginCreate` / `PluginUpdate` / `PluginOut` 移除 `plugin_type` |
+| 服务层 | `services/plugin.py` | `list()` 与 `list_bindable_for_agent()` 移除 `plugin_type` 过滤与 `order_by`；`create()` 不再写入该字段 |
+| 路由 | `api/plugin.py`、`api/agent.py` | 移除 `list_plugins` / `get_agent_tool_catalog` 的 `plugin_type` Query 参数与工具目录回显字段 |
+| 暴露策略 | `core/plugin_policy.py` | 导入路径改为 `plugin_source_types`（判据逻辑本身不变） |
+| 迁移 | `alembic/versions/h2i3j4k5l6m7_drop_plugin_type.py` | `DROP COLUMN plugins.plugin_type`，带 `inspect().get_columns()` 幂等守卫（MySQL 非事务 DDL） |
+| 前端类型 | `types/plugin.ts`、`types/agent.ts` | 移除 `PluginType` 类型与 `Plugin` / `PluginCreateRequest` / `PluginUpdateRequest` / `ToolCatalogPlugin` 中的同名字段 |
+| 前端 API | `api/plugin.ts`、`api/agent.ts` | 移除 `listPlugins` / `getToolCatalog` 的 `plugin_type` 参数 |
+| 前端页面 | `pages/Plugins/PluginList.tsx`、`PluginConfig.tsx`、`pages/Agents/AgentForm.tsx` | 移除表单默认值 / 提交载荷 / 「类型」表格列 / 「能力形态」Form.Item / Descriptions.Item / Tag 渲染（共 13 处） |
+| 前端元数据 | `pages/Plugins/pluginMeta.ts` | 删除 `PLUGIN_TYPE_META` / `PLUGIN_TYPE_OPTIONS` / `pluginTypeMeta`，仅保留 source 系列 |
+| 测试 | `tests/test_plugin_source_types.py`（新）、`tests/test_plugin_types.py`（删）；前端 `pluginMeta.test.ts`（重写）、`agentToolBinding.test.ts`（2 处 fixture） | 除正向覆盖外，新增**移除守卫**：模块不可导入、ORM 无该列、Schema 无该字段、`PluginCreate(plugin_type=...)` 被忽略 |
+
+#### 8.6.2 数据库迁移
+
+`backend/alembic/versions/h2i3j4k5l6m7_drop_plugin_type.py`（`down_revision = "g1h2i3j4k5l6"`）
+
+- `upgrade()`：先 `inspect()` 判列存在再 `DROP COLUMN`，避免重复执行报 1091；`downgrade()` 反向补列并带 `server_default="tool"`。
+- **已在实库执行**（非仅交付文件）：由 `ai-studio-backend` 容器入口的 `alembic upgrade head` 落库，日志 `Running upgrade g1h2i3j4k5l6 -> h2i3j4k5l6m7`。
+- 直连库验证：`information_schema.columns` 中 `plugins` 已无 `plugin_type`（显式 COUNT = 0）；`alembic_version` = `h2i3j4k5l6m7`。
+
+#### 8.6.3 测试覆盖
+
+| 套件 | 范围 | 结果 |
+|------|------|------|
+| `tests/test_plugin_source_types.py`（新增，13 例） | source 值集合、Schema 校验、meta 完备性 + 4 条移除守卫 | 通过 |
+| `tests/test_plugin_m1_fixes.py`（16 例）+ `test_plugin_governance.py`（61 例）+ `test_agent_tool_catalog.py`（32 例） | M1 全链路在移除后仍成立 | 122 通过 |
+| 后端全量（容器内，`--ignore=tests/test_celery_config.py`） | 全仓回归 | **382 通过 / 7 失败**（3 例 `test_reranker` 缺 `sentence_transformers`；4 例 `test_knowledge_vector_delete` 环境态，单独跑必过，零插件引用）——均为既有环境性失败 |
+| 前端 | `tsc --noEmit` + `pluginMeta`(7) / `agentToolBinding`(19) | 类型检查 0 错误，26 例通过 |
+
+#### 8.6.4 端到端冒烟
+
+在容器内用 `JWT_SECRET_KEY` 自签 token，实测两个曾被改动的端点：
+
+| 端点 | 结果 |
+|------|------|
+| `GET /plugins` | 200，响应含 `source_type`、**不含 `plugin_type`** |
+| `GET /agent/agents/tool-catalog` | 200，回显结构正常 |
+
+后端日志无异常。
+
+#### 8.6.5 残留检查
+
+`grep -rn "plugin_type"` 全仓仅剩三类命中，均属允许范围：
+
+1. 历史迁移（`phase7_plugin_system.py`、`a7b8c9d0e1f2`）——**不可改**，迁移是历史快照；
+2. M2.0 移除守卫测试与 `plugin_source_types.py` 的说明性 docstring；
+3. 新迁移 `h2i3j4k5l6m7` 自身（`DROP COLUMN` 的对象名）。
+
+即满足验收标准「全仓无功能性残留（文档与迁移除外）」。
+
+#### 8.6.6 验证命令（复跑）
+
+```bash
+# 后端 M2.0 针对性用例
+cd backend && .venv/bin/python -m pytest tests/test_plugin_source_types.py \
+    tests/test_plugin_m1_fixes.py tests/test_plugin_governance.py \
+    tests/test_agent_tool_catalog.py -q --basetemp=.pytest-tmp
+
+# 迁移一致性（应仅 h2i3j4k5l6m7）
+.venv/bin/python -m alembic heads
+
+# 前端
+cd frontend && npx tsc --noEmit && npx vitest run \
+    src/pages/Plugins/pluginMeta.test.ts src/pages/Agents/agentToolBinding.test.ts
+```
+
+---
+
+## 8.7 带工具对话链路的缺陷修复（2026-09-15，已落地）
+
+### 8.7.1 现象与复现
+
+给 Agent 绑定示例插件后发起对话，前端在**会话最上方**弹出：
+
+```
+模型调用失败  Prompt missing required variables: {'tool_names'}
+```
+
+### 8.7.2 根因：四个缺陷叠加，链路从未真正跑通
+
+修复过程中逐层实测，发现这不是「一个」bug——**任何一个单独修掉都仍然不可用**。
+
+| # | 缺陷 | 位置 | 实测证据 |
+|---|------|------|----------|
+| 1 | 文本 ReAct 提示词缺 `{tool_names}`，`create_react_agent` 在**装配阶段**即抛 `ValueError` | `agent.py` 旧 `chat`/`chat_stream` 内联模板 | `create_react_agent(...)` → `ValueError: Prompt missing required variables: {'tool_names'}`；它强制校验 `tools`/`tool_names`/`agent_scratchpad` 三者齐备 |
+| 2 | 工具用**单入参** `Tool` 构建，任何输入都被折叠成一个**位置参数** | `_build_langchain_tools`（5 处 `Tool(...)`） | `tool.run('AI-Studio')` → 字符串塞进第一个形参（闭包用 `_plugin`）→ `'str' object has no attribute 'name'`，插件**静默不执行** |
+| 3 | 端点入参 `args_schema` 有多字段，与单入参 `Tool` 语义冲突 | 同上 | `tool.invoke({'q':..., 'sort':...})` → `ToolException: Too many arguments to single-input tool` |
+| 4 | 流式用 `AgentExecutor.astream`，它只产出**聚合**事件 | 旧 `chat_stream` | 实测仅 3 条 `AddableDict`（keys=`actions`/`steps`/`output`），**没有** `.content`，逐字流式无从取数 |
+
+叠加结论：**「Agent 绑定工具」这条路径此前不可能成功**——缺陷 1 让它直接崩，缺陷 2 让工具即使被调用也不执行。之所以此前未暴露，是因为**没有任何 Agent 绑定过工具**（本项目的 Agent 均为无工具状态）。示例插件是第一个绑定工具的场景，于是四条缺陷同时亮相。
+
+### 8.7.3 修复方案：改走原生工具调用（function calling）
+
+放弃文本 ReAct，改用 `create_tool_calling_agent` + `StructuredTool` + `astream_events(v2)`：
+
+| 决策 | 理由 |
+|------|------|
+| 文本 ReAct → **原生工具调用** | 前者要求模型把入参写成 `Action Input:` 裸文本，与已落地的**结构化参数**（review P1-C11）天然冲突；后者把 JSON Schema 交给模型、以 `dict` 收回，二者才是配套的。实测 `deepseek-v4-flash` 原生返回 `tool_calls`，参数完整正确 |
+| `Tool` → **`StructuredTool`**（全部 5 个分支） | `Tool` 是单入参工具，多字段 schema 必然抛 `Too many arguments`；单字符串工具（knowledge/api/function/workflow）也显式声明 `_QUERY_ARGS = {query: str}`，让模型知道内容该放哪个键，而不是一个语义不明的裸字符串 |
+| `AgentExecutor.astream` → **`astream_events(v2)`** | 只有订阅底层 `on_chat_model_stream` 才有逐字内容。实测 606–840 个内容块/轮 |
+| 新增 `AgentAssemblyError` | 装配失败（提示词/工具/模型不支持 function calling）**根本没走到模型**，不能再报成「模型调用失败」误导用户去查 API Key |
+
+### 8.7.4 顺带修复的既有缺陷
+
+| 缺陷 | 说明 |
+|------|------|
+| 带工具路径**丢失 system_prompt 与对话历史** | 旧实现只传 `{"input": message}`，Agent 的人设与上下文全丢。现统一经 `_build_chat_history` 注入 |
+| `chat()`（阻塞）历史入参类型标注为 `dict`，实际收到 `MessageBase` 对象 | `hist_msg["role"]` 对 Pydantic 对象直接 `TypeError`。`_build_chat_history` 同时兼容两种形态 |
+| 前端回传的历史**含当前提问** | 与 `{input}` 重复注入，同一问题在上下文出现两次。按内容去重 |
+| 带工具路径 token 记账恒为 0 | 注释写的是「ReAct Agent 暂不精确统计」。现按**多轮调用累加**，实测一轮 input≈7.3k |
+| `done` 事件回传 LangChain `chunk` 对象 | 不可 JSON 序列化，且其 `content` 只是最后一块 |
+| 前端错误消息**被抽出消息流置顶** | `ChatContainer` 把所有 `is_error` 消息从数组里过滤出来、统一渲染成 `Alert` 放在容器顶部，与发生位置脱节；长会话滚动到底时甚至不在视口内。而 `MessageBubble` 里**本就写好了** `message-content.error` 样式分支（死代码）。现改为原序内联渲染 |
+| 错误标题硬编码「模型调用失败」 | 认证/限流/工具装配失败并非模型问题。现按 `error_code` 映射标题 |
+
+### 8.7.5 实测证据
+
+```
+① 服务层（真实模型 + 真实 GitHub）
+   事件统计 {'message': 840, 'done': 1} ／ 错误事件 无
+   done 用量 prompt=7261 completion=519 total=7780
+   正文含真实仓库名与 star 数 ✅
+
+② HTTP/SSE 层（真实接口，复现用户操作路径）
+   HTTP 200 | content-type=text/event-stream
+   事件统计 {'message': 606, 'done': 1}
+   落库消息 ['user','assistant'] ／ 验证用会话已清理
+
+③ 错误分类（注入装配故障）
+   → {'error_code': 'AGENT_ASSEMBLY_ERROR', 'error': '智能体执行失败：工具调用智能体装配失败：模拟故障'}
+   断言「不含『模型调用失败』」通过 ✅
+
+④ 无工具路径未受影响（超级旅游助手对话正常）
+
+⑤ 后端全量 596 passed ／ 前端 tsc 0 错误 + vitest 26 passed
+```
+
+### 8.7.6 遗留与边界
+
+- **依赖模型的 function calling 能力**。模型不支持时 `_build_tool_agent_executor` 会 fail-fast 抛 `AgentAssemblyError` 并给出明确提示，而不是运行到一半才崩。当前供应商 `openai`（`ChatOpenAI`）与 `ollama`/`anthropic` 分支均具备 `bind_tools`。
+- **工具中间步骤未对前端可见**。`_iter_tool_agent_output` 已产出 `tool_start`/`tool_end` 事件，但 SSE 契约与前端尚无对应渲染，暂在服务层跳过；后续可加「正在调用工具 X」提示。
+- `plugin_func` 的结构化分支依赖闭包默认参数（`_plugin=plugin`），**新增关键字参数前需确认不会与端点字段重名**。
+
+### 8.7.7 验证命令（复跑）
+
+```bash
+# 后端（M1 修复 + 工具结构化回归守卫）
+cd backend && .venv/bin/python -m pytest tests/test_plugin_m1_fixes.py -q --basetemp=.pytest-tmp
+
+# 前端
+cd frontend && npx tsc --noEmit && npx vitest run \
+    src/pages/Agents/agentToolBinding.test.ts src/pages/Plugins/pluginMeta.test.ts
+```
+
+---
+
 ## 附录 · 关键文件索引
 
 | 层 | 文件 |
 |----|------|
-| 类型体系 | `backend/app/core/plugin_types.py` |
+| 类型体系 | `backend/app/core/plugin_source_types.py`（M2.0 由 `plugin_types.py` 更名，`plugin_type` 已移除） |
 | 暴露策略 | `backend/app/core/plugin_policy.py` |
 | 数据模型 | `backend/app/models/plugin.py` |
 | 接口契约 | `backend/app/schemas/plugin.py` |
-| 路由 | `backend/app/api/plugin.py`、`backend/app/api/agent.py:98` |
-| 服务 | `backend/app/services/plugin.py`、`backend/app/services/agent.py:44/276/504` |
+| 路由 | `backend/app/api/plugin.py`、`backend/app/api/agent.py` |
+| 服务 | `backend/app/services/plugin.py`、`backend/app/services/agent.py` |
 | 执行器 | `backend/app/utils/plugin_executor.py` |
 | 出站护栏 | `backend/app/utils/net_guard.py` |
-| 前端 | `frontend/src/pages/Plugins/PluginList.tsx`、`PluginConfig.tsx`、`pages/Agents/AgentForm.tsx`、`pages/Agents/agentToolBinding.ts` |
+| 前端 | `frontend/src/pages/Plugins/PluginList.tsx`、`PluginConfig.tsx`、`pluginMeta.ts`、`pages/Agents/AgentForm.tsx`、`pages/Agents/agentToolBinding.ts` |
 | 类型口径文档 | `docs/plugin-types.md` |
+| 实施计划 | `docs/plugin-m2-m3-implementation-plan.md` |

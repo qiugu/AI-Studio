@@ -1,6 +1,6 @@
 // ── Agent 工具 ───────────────────────────────────────────────────────────────
 
-import type { PluginSourceType, PluginType } from '@/types/plugin'
+import type { PluginSourceType } from '@/types/plugin'
 
 export type ToolType = 'knowledge' | 'api' | 'function' | 'workflow' | 'plugin'
 
@@ -54,7 +54,6 @@ export interface ToolCatalogEndpoint {
 export interface ToolCatalogPlugin {
   id: string
   name: string
-  plugin_type: PluginType
   source_type: PluginSourceType
   description: string | null
   icon: string | null

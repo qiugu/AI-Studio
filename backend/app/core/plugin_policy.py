@@ -39,7 +39,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Optional
 
-from app.core.plugin_types import PluginSourceType
+from app.core.plugin_source_types import PluginSourceType
 
 # 可被 Agent 调用的插件状态。仅 active；待审与停用均不可暴露。
 AGENT_EXPOSABLE_PLUGIN_STATUSES = frozenset({"active"})
@@ -65,6 +65,21 @@ def check_plugin_status_gate(status: Optional[str]) -> Optional[str]:
     if status in AGENT_EXPOSABLE_PLUGIN_STATUSES:
         return None
     return f"插件状态为 {status or '(未设置)'}，仅 active 插件可被 Agent 调用"
+
+
+def check_plugin_source_gate(source_type: Optional[str]) -> Optional[str]:
+    """运行时门禁 0：接入方式必须已实现（执行器已落地）。
+
+    与设计期 ``check_plugin_bindable`` 共用 ``BINDABLE_SOURCE_TYPES``，避免口径分裂。
+    插件被改为 ``mcp`` / ``skill`` 后，原有 http 绑定的运行时调用必须立即失能——
+    否则「停用该接入方式」的意图不生效（fail-open）。
+    """
+    if source_type in BINDABLE_SOURCE_TYPES:
+        return None
+    return (
+        f"接入方式 {source_type or '(未设置)'} 的执行器尚未实现，"
+        f"当前仅支持 {'/'.join(sorted(BINDABLE_SOURCE_TYPES))}"
+    )
 
 
 def has_explicit_endpoint_ref(config: Optional[Mapping[str, Any]]) -> bool:
