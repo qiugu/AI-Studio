@@ -1,6 +1,7 @@
 // ── Agent 工具 ───────────────────────────────────────────────────────────────
 
 import type { PluginSourceType } from '@/types/plugin'
+import type { ChunkType } from '@/types/knowledge'
 
 export type ToolType = 'knowledge' | 'api' | 'function' | 'workflow' | 'plugin'
 
@@ -127,6 +128,41 @@ export interface Message {
   created_at: string
   is_error?: boolean  // 是否为错误消息
   error_code?: string  // 错误代码
+  /** 引用溯源（Phase 1）：本轮对话命中知识库块的来源快照；无引用时为 null/空 */
+  citations?: Citation[] | null
+}
+
+/**
+ * 引用溯源对象（与后端 `CitationCollector` 产出的 Citation 一致，见 docs/citation-traceability.md §5.1）。
+ * 数据来自「已通过租户过滤的检索结果」快照，不引入跨租户取全文的新端点（R8）。
+ */
+export interface Citation {
+  marker: number // 角标编号，1 基，单轮内唯一且稳定（轮次内编号，非检索响应内编号）
+  chunk_id: string // knowledge_chunks.id
+  doc_id: string
+  doc_name: string
+  kb_id?: string | null
+  chunk_index?: number | null
+  source_page?: number | null // 闭区间起点；非 PDF 为 null
+  source_page_end?: number | null // 闭区间终点；与起点相同表示单页
+  heading_path?: string | null // md/docx 可得；PDF 为 null
+  heading_path_mixed?: boolean | null // true 表示 heading_path 仅为共同祖先，前端显示「等小节」
+  /**
+   * 块类型。引用面板据此选择渲染方式——表格需按列渲染、代码需保留换行，
+   * 两者按纯文本渲染都会丢掉关键结构。
+   *
+   * 可缺省：**存量引用对象**（`messages.citations` 里已落库的历史消息）没有该键，
+   * 消费方须按 `text` 处理，不能假定它一定存在。
+   */
+  chunk_type?: ChunkType | null
+  score?: number | null
+  content: string // 命中块原文快照（权威展示源，分块重建后仍可展示，R1）
+  llm_content?: string | null // 仅当 context_expanded 为 true 时出现（上下文窗口文本）
+  context_header?: string | null // 如「[《手册.pdf》 | §3.2 | p.37–38]」
+  context_expanded?: boolean
+  tool_name?: string | null // 哪个工具召回
+  query?: string | null // 触发召回的查询
+  content_truncated?: boolean // top_k > 20 时 content 被截断的标记
 }
 
 // ── 对话 ─────────────────────────────────────────────────────────────────────
@@ -175,6 +211,13 @@ export interface SSEDoneEvent {
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
+  citations?: Citation[] // 冗余携带完整引用，作为前端丢包的兜底（D5）
+}
+
+export interface SSECitationsEvent {
+  citations: Citation[]
+  tool?: string
+  query?: string
 }
 
 export interface SSEErrorEvent {

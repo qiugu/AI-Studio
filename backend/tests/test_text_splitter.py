@@ -200,3 +200,157 @@ class TestConfiguredDefaults:
         # 重叠比例落在社区推荐区间（10%~20%）
         ratio = config.chunk_overlap / config.chunk_size
         assert 0.05 <= ratio <= 0.30, f"重叠比例 {ratio:.1%} 偏离推荐区间"
+
+
+class TestOversizedAtomicDowngrade:
+    """超长原子块的降级切分（P0-c）
+
+    ``is_atomic`` 承诺「不切碎」，但嵌入模型 ``max_seq_length=512``（中文 ≈476 字）
+    对超长输入是**静默截断**——超出部分从不进入向量，也从不进入精排。实测 51 个
+    code chunk 中 23 个（45%）超限、最长 1840 字符。二者不可兼得时正确性优先。
+    """
+
+    @staticmethod
+    def _segment(text, kind="code", atomic=True):
+        from app.utils.document import TextSegment
+
+        return TextSegment(text=text, page=1, kind=kind, is_atomic=atomic)
+
+    def test_oversized_atomic_is_split(self):
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        code = "\n".join(f"def f{i}():\n    return {i}" for i in range(40))
+        assert len(code) > splitter.atomic_max_chars, "用例前提：文本须超过上界"
+        chunks = splitter.split_segments([self._segment(code)])
+        assert len(chunks) > 1, "超长原子块必须被降级切分"
+        assert all(c.kind == "code" for c in chunks)
+
+    def test_split_respects_atomic_max_chars(self):
+        """降级后的每一块都必须落在上界内——这正是该功能存在的理由"""
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        code = "\n".join(f"def f{i}():\n    return {i}" for i in range(40))
+        for chunk in splitter.split_segments([self._segment(code)]):
+            assert len(chunk.text) <= splitter.atomic_max_chars
+
+    def test_short_atomic_stays_intact(self):
+        splitter = TextSplitter(chunk_size=448)
+        chunks = splitter.split_segments([self._segment("def f():\n    return 1")])
+        assert len(chunks) == 1
+        assert chunks[0].is_atomic is True
+
+    def test_downgraded_chunk_is_not_atomic(self):
+        """降级块必须显式标 is_atomic=False，否则下游仍按「不可切」处理"""
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        code = "\n".join(f"def f{i}():\n    return {i}" for i in range(40))
+        chunks = splitter.split_segments([self._segment(code)])
+        assert all(c.is_atomic is False for c in chunks)
+
+    def test_hard_wrapped_long_line_is_split(self):
+        """压缩过的超长单行无边界可用，必须按字符硬切（否则永远放不进任何块）"""
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        long_line = "x = 1;" * 200
+        chunks = splitter.split_segments([self._segment(long_line)])
+        assert all(len(c.text) <= splitter.atomic_max_chars for c in chunks)
+        assert "".join(c.text for c in chunks) == long_line
+
+    def test_atomic_max_chars_follows_config_ratio(self):
+        assert TextSplitter(chunk_size=100).atomic_max_chars == 200
+        assert TextSplitter(chunk_size=448).atomic_max_chars == 896
+
+
+class TestOversizedTableDowngrade:
+    """超长**表格**的降级切分：每片必须仍成立为一张表
+
+    与代码不同，表格的结构不在缩进里而在**表头**里：按行切完不给后续片补
+    「表头 + 分隔行」，那些片在 Markdown 中就不成立为表，前端会退回显示成
+    「一堆竖线」——正是本次要修掉的显示缺陷，会在超长表上原样复现
+    （实测 60 行 × 8 列的表切出 5 片、只有第 1 片还是合法表）。
+    """
+
+    @staticmethod
+    def _table(rows: int, cols: int) -> str:
+        header = "| " + " | ".join(f"列{c}" for c in range(cols)) + " |"
+        sep = "| " + " | ".join("---" for _ in range(cols)) + " |"
+        body = [
+            "| " + " | ".join(f"值{r}-{c}" for c in range(cols)) + " |" for r in range(rows)
+        ]
+        return "\n".join([header, sep] + body)
+
+    @staticmethod
+    def _is_table(text: str) -> bool:
+        """GFM 最小的「成立为表」条件：首行表头 + 第二行分隔行"""
+        from app.utils.document import _is_table_separator_line
+
+        lines = text.split("\n")
+        return len(lines) >= 2 and lines[0].startswith("|") and _is_table_separator_line(lines[1])
+
+    @staticmethod
+    def _segment(text):
+        from app.utils.document import TextSegment
+
+        return TextSegment(text=text, page=1, kind="table", is_atomic=True)
+
+    def test_every_piece_is_still_a_table(self):
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        table = self._table(rows=40, cols=5)
+        assert len(table) > splitter.atomic_max_chars, "用例前提：表格须超过上界"
+
+        chunks = splitter.split_segments([self._segment(table)])
+
+        assert len(chunks) > 1, "超长表格必须被降级切分"
+        not_table = [c.text.split("\n")[0] for c in chunks if not self._is_table(c.text)]
+        assert not not_table, f"有片丢失表头、不再成立为表: {not_table}"
+
+    def test_split_respects_atomic_max_chars_with_header_overhead(self):
+        """重复表头不能把片撑过上界——上界才是该功能存在的理由
+
+        这条钉住的是**预算顺序**：必须先从 ``limit`` 里扣掉表头长度再装箱。
+        若先按 ``limit`` 装好行、事后拼接表头，每片都会超限，而超限部分会被
+        嵌入模型静默截断——修显示问题顺手制造了检索问题。
+        """
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        table = self._table(rows=40, cols=5)
+
+        for chunk in splitter.split_segments([self._segment(table)]):
+            assert len(chunk.text) <= splitter.atomic_max_chars
+
+    def test_all_body_rows_survive(self):
+        """切分只允许重复表头，不允许丢内容（重复是可接受的冗余，丢行是数据损失）"""
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        table = self._table(rows=40, cols=5)
+        original_rows = table.split("\n")[2:]
+
+        chunks = splitter.split_segments([self._segment(table)])
+        seen = [line for c in chunks for line in c.text.split("\n")[2:]]
+
+        assert seen == original_rows, "数据行必须逐行、按序、无缺失地出现在各片中"
+
+    def test_header_repeated_in_each_piece(self):
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        table = self._table(rows=40, cols=5)
+        header = table.split("\n")[0]
+
+        for chunk in splitter.split_segments([self._segment(table)]):
+            assert chunk.text.startswith(header)
+
+    def test_short_table_stays_intact(self):
+        """上界内的表格不切、不重复表头：原文原样，`is_atomic` 承诺仍成立"""
+        splitter = TextSplitter(chunk_size=448)
+        table = self._table(rows=3, cols=3)
+
+        chunks = splitter.split_segments([self._segment(table)])
+
+        assert len(chunks) == 1
+        assert chunks[0].text == table
+        assert chunks[0].is_atomic is True
+
+    def test_non_table_text_uses_generic_downgrade(self):
+        """标记为 ``table`` 但内容不是表（无分隔行）时退回通用降级，不误加表头"""
+        splitter = TextSplitter(chunk_size=100, chunk_overlap=10)
+        not_a_table = "\n".join(f"第 {i} 行内容，凑够长度以便超过上界。" for i in range(40))
+        assert len(not_a_table) > splitter.atomic_max_chars
+
+        chunks = splitter.split_segments([self._segment(not_a_table)])
+
+        assert len(chunks) > 1
+        # 通用降级按行贪心，不会平白多出重复的首行
+        assert chunks[0].text.split("\n")[0] != chunks[1].text.split("\n")[0]

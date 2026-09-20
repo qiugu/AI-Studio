@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { UserOutlined, RobotOutlined } from '@ant-design/icons'
 import MarkdownRenderer from '../MarkdownRenderer'
+import CitationPanel from '../CitationPanel'
 import type { Message } from '@/types/agent'
 
 interface MessageBubbleProps {
@@ -31,6 +33,11 @@ const ERROR_TITLES: Record<string, string> = {
 export default function MessageBubble({ message, isStreaming = false }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const isError = message.is_error
+
+  // 来源面板的状态挂在消息级：同一屏里多条消息各自持有自己的抽屉，
+  // 避免把「点开的是哪一条」上提到会话层再逐层回传 marker。
+  const [activeCitation, setActiveCitation] = useState<number | null>(null)
+  const citations = message.citations ?? null
 
   // 用户消息样式
   if (isUser) {
@@ -95,9 +102,23 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
               {message.content}
             </p>
           ) : (
-            <MarkdownRenderer content={message.content || ''} />
+            <MarkdownRenderer
+              content={message.content || ''}
+              citations={citations}
+              onCitationClick={setActiveCitation}
+            />
           )}
         </div>
+
+        {/* 只在确有引用时挂载抽屉：无引用时不渲染隐藏的 Drawer 节点 */}
+        {citations && citations.length > 0 ? (
+          <CitationPanel
+            open={activeCitation !== null}
+            onClose={() => setActiveCitation(null)}
+            citations={citations}
+            activeMarker={activeCitation}
+          />
+        ) : null}
       </div>
     </div>
   )

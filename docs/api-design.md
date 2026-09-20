@@ -291,6 +291,25 @@ Content-Type: application/json
 > **未实现**：原文档中的 `GET /agents/{id}/conversations/{conv_id}/messages`
 > （消息历史）端点不存在；对话详情接口已包含消息内容。
 
+#### 11.1 SSE 事件流（`/chat/stream`）
+
+事件格式为标准 `event: <type>\ndata: <json>\n\n`。
+
+| 事件 | 载荷 | 说明 |
+|------|------|------|
+| `message` | `{ "content": string }` | 正文增量片段 |
+| `citations` | `{ "citations": Citation[], "tool"?: string, "query"?: string }` | 知识库工具**召回后、正文生成前**推送，增量（仅本次新增的编号）。可能多次出现 |
+| `done` | `{ "content", "conversation_id", "prompt_tokens", "completion_tokens", "total_tokens", "citations": Citation[] }` | 结束；`citations` 为**全量**冗余，用于前端丢包兜底 |
+| `error` | `{ "error": string, "error_code"?: string }` | 失败 |
+
+`Citation` 字段见 [citation-traceability.md](citation-traceability.md)。未识别的事件名前端**跳过而不报错**，
+故新增事件类型对旧版前端无破坏（`citations` 亦如此）。
+
+#### 11.2 消息对象新增字段
+
+`GET /agent/conversations/{conversation_id}` 返回的每条 `messages[]` 增加
+`citations: Citation[] | null`（无引用为 `null`）——刷新页面后角标与来源卡片据此复原。
+
 ---
 
 ## 12. 插件 `/api/plugins`

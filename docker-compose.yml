@@ -132,6 +132,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./backend/app
+          target: /app/app
+
+        - action: rebuild
+          path: ./backend/requirements.txt
     networks:
       - ai-studio-net
 

@@ -7,7 +7,7 @@ import { useParams } from 'react-router-dom'
 import { Spin, Empty, Drawer, message } from 'antd'
 import { HistoryOutlined } from '@ant-design/icons'
 import * as agentApi from '@/api/agent'
-import { type Agent, type Conversation, type Message } from '@/types/agent'
+import { type Agent, type Citation, type Conversation, type Message } from '@/types/agent'
 import { createStreamRequest } from '@/utils/streamRequest'
 import {
   AgentInfo,
@@ -174,6 +174,22 @@ export default function AgentChat() {
                 ? { ...msg, content: msg.content + chunk }
                 : msg
             )
+          )
+        },
+        onCitations: (incoming) => {
+          // 一次对话里可能多次调用知识库工具，每次推送一批增量引用；
+          // done 事件还会冗余推一次全量。统一按 marker 去重后排序，保证幂等。
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id !== assistantMessageId) return msg
+              const merged = new Map<number, Citation>()
+              for (const item of msg.citations ?? []) merged.set(item.marker, item)
+              for (const item of incoming) merged.set(item.marker, item)
+              return {
+                ...msg,
+                citations: [...merged.values()].sort((a, b) => a.marker - b.marker),
+              }
+            })
           )
         },
         onComplete: (fullContent, conversationId) => {

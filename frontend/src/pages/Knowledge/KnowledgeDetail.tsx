@@ -28,9 +28,12 @@ import {
 import { useParams, useNavigate } from "react-router-dom";
 import * as kbApi from "@/api/knowledge";
 import { type KnowledgeBase, type KnowledgeDocument, type KnowledgeChunk, type SearchResult } from "@/types/knowledge";
+import { formatCitation } from "@/utils/citation";
 import type { ColumnsType } from "antd/es/table";
 import type { RcFile } from "antd/es/upload";
 import { getErrorMessage } from "@/utils/request";
+import { CitationMarker } from "@/components/CitationBadge";
+import ChunkContentView from "@/components/ChunkContentView";
 
 const DocumentStatusTag: Record<string, any> = {
   pending: { color: "default", label: "待处理" },
@@ -341,10 +344,25 @@ export default function KnowledgeDetail() {
                             <List.Item.Meta
                               title={
                                 <>
+                                  {/* 响应内编号：与 Agent 角标同款视觉，但作用域不同
+                                      （仅本条响应内有效），故用不可点击的 CitationMarker */}
+                                  {result.marker != null && (
+                                    <span style={{ marginRight: "10px" }}>
+                                      <CitationMarker
+                                        marker={result.marker}
+                                        title="本条在本次检索结果中的编号（响应内编号）"
+                                      />
+                                    </span>
+                                  )}
                                   <span style={{ marginRight: "12px" }}>
                                     分块 #{result.chunk_index}
                                   </span>
                                   <Tag color="blue">{result.doc_name}</Tag>
+                                  {formatCitation(result) && (
+                                    <Tag color="geekblue" style={{ marginLeft: "12px" }}>
+                                      {formatCitation(result)}
+                                    </Tag>
+                                  )}
                                   <span style={{ color: "#666", marginLeft: "12px" }}>
                                     相似度: {(result.score * 100).toFixed(1)}%
                                   </span>
@@ -364,8 +382,14 @@ export default function KnowledgeDetail() {
                                     marginTop: "8px",
                                   }}
                                 >
-                                  {result.content.substring(0, 200)}
-                                  {result.content.length > 200 && "..."}
+                                  {/* 预览按**块类型**渲染：表格折叠成结构摘要（截断
+                                      一张表只剩一堆竖线，毫无信息），代码保留换行。
+                                      其余类型仍是纯文本预览，与改动前一致。 */}
+                                  <ChunkContentView
+                                    content={result.content}
+                                    chunkType={result.chunk_type}
+                                    previewChars={200}
+                                  />
                                 </div>
                               }
                             />
@@ -395,17 +419,20 @@ export default function KnowledgeDetail() {
             renderItem={(chunk) => (
               <List.Item key={chunk.id}>
                 <List.Item.Meta
-                  title={`分块 #${chunk.chunk_index}${chunk.source_page ? ` (第 ${chunk.source_page} 页)` : ""}`}
+                  title={`分块 #${chunk.chunk_index}${
+                    formatCitation(chunk) ? ` (${formatCitation(chunk)})` : ""
+                  }`}
                   description={
                     <div
                       style={{
                         color: "#666",
                         lineHeight: "1.6",
                         marginTop: "8px",
-                        whiteSpace: "pre-wrap",
                       }}
                     >
-                      {chunk.content}
+                      {/* 完整内容同样按块类型渲染：表格给真实 <table>（此前是
+                          「一堆竖线」的纯文本，正是本次修复的原始报障）。 */}
+                      <ChunkContentView content={chunk.content} chunkType={chunk.chunk_type} />
                     </div>
                   }
                 />

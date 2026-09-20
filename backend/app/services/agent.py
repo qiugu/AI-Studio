@@ -30,6 +30,7 @@ from app.services.knowledge import KnowledgeBaseService
 from app.services.token_usage import TokenUsageService
 from app.services.conversation import ConversationService
 from app.services.audit import record_model_call
+from app.utils.citation import CitationCollector
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,21 @@ def _build_args_schema(schema: Dict[str, Any]):
 # 原生工具调用下模型按 JSON 回传入参，只有显式声明字段名才能让模型知道该写哪个键；
 # 历史上用 dict 之外的一个裸字符串（旧 ``Tool`` 的位置参数），模型无法判断语义。
 _QUERY_ARGS = create_model("ToolQueryArgs", query=(str, ...))
+
+
+# 知识库工具绑定时的引用指令（仅当 Agent 含 knowledge 工具时追加到系统提示）。
+# 核心约束：编号由系统分配、模型只引用，禁止自造（见
+# docs/plan-citation-traceability.md §D1 / §3 设计原则 1）。措辞刻意强调「只能使用
+# 已给出的编号」「未使用检索结果不加标注」，避免诱导模型在无从出处时硬加标记。
+CITATION_INSTRUCTION = (
+    "当你的回答基于「检索结果」时，必须在相应陈述末尾标注来源编号，"
+    "格式为方括号加数字，例如：连接超时默认为 30 秒[1]。\n"
+    "规则：\n"
+    "1. 只能使用检索结果中已给出的编号，不得自行编号或推测编号；\n"
+    "2. 一句话若综合了多个来源，可并列标注，例如[1][3]；\n"
+    "3. 若回答完全来自你自己的知识、未使用检索结果，则不加任何标注；\n"
+    "4. 不得编造检索结果中不存在的内容。"
+)
 
 
 class AgentAssemblyError(Exception):
@@ -381,7 +397,9 @@ class AgentService:
 
     # ── Agent工具构建 ───────────────────────────────────────────────────────
 
-    def _build_langchain_tools(self, agent: Agent) -> List[Any]:
+    def _build_langchain_tools(
+        self, agent: Agent, collector: Optional[CitationCollector] = None
+    ) -> List[Any]:
         """构建LangChain工具列表。
 
         所有工具统一构建为 ``StructuredTool``（旧版是 ``Tool``），原因是二者的入参
@@ -420,7 +438,11 @@ class AgentService:
                 # 知识库时，所有工具都只查最后一个库」——不报错、不告警的静默串库。
                 # 同文件的 api / function / workflow 分支早已采用默认参数绑定，此处遗漏。
                 def knowledge_search_func(
-                    query: str, _kb_id=kb_id, _top_k=top_k, _tool_name=agent_tool.name
+                    query: str,
+                    _kb_id=kb_id,
+                    _top_k=top_k,
+                    _tool_name=agent_tool.name,
+                    _collector=collector,
                 ) -> str:
                     """知识库检索"""
                     try:
@@ -448,7 +470,37 @@ class AgentService:
                         )
                     if not outcome.results:
                         return "未找到相关知识"
-                    return "\n".join([r.get("content", "") for r in outcome.results])
+
+                    # 登记引用：collector 为 None（无引用需求，如工作流节点复用本
+                    # 工具）时不登记。编号由 collector 统一分配，模型看到的每个命中
+                    # 块都带 ``[n]`` 前缀，与 citations 角标一致（D1/D3）。
+                    markers = None
+                    if _collector is not None:
+                        markers = _collector.register(
+                            outcome.results,
+                            tool_name=_tool_name,
+                            query=query,
+                            kb_id=_kb_id,
+                            max_content_chars=1200 if _top_k > 20 else None,
+                        )
+                    # 取 ``llm_content`` 而非 ``content``：前者是检索层装配好的
+                    # 「出处标记 + 含前后邻块的窗口」，后者只是块原文。工具结果会
+                    # 被原样塞进模型上下文，因此选错字段的代价是模型读到既不知道
+                    # 出自哪份文件、也可能被截断在中途的证据——表现为回答笼统或
+                    # 「材料没提到」。
+                    # 回落到 ``content`` 是为了兼容手工构造结果的调用方（测试替身、
+                    # 工作流节点输出），它们没有装配层产出的字段。
+                    if markers is None:
+                        return "\n".join(
+                            r.get("llm_content") or r.get("content", "")
+                            for r in outcome.results
+                        )
+                    # 每个命中块前置 ``[n]``：模型据此在答案中引用编号。编号即
+                    # collector 分配的轮次内编号，与 citations 角标一一对应。
+                    return "\n\n".join(
+                        f"[{m}] {r.get('llm_content') or r.get('content', '')}"
+                        for r, m in zip(outcome.results, markers)
+                    )
 
                 tools.append(
                     StructuredTool.from_function(
@@ -866,6 +918,17 @@ class AgentService:
             "你是一个可以使用工具完成任务的助手。需要外部信息时先调用工具，"
             "拿到结果后再作答；不要编造工具未返回的内容。"
         )
+
+        # 仅当 Agent 绑定了知识库工具时追加引用指令：让模型在基于检索结果作答时
+        # 标注来源编号（编号由系统分配，模型只引用）。无知识库工具时追加该指令
+        # 纯属噪声，反而可能诱导模型在无从出处时硬加标记。
+        has_kb_tools = any(
+            getattr(t, "tool_type", None) == "knowledge"
+            and getattr(t, "is_enabled", True)
+            for t in agent.tools
+        )
+        if has_kb_tools:
+            system_prompt = system_prompt.rstrip() + "\n\n" + CITATION_INSTRUCTION
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt),
@@ -890,7 +953,10 @@ class AgentService:
             handle_parsing_errors=True,
         )
 
-    async def _iter_tool_agent_output(self, executor: Any, inputs: Dict[str, Any]):
+    async def _iter_tool_agent_output(
+        self, executor: Any, inputs: Dict[str, Any],
+        collector: Optional[CitationCollector] = None,
+    ):
         """驱动工具调用型 Agent，产出内容块 / 工具事件 / 用量。
 
         **不能用 ``executor.astream``**：它只产出 ``actions`` / ``steps`` / ``output``
@@ -902,6 +968,7 @@ class AgentService:
         低报 token（实测一轮工具调用 input 已达 10k）。
         """
         usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        emitted = 0  # 已推送的 citations 游标（仅 collector 非空时有意义）
         async for event in executor.astream_events(inputs, version="v2"):
             kind = event.get("event")
             if kind == "on_chat_model_stream":
@@ -913,6 +980,17 @@ class AgentService:
                 yield {"type": "tool_start", "tool": event.get("name")}
             elif kind == "on_tool_end":
                 yield {"type": "tool_end", "tool": event.get("name")}
+                # 知识库工具在此刻已把命中块登记进 collector；增量推送 citations
+                # 事件（先于最终生成，前端可边生成边展示来源面板）。非知识库工具的
+                # on_tool_end 不产生新引用，take_new_since 返回空，不发事件。
+                if collector is not None:
+                    new_citations, emitted = collector.take_new_since(emitted)
+                    if new_citations:
+                        yield {
+                            "type": "citations",
+                            "tool": event.get("name"),
+                            "citations": new_citations,
+                        }
             elif kind == "on_chat_model_end":
                 meta = getattr(event.get("data", {}).get("output"), "usage_metadata", None) or {}
                 for key in ("input_tokens", "output_tokens", "total_tokens"):
@@ -1005,7 +1083,9 @@ class AgentService:
 
         # 构建LLM和工具
         llm = self._build_llm_client(agent)
-        tools = self._build_langchain_tools(agent)
+        # 引用收集器：请求级单实例，随工具闭包捕获，不依赖隐式上下文传播。
+        collector = CitationCollector()
+        tools = self._build_langchain_tools(agent, collector)
         # 历史只含「当前轮之前」，当前消息统一由 {input} / 末尾 HumanMessage 传入
         chat_history = self._build_chat_history(conversation_id, message, history_messages)
 
@@ -1019,7 +1099,8 @@ class AgentService:
                 completion_tokens = 0
                 total_tokens = 0
                 async for item in self._iter_tool_agent_output(
-                    executor, {"input": message, "chat_history": chat_history}
+                    executor, {"input": message, "chat_history": chat_history},
+                    collector=collector,
                 ):
                     if item["type"] == "content":
                         collected.append(item["content"])
@@ -1076,6 +1157,8 @@ class AgentService:
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
+                # 引用溯源：单轮内命中的知识库来源快照；无引用时为空列表。
+                "citations": collector.snapshot(),
             }
 
         except AuthenticationError as e:
@@ -1275,7 +1358,9 @@ class AgentService:
 
         # 构建LLM
         llm = self._build_llm_client(agent)
-        tools = self._build_langchain_tools(agent)
+        # 引用收集器：请求级单实例，随工具闭包捕获，不依赖隐式上下文传播。
+        collector = CitationCollector()
+        tools = self._build_langchain_tools(agent, collector)
         # 历史只含「当前轮之前」，当前消息统一由 {input} / 末尾 HumanMessage 传入
         chat_history = self._build_chat_history(conversation_id, message, history_messages)
 
@@ -1285,7 +1370,8 @@ class AgentService:
                 # 工具路径与无工具路径统一成「内容块 + 用量」的异步序列，
                 # 后面的打字机下发、token 记账、done 事件三者共用，避免两套逻辑漂移。
                 stream_source = self._iter_tool_agent_output(
-                    executor, {"input": message, "chat_history": chat_history}
+                    executor, {"input": message, "chat_history": chat_history},
+                    collector=collector,
                 )
             else:
                 messages = []
@@ -1310,6 +1396,16 @@ class AgentService:
                     prompt_tokens = item["input_tokens"]
                     completion_tokens = item["output_tokens"]
                     total_tokens = item["total_tokens"]
+                    continue
+
+                if item["type"] == "citations":
+                    # 检索命中来源：先于正文推送，便于前端边生成边展示来源面板。
+                    # 直接透传给 API 层（event_generator 映射为 SSE citations 事件）。
+                    yield {
+                        "type": "citations",
+                        "tool": item.get("tool"),
+                        "citations": item.get("citations"),
+                    }
                     continue
 
                 if item["type"] != "content":
@@ -1364,6 +1460,9 @@ class AgentService:
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
+                # 携带完整引用：供 API 层落库（messages.citations）与前端兜底
+                # （done 事件冗余携带，防止 citations 事件在网络层丢失）。
+                "citations": collector.snapshot(),
             }
 
         except AuthenticationError as e:

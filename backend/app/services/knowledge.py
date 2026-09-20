@@ -38,6 +38,12 @@ from app.services.knowledge_processor import process_document_task
 from app.utils.embedding import get_embedding_client
 from app.utils.reranker import RerankerUnavailable, get_reranker
 from app.utils.retrieval_fusion import weighted_fuse
+from app.utils.retrieval_context import (
+    build_context_header,
+    collect_window_indexes,
+    iter_unique,
+    join_window,
+)
 from app.utils.sparse import default_encoder
 
 logger = logging.getLogger(__name__)
@@ -476,6 +482,19 @@ class KnowledgeBaseService:
             * ``duplicate_count``  —— 本条内容被折叠掉的等值副本数（无副本时为 0）。
               存在它是为了让调用方能解释「结果条数为何少于 top_k」——那是去重生效
               的结果，而不是召回不足。
+            * ``llm_content``      —— **喂给 LLM 的文本**（P4 上下文装配的产物）：
+              出处标记 + 含前后邻块的窗口正文。``content`` 始终是本块原文，不参与
+              装配——它同时是去重键与前端展示文本，被注入即变成脏数据。
+            * ``context_header``   —— ``llm_content`` 前置的出处标记行（无出处信息
+              时为 ``None``），例如 ``[《手册.pdf》 | § 3.2 | p.37–38]``。
+            * ``context_expanded`` —— 是否真的拼入了邻块。为假有两种原因（开关关闭
+              / 命中块本身无邻块），二者对消费方是同一件事，故不再细分。
+
+        三个新键**恒显式出现**（``llm_content`` 至少等于 ``content``），理由同出处
+        字段：消费方若按「键是否存在」判断，会把「该功能没实现」与「本块没有邻居」
+        混为一谈。关闭 ``retrieval_context_header_enabled`` 且
+        ``retrieval_neighbor_expansion=0`` 时，``llm_content`` 与 ``content`` 逐字符
+        相等——这是本层的回滚开关。
 
         返回结果在去重开启时**按内容去重**：同一段落的多个等值副本只保留最高分的
         一份。这既避免副本并列占满 top_k 挤压其它段落，也避免重复内容被重复灌入
@@ -601,10 +620,14 @@ class KnowledgeBaseService:
 
         # 组装结果，保持融合后的相关度顺序
         chunks_data: List[Dict[str, Any]] = []
+        # ORM 行按 chunk.id 暂存，供上下文装配使用：``chunk_epoch`` 与
+        # ``heading_path_mixed`` 只在 ORM 行上，而它们不该进入对外响应契约。
+        chunks_by_id: Dict[str, KnowledgeChunk] = {}
         for point_id, fused_score in ranked:
             chunk = chunk_map.get(point_id)
             if not chunk:
                 continue
+            chunks_by_id[chunk.id] = chunk
             item: Dict[str, Any] = {
                 "id": chunk.id,
                 "content": chunk.content,
@@ -612,13 +635,26 @@ class KnowledgeBaseService:
                 "doc_id": chunk.doc_id,
                 "doc_name": chunk.document.file_name if chunk.document else None,
                 "chunk_index": chunk.chunk_index,
-                # 出处信息：供答案给出「出自第 37 页 / §3.2」这类可核对引用。
-                # 两列都**显式出现**（可能为 None），不做「有值才加键」的处理——
+                # 出处信息：供答案给出「出自第 37–38 页 / §3.2」这类可核对引用。
+                # 四个键都**显式出现**（可能为 None），不做「有值才加键」的处理——
                 # 消费方若按「键是否存在」判断，就会把「该格式没有页码」误读成
                 # 「这个字段没实现」。可得性边界见 docs/rag-eval/PHASE5-REBUILD-PLAN.md §2.2：
                 # PDF 有页码无标题路径（pypdf 只给文本流），md/docx 反之。
+                #
+                # ``source_page`` / ``source_page_end`` 是**闭区间**：块可以跨页（合并的
+                # 必然结果），单值只能表达「从哪一页开始」，显示成「第 37 页」而块里
+                # 含有第 38 页的内容就是沉默的错答。
+                # ``heading_path_mixed`` 为真表示 ``heading_path`` 只标到了若干兄弟子节的
+                # 公共祖先，块内并无该祖先自身的内容——消费方应呈现为「A 等小节」。
                 "source_page": chunk.source_page,
+                "source_page_end": chunk.source_page_end,
                 "heading_path": chunk.heading_path,
+                "heading_path_mixed": chunk.heading_path_mixed,
+                # 块类型：供前端差异化展示（命中表格/代码时按纯文本渲染会丢掉列结构
+                # 或换行），也供本方法的上下文装配给 LLM 加 ``表格`` / ``代码`` 提示。
+                # 取值域见 ``app.utils.document.CHUNK_TYPES``；存量行由迁移回填为
+                # ``text``，故此处不做 None 兜底。
+                "chunk_type": chunk.chunk_type,
             }
             # ``retrieval_score`` 仅在稠密分支命中时给出：词法独有项没有稠密相似度，
             # 用 0.0 顶替会把「稠密根本没召回到它」误读成「稠密认为它完全不相关」，
@@ -635,7 +671,12 @@ class KnowledgeBaseService:
         if rerank_enabled and len(chunks_data) > 1:
             chunks_data = self._apply_rerank(query, chunks_data)
 
-        return SearchOutcome(results=chunks_data[:top_k], collection=collection_name)
+        # 上下文装配必须在**截断到 top_k 之后**：邻块扩展要回表取行，对最终不会
+        # 返回的候选做扩展纯属浪费（宽召回 20 条时是 15 次无用查询）。
+        final = chunks_data[:top_k]
+        self._assemble_context(final, chunks_by_id)
+
+        return SearchOutcome(results=final, collection=collection_name)
 
     def search(
         self,
@@ -661,6 +702,122 @@ class KnowledgeBaseService:
             use_rerank=use_rerank,
             candidate_k=candidate_k,
         ).results
+
+    # ── 上下文装配（P4）──────────────────────────────────────────────────────
+
+    def _assemble_context(
+        self,
+        items: List[Dict[str, Any]],
+        chunks_by_id: Dict[str, KnowledgeChunk],
+    ) -> None:
+        """就地为结果装配 ``llm_content`` / ``context_header`` / ``context_expanded``
+
+        三个键**无论开关如何恒被写入**，使响应契约不随配置漂移——否则前端与
+        Agent 工具就要按「配置项是否开启」分支处理字段缺失，而这种分支在配置
+        变更时不会有任何提示。
+
+        ``content`` 在这里是**只读**的：装配结果一律写入 ``llm_content``。
+
+        Args:
+            items: 已截断到 top_k 的结果字典（原地修改）
+            chunks_by_id: ``chunk.id -> ORM 行``，提供只有 ORM 行才有的
+                ``chunk_epoch`` / ``heading_path_mixed``
+        """
+        header_enabled = config.retrieval_context_header_enabled
+        radius = max(0, int(config.retrieval_neighbor_expansion))
+        windows = self._neighbor_windows(items, chunks_by_id, radius) if radius else {}
+
+        for idx, item in enumerate(items):
+            chunk = chunks_by_id.get(item["id"])
+
+            # 响应内编号（与 Agent 侧的「轮次内编号」是两套作用域，见
+            # docs/plan-citation-traceability.md §Phase 1）。用于检索页展示
+            # 「来源 1/2/3」，恒为数组下标 + 1，与开关、配置无关。
+            item["marker"] = idx + 1
+
+            header: Optional[str] = None
+            if header_enabled and chunk is not None:
+                header = build_context_header(
+                    doc_name=item.get("doc_name"),
+                    heading_path=chunk.heading_path,
+                    heading_path_mixed=bool(chunk.heading_path_mixed),
+                    page=chunk.source_page,
+                    page_end=chunk.source_page_end,
+                    # 类型取自 ORM 行而非 ``item``：``item`` 是服务层字典，字段可能
+                    # 在去重/精排过程中被重建，而 ORM 行是唯一权威来源。
+                    chunk_type=chunk.chunk_type,
+                )
+
+            body, expanded = windows.get(item["id"], (item["content"], False))
+            if not body:
+                # 空正文的极端情形：邻块裁剪后窗口为空（块内容完全被前一块覆盖）。
+                # 退回原文而不是给出空串——给出空串等于让模型看不到任何证据。
+                body = item["content"]
+            item["context_header"] = header
+            item["context_expanded"] = expanded
+            item["llm_content"] = f"{header}\n\n{body}" if header else body
+
+    def _neighbor_windows(
+        self,
+        items: List[Dict[str, Any]],
+        chunks_by_id: Dict[str, KnowledgeChunk],
+        radius: int,
+    ) -> Dict[str, tuple]:
+        """为每个命中块构造含前后邻块的窗口，返回 ``chunk.id -> (窗口文本, 是否扩展)``
+
+        **本方法是继 ``list_by_vector_ids`` 之后第二条把内容送进 LLM 上下文的路径**，
+        因此必须受同样的约束：租户隔离、文档存活、代次自洽（见
+        :meth:`KnowledgeChunkRepository.list_neighbors`）。
+
+        实现要点：
+
+        * 按 ``(doc_id, chunk_epoch)`` 归组后**每组合并一次查询**，而不是每个命中块
+          查一次——top_k=10、radius=1 时把 10 次往返压成 1–2 次。
+        * 邻块取自**命中块自身的代次**，不是文档的当前代次：回滚到旧集合后命中块
+          属旧代，用当前代过滤会让窗口静默退化成单块。
+        * 索引缺失（重建时序错位、行被清理）时窗口只含实际存在的块，不外扩、不补空。
+        """
+        wanted: Dict[tuple, List[int]] = {}
+        for item in items:
+            chunk = chunks_by_id.get(item["id"])
+            if chunk is None:
+                continue
+            key = (chunk.doc_id, chunk.chunk_epoch)
+            indexes = wanted.setdefault(key, [])
+            for index in collect_window_indexes(chunk.chunk_index, radius):
+                if index not in indexes:
+                    indexes.append(index)
+
+        contents: Dict[tuple, str] = {}
+        for (doc_id, epoch), indexes in wanted.items():
+            rows = self.chunk_repo.list_neighbors(
+                doc_id=doc_id,
+                chunk_epoch=epoch,
+                chunk_indexes=iter_unique(indexes),
+            )
+            for row in rows:
+                contents[(doc_id, epoch, row.chunk_index)] = row.content
+
+        windows: Dict[str, tuple] = {}
+        for item in items:
+            chunk = chunks_by_id.get(item["id"])
+            if chunk is None:
+                windows[item["id"]] = (item["content"], False)
+                continue
+            key = (chunk.doc_id, chunk.chunk_epoch)
+            texts = [
+                contents[(key[0], key[1], index)]
+                for index in collect_window_indexes(chunk.chunk_index, radius)
+                if (key[0], key[1], index) in contents
+            ]
+            if not texts:
+                windows[item["id"]] = (item["content"], False)
+                continue
+            windows[item["id"]] = (
+                join_window(texts, config.chunk_overlap),
+                len(texts) > 1,
+            )
+        return windows
 
     @staticmethod
     def _dedupe_by_content(chunks_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

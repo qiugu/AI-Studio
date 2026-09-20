@@ -222,6 +222,40 @@ class KnowledgeChunkRepository(BaseRepository[KnowledgeChunk]):
             KnowledgeChunk.vector_id.in_(vector_ids)
         ).all()
 
+    def list_neighbors(
+        self,
+        doc_id: str,
+        chunk_epoch: str,
+        chunk_indexes: List[int],
+    ) -> List[KnowledgeChunk]:
+        """按「文档 + 代次 + chunk_index 集合」批量查询分块（邻块扩展用）
+
+        检索命中块后需要把它前后的邻块一并取出（P4「答案跨块」的修复手段），
+        本方法把「每个命中块查一次」收敛为「每个 (文档, 代次) 查一次」——
+        top_k=10 且这些命中各自请求 ±1 邻块时，逐条查询会产生 30 次往返。
+
+        **代次由调用方按命中块自身给出，而不是取 ``document.active_chunk_epoch``**：
+        与 :meth:`get_by_vector_id` 同一理由——回滚 ``active_collection`` 到旧集合
+        后，命中块属于旧代，若此处按「文档当前代」过滤就会一条邻块都取不到，邻块
+        扩展在回滚期间静默失效（不报错，只是窗口退化成单块）。以命中块自述的代次
+        为准则与检索结果自洽。
+
+        仍经 :meth:`_query_with_live_document`：邻块扩展是**注入 LLM 上下文**的
+        路径，已软删文档的分块绝不能从这里漏出去，否则「删了文档却还能被引用到」
+        会以「邻块」这种隐蔽形式重现（P1-A）。
+        """
+        if not chunk_indexes:
+            return []
+        return (
+            self._query_with_live_document(
+                KnowledgeChunk.doc_id == doc_id,
+                KnowledgeChunk.chunk_epoch == chunk_epoch,
+                KnowledgeChunk.chunk_index.in_(chunk_indexes),
+            )
+            .order_by(KnowledgeChunk.chunk_index)
+            .all()
+        )
+
     def list_by_doc_id(self, doc_id: str) -> List[KnowledgeChunk]:
         """查询指定文档下的**全部代次**分块（用于清理向量等场景）
 

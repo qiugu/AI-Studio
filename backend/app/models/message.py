@@ -41,6 +41,11 @@ class Message(Base):
     tool_call_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     tool_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+    # 引用溯源（仅 assistant 角色）：知识库检索命中的结构化来源列表，
+    # 用于前端「角标 + 来源卡片」回溯到具体分块。结构见
+    # docs/citation-traceability.md §5.1；无引用时为 NULL（非空数组）。
+    citations: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 

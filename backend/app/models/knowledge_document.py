@@ -33,7 +33,7 @@ class KnowledgeDocument(Base):
     original_content = Column(Text, nullable=True)  # 原始文本（存储解析后的全文）
     chunk_count = Column(Integer, default=0)  # 该文档的分块数
 
-    # 该文档**当前生效**的分块代次（"448-64"），与 knowledge_chunks.chunk_epoch 配对。
+    # 该文档**当前生效**的分块代次（"448-64-p1"），与 knowledge_chunks.chunk_epoch 配对。
     # 重建期间新旧两代分块行会同时存活（旧行支撑回滚窗口），因此「这份文档现在该看
     # 哪一代」必须显式记录，否则分块列表与计数会把两代混在一起。
     # **不能**用 config.chunk_epoch 顶替：配置在重建前就已变成新值，

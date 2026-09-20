@@ -24,6 +24,8 @@ import pytest
 from app.core.vector_db import RetrievedPoint
 from app.services.knowledge import KnowledgeBaseService, _sigmoid
 from app.utils.reranker import CrossEncoderReranker
+from tests._chunk_doubles import chunk_double
+from tests._repo_doubles import chunk_repo_double
 
 KB_ID = "11111111-2222-3333-4444-555555555555"
 TENANT = "tenant-1"
@@ -52,15 +54,13 @@ class FakeEncoder:
 def _build_service():
     """构造只依赖替身的服务实例"""
     chunks_by_vector = {
-        vector_id: SimpleNamespace(
+        vector_id: chunk_double(
             id=f"chunk-{vector_id}",
             vector_id=vector_id,
             content=CONTENTS[vector_id],
             doc_id="doc-1",
             document=SimpleNamespace(file_name="doc.pdf"),
             chunk_index=index,
-            source_page=None,
-            heading_path=None,
         )
         for index, vector_id in enumerate(VECTORS)
     }
@@ -69,11 +69,7 @@ def _build_service():
     service.get_knowledge_base = lambda _kb_id: SimpleNamespace(
         id=KB_ID, tenant_id=TENANT, embedding_model="fake/model", active_collection=None
     )
-    service.chunk_repo = SimpleNamespace(
-        list_by_vector_ids=lambda ids: [
-            chunks_by_vector[vector_id] for vector_id in ids if vector_id in chunks_by_vector
-        ]
-    )
+    service.chunk_repo = chunk_repo_double(chunks_by_vector.values())
     return service
 
 

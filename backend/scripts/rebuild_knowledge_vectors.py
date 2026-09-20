@@ -25,7 +25,7 @@
 代次与 id
 ---------
 
-新行的 ``chunk_epoch`` = ``config.chunk_epoch``（如 ``448-64``），
+新行的 ``chunk_epoch`` = ``config.chunk_epoch``（如 ``448-64-p1``：尺寸-重叠-策略版本），
 ``vector_id`` = :func:`app.services.knowledge_processor.vector_id_for`（带代次后缀）。
 代次后缀不是装饰：``knowledge_chunks.vector_id`` 上有唯一索引，两代共存时若 id 只由
 ``(doc_id, index)`` 决定，新一代插入必然 ``IntegrityError``。
@@ -64,7 +64,11 @@ from app.models.knowledge_chunk import KnowledgeChunk  # noqa: E402
 from app.models.knowledge_document import KnowledgeDocument  # noqa: E402
 from app.repositories.knowledge import KnowledgeChunkRepository  # noqa: E402
 from app.services.knowledge_processor import vector_id_for  # noqa: E402
-from app.utils.document import DocumentParser, TextSplitter  # noqa: E402
+from app.utils.document import (  # noqa: E402
+    DocumentParser,
+    TextSplitter,
+    chunk_type_for,
+)
 from app.utils.embedding import get_embedding_client  # noqa: E402
 from app.utils.sparse import default_encoder  # noqa: E402
 
@@ -233,7 +237,10 @@ def rebuild_document(
                 content=chunk.text,
                 chunk_index=chunk.index,
                 source_page=chunk.page,
+                source_page_end=chunk.page_end,
                 heading_path=chunk.heading_path,
+                heading_path_mixed=chunk.heading_path_mixed,
+                chunk_type=chunk_type_for(chunk.kind),
                 vector_id=vector_id_for(doc.id, chunk.index, epoch),
                 chunk_epoch=epoch,
             )

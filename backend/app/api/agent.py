@@ -375,22 +375,18 @@ async def chat(
             history_messages=data.messages,
         )
 
-        # 添加助手消息
+        # 添加助手消息（含引用溯源，无引用时 citations 为 None）
         assistant_msg = conv_service.add_message(
             conversation_id=conversation_id,
             role="assistant",
             content=result["content"],
+            citations=result.get("citations"),
         )
 
         return ResponseBase.ok(
             data={
                 "conversation_id": conversation_id,
-                "message": {
-                    "id": assistant_msg.id,
-                    "role": assistant_msg.role,
-                    "content": assistant_msg.content,
-                    "created_at": assistant_msg.created_at.isoformat(),
-                },
+                "message": MessageResponse.model_validate(assistant_msg).model_dump(),
             }
         )
     except AppException as e:
@@ -448,17 +444,33 @@ async def chat_stream(
                                 data=json.dumps({ 'content': chunk["content"] }, ensure_ascii=False),
                             )
                         )
+                    elif chunk["type"] == "citations":
+                        # 检索命中来源，先于正文推送，便于前端边生成边展示来源面板
+                        yield encode(
+                            StreamChunk(
+                                event="citations",
+                                data=json.dumps({
+                                    "tool": chunk.get("tool"),
+                                    "citations": chunk.get("citations"),
+                                }, ensure_ascii=False),
+                            )
+                        )
                     elif chunk["type"] == "done":
-                        # 添加助手消息
+                        # 添加助手消息（含引用溯源，无引用时 citations 为 None）
                         conv_service.add_message(
                             conversation_id=conversation_id,
                             role="assistant",
                             content=full_content,
+                            citations=chunk.get("citations"),
                         )
+                        done_data = {"conversation_id": conversation_id}
+                        # done 事件冗余携带完整 citations，作为前端丢包的兜底
+                        if chunk.get("citations"):
+                            done_data["citations"] = chunk["citations"]
                         yield encode(
                             StreamChunk(
                                 event="done",
-                                data=json.dumps({ 'conversation_id': conversation_id }, ensure_ascii=False)
+                                data=json.dumps(done_data, ensure_ascii=False)
                             )
                         )
                     elif chunk["type"] == "error":

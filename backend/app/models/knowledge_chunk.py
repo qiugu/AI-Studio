@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, func, ForeignKey, LargeBinary
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, func, ForeignKey, LargeBinary
+import sqlalchemy as sa
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 from datetime import datetime
 import uuid
@@ -38,8 +39,22 @@ class KnowledgeChunk(Base):
     # 分块内容与元数据
     content = Column(Text, nullable=False)  # 分块文本
     chunk_index = Column(Integer, nullable=False)  # 在文档中的序号（从0开始）
-    source_page = Column(Integer, nullable=True)  # PDF页码（可选）；非 PDF 恒为 None
+    source_page = Column(Integer, nullable=True)  # 覆盖页码的**起始页**（PDF）；非 PDF 恒为 None
+    source_page_end = Column(Integer, nullable=True)  # 覆盖页码的**结束页**；单页块与 source_page 相同
     heading_path = Column(String(512), nullable=True)  # 标题路径（md/docx）；PDF 恒为 None
+    # ``heading_path`` 是否**粗于**本块的实际覆盖范围（见 app/utils/document.py::TextChunk）。
+    # 为 True 表示本块只覆盖了若干兄弟子节、而 heading_path 只能标到它们的公共祖先，
+    # 前端应呈现为「A 等小节」。NOT NULL + 默认 False：三态会让「未设置」与
+    # 「精确」不可区分，而库中绝大多数行本来就是精确的。
+    heading_path_mixed = Column(Boolean, nullable=False, default=False, server_default=sa.text("0"))
+
+    # 块类型（S5 引入）：``text`` / ``table`` / ``code`` / ``title``，源自解析层
+    # :class:`app.utils.document.TextChunk.kind`。用途有二：① 前端差异化展示
+    # （表格渲染、代码高亮、标题锚点）；② 检索装配层据此给 ``llm_content`` 前缀
+    # ``[表格]`` / ``[代码]`` 标记（沿用 P4 三键契约，不改 ``content``）。
+    # NOT NULL + 默认 ``text``：历史分块行没有该列，迁移统一补 ``text``，
+    # 且「未设置」与「正文」不可区分会带来误标，故不接受 NULL。
+    chunk_type = Column(String(16), nullable=False, default="text", server_default="text")
 
     # 向量ID（指向Qdrant中的point_id）
     # 取值 = uuid5(NAMESPACE_DNS, f"{doc_id}_{chunk_index}@{chunk_epoch}")，
@@ -47,7 +62,7 @@ class KnowledgeChunk(Base):
     # 会算出同一个 id 并撞唯一约束（详见 app/core/config.py::chunk_epoch）。
     vector_id = Column(String(255), nullable=True, unique=True)  # Qdrant中的point_id（UUID格式）
 
-    # 分块代次（"448-64"），由 config.chunk_epoch 提供默认值。
+    # 分块代次（"448-64-p1" = 尺寸-重叠-策略版本），由 config.chunk_epoch 提供默认值。
     # NOT NULL 且必须可查：重建期间新旧两代分块行同时存活，验收计数
     # （「当前代存活分块数」）与旧代 GC 都依赖它区分。
     chunk_epoch = Column(

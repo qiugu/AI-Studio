@@ -24,15 +24,19 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import CHUNK_STRATEGY_VERSION, config
 from app.core.database import Base
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.knowledge_document import KnowledgeDocument
 from app.services.knowledge_processor import vector_id_for
+from app.utils.document import CHUNK_TYPES
 
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "rebuild_knowledge_vectors.py"
 
-NEW_EPOCH = "448-64"
+#: 当前代次**从配置派生**，不写字面量：代次含策略版本分量（``448-64-p1``），
+#: 硬编码会在策略版本递增时让「重建后行代次 == 新代次」这类断言莫名失败。
+NEW_EPOCH = config.chunk_epoch
 OLD_EPOCH = "1024-0"
 
 
@@ -103,8 +107,13 @@ def _make_doc(session, kb, path: Path, *, file_type="txt", chunk_count=0, epoch=
     return doc
 
 
-def _make_source(tmp_path, text: str) -> Path:
-    path = tmp_path / "sample.txt"
+def _make_source(tmp_path, text: str, suffix: str = ".txt") -> Path:
+    """写一份待重建的原件
+
+    ``suffix`` 决定解析器分支（``.md`` 才走 Markdown 围栏/管道表识别），因此
+    类型相关的用例必须能指定它——用固定 ``.txt`` 会让那些断言测的是纯文本路径。
+    """
+    path = tmp_path / f"sample{suffix}"
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -197,6 +206,40 @@ class TestRebuildDocument:
         # 写入目标集合，且为混合布局的命名向量
         assert fake_io.upserts and fake_io.upserts[0]["collection"] == "kb_kb-1_v2"
         assert set(fake_io.all_points[0].vector) == {"dense", "text"}
+
+    def test_chunk_type_written_from_parser_kind(self, db, tmp_path, fake_io):
+        """块类型必须真的落库——这是前端差异化渲染的唯一依据
+
+        特意走**重建脚本**而不是入库服务：重建是唯一会重写全库分块的入口。若只有
+        「新文档上传」那条路径写了类型，用户执行完全量重建后全库又会退回 ``text``，
+        而本轮的原始报障（表格在页面上显示为纯文本）会原样复现——修好了却看不到。
+        """
+        kb = _make_kb(db)
+        source = (
+            "# 标题\n\n"
+            "正文段落。\n\n"
+            "```python\n"
+            "def f():\n"
+            "    return 1\n"
+            "```\n\n"
+            "| 列A | 列B |\n"
+            "| --- | --- |\n"
+            "| 1 | 2 |\n"
+        )
+        doc = _make_doc(db, kb, _make_source(tmp_path, source, suffix=".md"), file_type="md")
+
+        rb.rebuild_document(
+            db, doc, kb, "kb_kb-1_v2", rb.default_encoder(), kb.embedding_model, NEW_EPOCH,
+        )
+
+        rows = db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc.id).all()
+        kinds = {r.chunk_type for r in rows}
+        assert "code" in kinds, f"代码块类型未落库，实际取值: {kinds}"
+        assert "table" in kinds, f"表格块类型未落库，实际取值: {kinds}"
+        # ``heading`` 归一为 ``title``：层级信息由 heading_path 承担，类型列不必再复制
+        assert "title" in kinds, f"标题归一映射未生效，实际取值: {kinds}"
+        # 取值域闭合：列是 String(16)，不会拒绝非法值，只有断言能拒绝
+        assert kinds <= CHUNK_TYPES, f"出现取值域外的类型: {kinds - CHUNK_TYPES}"
 
     def test_legacy_generation_rows_are_preserved(self, db, tmp_path, fake_io):
         """重建**不得**动上一代的行：它们是回滚窗口的实体"""
@@ -435,3 +478,30 @@ class TestActionSemantics:
         """两个运维动作叠加会留下与预期不符的半成品状态，argparse 直接拒绝"""
         with pytest.raises(SystemExit):
             rb.build_parser().parse_args(["--kb-id", "kb-1", "--cutover", "--rollback"])
+
+
+class TestChunkEpochVersioning:
+    """代次必须**同时**编码尺寸与策略版本
+
+    这是 F1「静默混代」的防线：策略改动（如 P1/P2 改块边界）不改尺寸参数，若代次
+    只由尺寸构成，新旧两代会算出同一个 epoch，于是旧行不被回收、检索同时命中两种
+    切法，而 ``kb.chunk_count`` 仍显示正常——全程无报错。
+    """
+
+    def test_epoch_contains_size_overlap_and_strategy(self):
+        assert config.chunk_epoch == (
+            f"{config.chunk_size}-{config.chunk_overlap}-{CHUNK_STRATEGY_VERSION}"
+        )
+
+    def test_epoch_fits_column_width(self):
+        """``chunk_epoch`` 列是 ``String(32)``：超长会被静默截断成两代同名"""
+        assert len(config.chunk_epoch) <= 32
+
+    def test_different_epochs_yield_different_vector_ids(self):
+        """策略版本不同的两代必须算出不同 ``vector_id``，否则撞唯一索引"""
+        doc_id = "doc-epoch-test"
+        same_size_other_strategy = f"{config.chunk_size}-{config.chunk_overlap}-p0"
+
+        assert vector_id_for(doc_id, 0, config.chunk_epoch) != vector_id_for(
+            doc_id, 0, same_size_other_strategy
+        )

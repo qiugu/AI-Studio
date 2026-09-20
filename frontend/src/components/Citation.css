@@ -1,0 +1,159 @@
+/**
+ * 引用角标与来源抽屉的样式。
+ *
+ * 角标必须**不占据额外行高**：它内联在正文里，一旦撑高行盒，
+ * 多行文本就会出现「参差不齐」的跳动。故用 `vertical-align: super`
+ * 配合缩放，并把 `line-height` 压回 1。
+ */
+
+.citation-badge {
+  display: inline;
+  margin: 0 1px;
+  padding: 0 3px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(22, 119, 255, 0.1);
+  color: #1677ff;
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: super;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+}
+
+.citation-badge-clickable {
+  cursor: pointer;
+}
+
+.citation-badge-clickable:hover {
+  background: rgba(22, 119, 255, 0.24);
+}
+
+.citation-badge-clickable:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 1px;
+}
+
+/* ── 来源抽屉 ──────────────────────────────────────────────────────────────── */
+
+.citation-drawer .ant-drawer-body {
+  padding: 16px 20px;
+}
+
+.citation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.citation-item {
+  padding: 12px 14px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+  scroll-margin: 16px;
+}
+
+.citation-item-active {
+  border-color: #91caff;
+  background: #e6f4ff;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.08);
+}
+
+.citation-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.citation-item-marker {
+  flex: none;
+  color: #1677ff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.citation-item-doc {
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.88);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.citation-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+.citation-item-score {
+  font-variant-numeric: tabular-nums;
+}
+
+/**
+ * 引用原文卡片。
+ *
+ * 选择器写成**两级**（`.citation-item .citation-item-content`）而不是单类：
+ * `MarkdownRenderer` 会把同一个元素同时标上 `.markdown-body`，而 `.markdown-body`
+ * 也是一个类选择器（font-size / color / 各类块级样式）。特异性相同时胜负取决于
+ * 打包后的 CSS 顺序——那是个会随模块导入顺序变化的隐性依赖，今天对、明天可能就
+ * 反了。提高一级特异性让本文件的规则**稳定压过** `MarkdownRenderer.css`，
+ * 与顺序无关。
+ */
+.citation-item .citation-item-content {
+  max-height: 320px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #fff;
+  color: rgba(0, 0, 0, 0.8);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/**
+ * 结构化块（表格 / 代码）的容器修正。
+ *
+ * `white-space: pre-wrap` 对 `<pre>` 里的纯文本是正确语义，但对 **Markdown 渲染
+ * 结果**是错的：源码里的换行会被保留，在 `<table>`、`<p>` 这些块级元素之间撑出
+ * 大片空白行。这里必须改回 `normal`，把空白折叠交还给 HTML 默认规则。
+ *
+ * 同行号（同特异性）下靠**声明顺序**取胜，因此本规则必须排在上面那条之后。
+ */
+.citation-item .citation-item-structured {
+  white-space: normal;
+}
+
+/* 结构化块里的 Markdown 正文：字号/行高沿用外层卡片，只收紧首尾块的外边距 */
+.citation-item .citation-item-structured > :first-child {
+  margin-top: 0;
+}
+
+.citation-item .citation-item-structured > :last-child {
+  margin-bottom: 0;
+}
+
+.citation-item-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+}
+
+.citation-item-query {
+  margin-top: 8px;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  font-style: italic;
+}

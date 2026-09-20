@@ -86,6 +86,7 @@ class ConversationService:
         tool_calls: Optional[List[dict]] = None,
         tool_call_id: Optional[str] = None,
         tool_name: Optional[str] = None,
+        citations: Optional[List[dict]] = None,
     ) -> Message:
         """添加消息"""
         msg = self.msg_repo.create(
@@ -98,6 +99,7 @@ class ConversationService:
             tool_calls=tool_calls,
             tool_call_id=tool_call_id,
             tool_name=tool_name,
+            citations=citations,
         )
         
         # 更新对话时间戳

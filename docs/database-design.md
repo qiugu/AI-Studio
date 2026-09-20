@@ -434,15 +434,23 @@ Point结构:
 
 ### messages 对话消息表
 
+> 本节曾与实际模型脱节（列着并不存在的 `tokens` / `metadata` / `parent_id`，
+> 却漏了 `tenant_id` 与工具调用字段）。下表按 `app/models/message.py` 校正。
+
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | String(36) PK | 主键 |
+| tenant_id | String(36) | 所属租户（多租户隔离，全局过滤器注入） |
 | conversation_id | String(36) FK | 所属对话 |
 | role | String(20) | 角色(user/assistant/system/tool) |
 | content | Text | 消息内容 |
-| tokens | Integer | 消耗token数 |
-| metadata | JSON | 元数据(工具调用信息、引用来源等) |
-| parent_id | String(36) FK | 父消息ID(分支对话) |
+| prompt_tokens | Integer | 输入 token 数 |
+| completion_tokens | Integer | 输出 token 数 |
+| total_tokens | Integer | 合计 token 数 |
+| tool_calls | JSON | 工具调用信息（仅 assistant）：`[{name, arguments, id}]` |
+| tool_call_id | String(100) | 工具调用结果 ID（仅 tool） |
+| tool_name | String(255) | 工具名（仅 tool） |
+| citations | JSON | **引用溯源**（仅 assistant）：知识库命中块的结构化来源列表，供前端「角标 + 来源卡片」回溯。结构见 [citation-traceability.md](citation-traceability.md)；无引用时为 `NULL`（不是空数组） |
 | created_at | DateTime | 创建时间 |
 
 ---

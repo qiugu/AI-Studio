@@ -3,6 +3,7 @@
  */
 
 import { getToken } from './auth'
+import type { Citation } from '@/types/agent'
 
 /**
  * 流式响应回调函数类型
@@ -11,6 +12,11 @@ export interface StreamCallbacks {
   onContent?: (content: string) => void // 收到内容块时的回调
   onComplete?: (fullContent: string, conversationId?: string) => void // 流式完成时的回调
   onError?: (error: string, errorCode?: string) => void // 错误时的回调
+  /**
+   * 收到引用溯源时的回调（知识库工具完成后、正文生成前推送）。
+   * 可能被调用多次（多次工具调用 / done 事件兜底），调用方需按 marker 去重合并。
+   */
+  onCitations?: (citations: Citation[], tool?: string, query?: string) => void
 }
 
 /**
@@ -21,6 +27,10 @@ interface SSEData {
   conversation_id?: string
   error?: string
   error_code?: string
+  // 引用溯源（Phase 1）：citations 事件与 done 事件均会携带
+  citations?: Citation[]
+  tool?: string
+  query?: string
 }
 
 /**
@@ -120,10 +130,21 @@ export function createStreamRequest(
                     fullContent += data.content
                     callbacks.onContent?.(data.content)
                   }
+                } else if (eventType === 'citations') {
+                  // 引用溯源：知识库工具召回后增量推送，先于正文到达，
+                  // 前端因此可以在模型还在生成时就展示来源面板。
+                  if (data.citations && data.citations.length > 0) {
+                    callbacks.onCitations?.(data.citations, data.tool, data.query)
+                  }
                 } else if (eventType === 'done') {
                   // 流式完成
                   if (data.conversation_id) {
                     conversationId = data.conversation_id
+                  }
+                  // done 冗余携带全量引用（设计 D5）：流式 citations 事件若因网络
+                  // 或后端异常丢包，这里仍能把来源补回来。调用方按 marker 去重后合并。
+                  if (data.citations && data.citations.length > 0) {
+                    callbacks.onCitations?.(data.citations, undefined, undefined)
                   }
                   callbacks.onComplete?.(fullContent, conversationId)
                   return

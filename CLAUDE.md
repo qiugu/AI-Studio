@@ -258,6 +258,23 @@ async def chat_stream(agent_id: str, data: ChatRequest, ...):
 
 新增任何「把外部能力暴露给模型」的工具类型时，须比照本条补齐等效的候选裁剪与写入校验。
 
+### 引用溯源（编号由系统分配，模型只引用）
+
+实现说明见 [docs/citation-traceability.md](docs/citation-traceability.md)。改动检索返回结构、
+SSE 事件或消息模型前必读。硬约束：
+
+- **编号由 `CitationCollector` 分配，模型只负责引用**。禁止让模型自行编号，也禁止把
+  检索响应内的数组下标直接当角标——一个 Agent 绑定两个知识库时会出现两组都从 1 开始的编号。
+- **两套 `marker` 作用域不可混用**：`SearchResult.marker` 是**响应内**编号（仅供检索页显示），
+  `Citation.marker` 是**轮次内**编号（跨工具调用单调递增、按 `chunk_id` 去重）。
+- 引用对象必须带 `content` **快照**。分块会被代次重建（`chunk_id` 失效），
+  回查式展示会让历史回答的溯源静默断链。
+- **不得新增「按 `chunk_id` 取块全文」的端点**：那会绕过租户过滤器（R8）。
+  展示一律用快照。
+- 角标只在 mdast 层转换（`utils/remarkCitations.ts`），**不做字符串 `replace`**——
+  否则代码块里的 `arr[1]` 会被误点亮。
+- 模型引用了不存在的编号时，前端**退回纯文本**，不渲染成角标样式。
+
 ### 前端
 
 **目录结构**

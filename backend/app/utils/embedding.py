@@ -1,5 +1,6 @@
 """向量化（Embedding）工具，支持多个提供商"""
 import logging
+import os
 import time
 from typing import List, Optional
 
@@ -191,8 +192,11 @@ def _get_sentence_transformer_model(model_name: str, device: str):
 
     # 单进程内限制 OpenMP 线程数。与 celery_app 中的环境变量配合，避免在 fork 子进程
     # 或多个并发 worker 中叠加大量 OpenMP 线程导致资源争用与不稳定。
+    # 默认 1 与线上 celery 场景保持一致；**单进程的离线任务**（如
+    # scripts/rebuild_knowledge_vectors.py）无 fork 叠加问题，可设
+    # ``EMBEDDING_TORCH_THREADS`` 提升吞吐（审查建议 P1-2）。
     try:
-        torch.set_num_threads(1)
+        torch.set_num_threads(int(os.environ.get("EMBEDDING_TORCH_THREADS", "1")))
     except Exception:  # noqa: BLE001
         pass
 

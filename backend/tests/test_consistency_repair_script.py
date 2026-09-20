@@ -27,6 +27,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import config
 from app.core.database import Base
 from app.models.knowledge_base import KnowledgeBase  # noqa: F401  - 注册 metadata
 from app.models.knowledge_chunk import KnowledgeChunk  # noqa: F401
@@ -50,8 +51,9 @@ repair = _load_script_module()
 
 STAMP = datetime(2026, 1, 1, 0, 0, 0)
 
-#: 测试默认使用的分块代次（与 config 默认 "448-64" 对齐）
-EPOCH = "448-64"
+#: 测试默认使用的分块代次——**从配置派生**，不写字面量。代次含策略版本分量
+#: （``448-64-p1``），硬编码会在策略版本递增时让本文件的断言莫名失败。
+EPOCH = config.chunk_epoch
 #: 一个更早的代次，用于构造「旧代分块行与当前代共存」的重建窗口场景
 OLD_EPOCH = "1024-0"
 

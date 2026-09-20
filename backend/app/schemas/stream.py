@@ -3,6 +3,7 @@ from typing import Literal
 
 EventType = Literal[
     'message',
+    'citations',
     'done',
     'error'
 ]

@@ -29,6 +29,8 @@ from app.services.knowledge import (
     KnowledgeBaseService,
     SearchOutcome,
 )
+from tests._chunk_doubles import chunk_double
+from tests._repo_doubles import chunk_repo_double
 
 KB_ID = "kb-1"
 TENANT = "tenant-1"
@@ -46,10 +48,7 @@ def _service(chunks_by_vector=None):
     service.get_knowledge_base = lambda _kb_id: SimpleNamespace(
         id=KB_ID, tenant_id=TENANT, embedding_model="fake/model", active_collection=None
     )
-    service.chunk_repo = MagicMock()
-    service.chunk_repo.list_by_vector_ids = lambda ids: [
-        chunks_by_vector[v] for v in ids if v in chunks_by_vector
-    ]
+    service.chunk_repo = chunk_repo_double(chunks_by_vector.values())
     return service
 
 
@@ -71,14 +70,12 @@ def _patch_search_points(monkeypatch, behaviour):
 
 class TestNormalPath:
     def test_returns_outcome_without_degradation(self, monkeypatch):
-        chunk = SimpleNamespace(
+        chunk = chunk_double(
             id="chunk-1",
             vector_id="v1",
             content="内容",
             doc_id="doc-1",
             chunk_index=0,
-            source_page=None,
-            heading_path=None,
             document=SimpleNamespace(file_name="a.pdf"),
         )
         _patch_search_points(monkeypatch, lambda **_kw: [RetrievedPoint(id="v1", score=0.9)])
@@ -94,14 +91,12 @@ class TestNormalPath:
 
     def test_search_returns_same_list_as_diagnostics(self, monkeypatch):
         """契约不变：search() 的 list 与 search_with_diagnostics().results 一致"""
-        chunk = SimpleNamespace(
+        chunk = chunk_double(
             id="chunk-1",
             vector_id="v1",
             content="内容",
             doc_id="doc-1",
             chunk_index=0,
-            source_page=None,
-            heading_path=None,
             document=SimpleNamespace(file_name="a.pdf"),
         )
         _patch_search_points(monkeypatch, lambda **_kw: [RetrievedPoint(id="v1", score=0.9)])

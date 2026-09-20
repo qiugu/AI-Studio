@@ -22,7 +22,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument, DocumentStatus
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.repositories.knowledge import KnowledgeChunkRepository
-from app.utils.document import DocumentParser, TextSplitter
+from app.utils.document import DocumentParser, TextSplitter, chunk_type_for
 from app.utils.embedding import get_embedding_client
 from app.utils.sparse import default_encoder
 
@@ -161,8 +161,16 @@ def process_document_task(doc_id: str, file_path: str, tenant_id: str) -> None:
                 doc_id=doc.id,
                 content=chunk.text,
                 chunk_index=chunk.index,
+                # ``chunk_type`` 必须在这里落库，且必须经 ``chunk_type_for`` 映射：
+                # 该列是前端选择渲染方式的唯一依据（表格按列渲染、代码保换行），
+                # 而 ``chunk.kind`` 是解析层的内部标识，取值域含 ``toc`` /
+                # ``caption`` / ``list_item`` 等对显示无意义的值。直接透传会让这些
+                # 值静默入库——列是 ``String(16)``，不会拒绝它们，但前端从未适配过。
+                chunk_type=chunk_type_for(chunk.kind),
                 source_page=chunk.page,
+                source_page_end=chunk.page_end,
                 heading_path=chunk.heading_path,
+                heading_path_mixed=chunk.heading_path_mixed,
                 vector_id=vector_id,
                 chunk_epoch=epoch,
             )

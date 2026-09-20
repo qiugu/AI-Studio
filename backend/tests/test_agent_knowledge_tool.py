@@ -22,6 +22,28 @@ import pytest
 
 import app.services.agent as agent_module
 from app.services.knowledge import SearchOutcome
+from app.utils.citation import CitationCollector
+
+
+def _result(cid: str) -> dict:
+    """命中块替身：含装配层三键，供 citations 测试构造引用对象"""
+    return {
+        "id": cid,
+        "content": f"content-{cid}",
+        "doc_id": "d1",
+        "doc_name": "手册.pdf",
+        "chunk_index": 0,
+        "source_page": 1,
+        "source_page_end": 1,
+        "heading_path": None,
+        "heading_path_mixed": False,
+        "score": 0.9,
+        # 检索层装配产物：含上下文窗口但**不含 [n] 角标**——角标由 Agent 工具
+        # 在 collector 非空时统一前缀，避免检索层与工具重复编号。
+        "llm_content": f"content-{cid}",
+        "context_header": None,
+        "context_expanded": False,
+    }
 
 
 class _RecordingKnowledgeService:
@@ -169,3 +191,71 @@ class TestKnowledgeToolFailureHandling:
         assert "未生效" in output
         assert "collection_not_found" in output
         assert "未找到相关知识" not in output
+
+
+class TestKnowledgeToolCitations:
+    """知识库工具命中时给文本加 ``[n]`` 前缀并登记引用（D1/D3）"""
+
+    def _collector_tools(self, bindings, collector):
+        service = agent_module.AgentService(db=MagicMock(), tenant_id="tenant-1")
+        agent = SimpleNamespace(
+            tools=[
+                SimpleNamespace(
+                    is_enabled=True,
+                    tool_type="knowledge",
+                    name=name,
+                    description=None,
+                    config=config,
+                )
+                for name, config in bindings
+            ]
+        )
+        return service._build_langchain_tools(agent, collector)
+
+    def test_result_blocks_are_prefixed_with_markers(self):
+        collector = CitationCollector()
+        _RecordingKnowledgeService.outcome = SearchOutcome(
+            results=[_result("c1"), _result("c2")]
+        )
+        tools = self._collector_tools([("kb", {"knowledge_base_id": "kb-x"})], collector)
+        out = tools[0].func("q")
+        # 每个命中块带 [n] 前缀，编号与 collector 一致
+        assert "[1] content-c1" in out
+        assert "[2] content-c2" in out
+        # 引用对象已登记且 chunk_id 正确
+        snap = collector.snapshot()
+        assert [x["chunk_id"] for x in snap] == ["c1", "c2"]
+        assert [x["marker"] for x in snap] == [1, 2]
+
+    def test_no_collector_returns_plain_content(self):
+        """工作流节点复用本工具时 collector=None，不应给文本加前缀"""
+        _RecordingKnowledgeService.outcome = SearchOutcome(results=[_result("c1")])
+        tools = agent_module.AgentService(
+            db=MagicMock(), tenant_id="t"
+        )._build_langchain_tools(
+            SimpleNamespace(
+                tools=[
+                    SimpleNamespace(
+                        is_enabled=True,
+                        tool_type="knowledge",
+                        name="kb",
+                        description=None,
+                        config={"knowledge_base_id": "kb-x"},
+                    )
+                ]
+            )
+        )
+        assert tools[0].func("q") == "content-c1"
+
+    def test_registration_dedups_across_calls(self):
+        """同一块跨工具调用召回时，编号沿用首次、不新增（R3）"""
+        collector = CitationCollector()
+        _RecordingKnowledgeService.outcome = SearchOutcome(results=[_result("c1"), _result("c2")])
+        tools = self._collector_tools([("kb", {"knowledge_base_id": "kb-x"})], collector)
+        tools[0].func("q1")
+        # 第二次召回 c1（去重）+ c3（新）
+        _RecordingKnowledgeService.outcome = SearchOutcome(results=[_result("c1"), _result("c3")])
+        tools[0].func("q2")
+        snap = collector.snapshot()
+        assert [x["marker"] for x in snap] == [1, 2, 3]
+        assert [x["chunk_id"] for x in snap] == ["c1", "c2", "c3"]

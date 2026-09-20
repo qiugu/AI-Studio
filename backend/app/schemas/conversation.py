@@ -21,6 +21,7 @@ class MessageCreate(MessageBase):
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
+    citations: Optional[List[Dict[str, Any]]] = None
 
 
 class MessageResponse(MessageBase):
@@ -34,6 +35,7 @@ class MessageResponse(MessageBase):
     tool_calls: Optional[List[Dict[str, Any]]]
     tool_call_id: Optional[str]
     tool_name: Optional[str]
+    citations: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

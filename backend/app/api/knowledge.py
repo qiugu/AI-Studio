@@ -334,7 +334,19 @@ async def get_document_chunks(
                         "id": chunk.id,
                         "content": chunk.content,
                         "chunk_index": chunk.chunk_index,
+                        # 出处区间：块可跨页/跨小节（结构组合并的必然结果），故用
+                        # [source_page, source_page_end] 表达页码范围，前端显示
+                        # 「第 37–38 页」。单页块两者相等；非 PDF 两者同为 None。
+                        # heading_path_mixed 为真时 heading_path 是**粗化**的公共祖先，
+                        # 应显示成「§A 等小节」而不是断言「本块出自 A」。
                         "source_page": chunk.source_page,
+                        "source_page_end": chunk.source_page_end,
+                        "heading_path": chunk.heading_path,
+                        "heading_path_mixed": chunk.heading_path_mixed,
+                        # 块类型：前端据此选择渲染方式（表格按列渲染、代码保留换行）。
+                        # 迁移已把历史行回填为 'text'，故此处不做 None 兜底——若出现
+                        # None 说明列约束被绕过，那是应当暴露的问题而不是该静默掩盖的。
+                        "chunk_type": chunk.chunk_type,
                         "created_at": chunk.created_at.isoformat(),
                     }
                     for chunk in chunks
