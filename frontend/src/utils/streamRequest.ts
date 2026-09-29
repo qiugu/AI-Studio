@@ -3,6 +3,7 @@
  */
 
 import { getToken } from './auth'
+import { SSEParser } from './sseParser'
 import type { Citation } from '@/types/agent'
 
 /**
@@ -83,7 +84,7 @@ export function createStreamRequest(
       const decoder = new TextDecoder()
       let fullContent = ''
       let conversationId: string | undefined
-      let buffer = '' // 用于处理跨数据块的 SSE 消息
+      const parser = new SSEParser()
 
       try {
         while (true) {
@@ -97,67 +98,44 @@ export function createStreamRequest(
 
           // 解码数据块
           const chunk = decoder.decode(value, { stream: true })
-          buffer += chunk
+          for (const { event: eventType, data: dataStr } of parser.feed(chunk)) {
+            try {
+              const data: SSEData = JSON.parse(dataStr)
 
-          // 解析 SSE 格式的数据（event: xxx\n data: xxx\n\n）
-          // SSE 消息以双换行符分隔
-          const messages = buffer.split('\n\n')
-          buffer = messages.pop() || '' // 保留最后一个不完整的消息
-
-          for (const message of messages) {
-            if (!message.trim()) continue
-
-            const lines = message.split('\n')
-            let eventType = ''
-            let dataStr = ''
-
-            for (const line of lines) {
-              if (line.startsWith('event: ')) {
-                eventType = line.substring(7).trim()
-              } else if (line.startsWith('data: ')) {
-                dataStr = line.substring(6).trim()
-              }
-            }
-
-            if (dataStr) {
-              try {
-                const data: SSEData = JSON.parse(dataStr)
-
-                // 根据事件类型处理
-                if (eventType === 'message' || !eventType) {
-                  // 内容块
-                  if (data.content) {
-                    fullContent += data.content
-                    callbacks.onContent?.(data.content)
-                  }
-                } else if (eventType === 'citations') {
-                  // 引用溯源：知识库工具召回后增量推送，先于正文到达，
-                  // 前端因此可以在模型还在生成时就展示来源面板。
-                  if (data.citations && data.citations.length > 0) {
-                    callbacks.onCitations?.(data.citations, data.tool, data.query)
-                  }
-                } else if (eventType === 'done') {
-                  // 流式完成
-                  if (data.conversation_id) {
-                    conversationId = data.conversation_id
-                  }
-                  // done 冗余携带全量引用（设计 D5）：流式 citations 事件若因网络
-                  // 或后端异常丢包，这里仍能把来源补回来。调用方按 marker 去重后合并。
-                  if (data.citations && data.citations.length > 0) {
-                    callbacks.onCitations?.(data.citations, undefined, undefined)
-                  }
-                  callbacks.onComplete?.(fullContent, conversationId)
-                  return
-                } else if (eventType === 'error') {
-                  // 错误事件（后端未给 error 文案时的兜底措辞，不能写死成「模型调用失败」——
-                  // 认证/限流/工具装配等失败并未走到模型）
-                  callbacks.onError?.(data.error || '执行失败', data.error_code)
-                  return
+              // 根据事件类型处理
+              if (eventType === 'message') {
+                // 内容块
+                if (data.content) {
+                  fullContent += data.content
+                  callbacks.onContent?.(data.content)
                 }
-              } catch (e) {
-                // JSON 解析失败，忽略
-                console.warn('Failed to parse SSE data:', dataStr, e)
+              } else if (eventType === 'citations') {
+                // 引用溯源：知识库工具召回后增量推送，先于正文到达，
+                // 前端因此可以在模型还在生成时就展示来源面板。
+                if (data.citations && data.citations.length > 0) {
+                  callbacks.onCitations?.(data.citations, data.tool, data.query)
+                }
+              } else if (eventType === 'done') {
+                // 流式完成
+                if (data.conversation_id) {
+                  conversationId = data.conversation_id
+                }
+                // done 冗余携带全量引用（设计 D5）：流式 citations 事件若因网络
+                // 或后端异常丢包，这里仍能把来源补回来。调用方按 marker 去重后合并。
+                if (data.citations && data.citations.length > 0) {
+                  callbacks.onCitations?.(data.citations, undefined, undefined)
+                }
+                callbacks.onComplete?.(fullContent, conversationId)
+                return
+              } else if (eventType === 'error') {
+                // 错误事件（后端未给 error 文案时的兜底措辞，不能写死成「模型调用失败」——
+                // 认证/限流/工具装配等失败并未走到模型）
+                callbacks.onError?.(data.error || '执行失败', data.error_code)
+                return
               }
+            } catch (e) {
+              // JSON 解析失败，忽略
+              console.warn('Failed to parse SSE data:', dataStr, e)
             }
           }
         }
@@ -283,7 +261,7 @@ export function createWorkflowStreamRequest(
       }
 
       const decoder = new TextDecoder()
-      let buffer = '' // 用于处理跨数据块的 SSE 消息
+      const parser = new SSEParser()
 
       try {
         while (true) {
@@ -296,43 +274,20 @@ export function createWorkflowStreamRequest(
 
           // 解码数据块
           const chunk = decoder.decode(value, { stream: true })
-          buffer += chunk
+          for (const { event: eventType, data: dataStr } of parser.feed(chunk)) {
+            try {
+              const data = JSON.parse(dataStr)
 
-          // 解析 SSE 格式的数据（event: xxx\n data: xxx\n\n）
-          // SSE 消息以双换行符分隔
-          const messages = buffer.split('\n\n')
-          buffer = messages.pop() || '' // 保留最后一个不完整的消息
+              // 构造事件对象
+              const event = {
+                type: eventType,
+                ...data,
+              } as SSEWorkflowEvent
 
-          for (const message of messages) {
-            if (!message.trim()) continue
-
-            const lines = message.split('\n')
-            let eventType = ''
-            let dataStr = ''
-
-            for (const line of lines) {
-              if (line.startsWith('event: ')) {
-                eventType = line.substring(7).trim()
-              } else if (line.startsWith('data: ')) {
-                dataStr = line.substring(6).trim()
-              }
-            }
-
-            if (dataStr) {
-              try {
-                const data = JSON.parse(dataStr)
-
-                // 构造事件对象
-                const event = {
-                  type: eventType,
-                  ...data,
-                } as SSEWorkflowEvent
-
-                callbacks.onEvent(event)
-              } catch (e) {
-                // JSON 解析失败，忽略
-                console.warn('Failed to parse SSE data:', dataStr, e)
-              }
+              callbacks.onEvent(event)
+            } catch (e) {
+              // JSON 解析失败，忽略
+              console.warn('Failed to parse SSE data:', dataStr, e)
             }
           }
         }

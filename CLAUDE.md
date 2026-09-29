@@ -174,12 +174,10 @@ async for chunk in llm_client.astream(messages):   # 流式调用
 
 **SSE 流式响应**
 
-后端使用 `StreamingResponse` 返回 SSE 字节流。实际端点：`POST /agent/agents/{agent_id}/chat/stream`（`agent_id` 为 UUID 字符串），位于 `backend/app/api/agent.py`：
+后端统一使用 `sse-starlette` 返回 SSE 字节流，公共配置位于 `backend/app/utils/sse.py`。实际端点包括 Agent 对话与工作流流式执行：
 
 ```python
-from fastapi.responses import StreamingResponse
-from app.schemas.stream import StreamChunk   # SSE 帧模型
-from app.utils.llm import encode              # 序列化为 SSE 文本
+from app.utils.sse import create_sse_response, json_sse_event
 
 @router.post(
     "/agents/{agent_id}/chat/stream",
@@ -189,22 +187,19 @@ async def chat_stream(agent_id: str, data: ChatRequest, ...):
     async def event_generator():
         async for chunk in agent_service.chat_stream(...):
             if chunk["type"] == "message":
-                yield encode(StreamChunk(event="message",
-                            data=json.dumps({"content": chunk["content"]}, ensure_ascii=False)))
+                yield json_sse_event("message", {"content": chunk["content"]})
             elif chunk["type"] == "done":
-                yield encode(StreamChunk(event="done",
-                            data=json.dumps({"conversation_id": conversation_id}, ensure_ascii=False)))
+                yield json_sse_event("done", {"conversation_id": conversation_id})
             elif chunk["type"] == "error":
-                yield encode(StreamChunk(event="error",
-                            data=json.dumps({"error": ..., "error_code": ...}, ensure_ascii=False)))
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+                yield json_sse_event("error", {"error": ..., "error_code": ...})
+    return create_sse_response(event_generator())
 ```
 
 **关键约定**：
-- SSE 帧格式：`event: message\ndata: {...}\n\n`（由 `encode(StreamChunk(...))` 生成）。
-- JSON 序列化必须使用 `ensure_ascii=False` 以保留 Unicode 字符。
-- Media Type 必须设置为 `text/event-stream`。
-- 事件类型：`message`（含 `content`）、`done`（含 `conversation_id`）、`error`（含 `error` 与 `error_code`）。
+- SSE 帧由 `JSONServerSentEvent` 生成，JSON 序列化保留 Unicode 字符。
+- `create_sse_response` 统一设置 `text/event-stream`、15 秒心跳、30 秒发送超时，以及禁用缓存/代理缓冲所需响应头。
+- Agent 事件类型：`message`（含 `content`）、`citations`（含引用快照）、`done`（含 `conversation_id` 与引用兜底）、`error`（含 `error` 与 `error_code`）。
+- 不得在业务路由中手工拼接 SSE 帧或直接新建 `EventSourceResponse`；统一调用 `app.utils.sse`。
 
 **中间件执行顺序**（后注册先执行）
 
@@ -310,13 +305,15 @@ frontend/src/
 调用位置：`src/pages/Agents/AgentChat.tsx`、`src/pages/Workflows/WorkflowExecution.tsx`。
 
 **SSE 解析关键点**：
-- 基于 fetch + ReadableStream 读取，正确解析 SSE 消息边界（以 `\n\n` 分隔）
-- 处理三种事件类型：
+- 基于 fetch + ReadableStream 读取，使用 `src/utils/sseParser.ts` 增量解析跨数据块消息。
+- 必须兼容规范允许的 CRLF、LF、CR 三种行结束符，并忽略 `:` 开头的心跳注释。
+- 处理四种 Agent 事件类型：
   - `message` 事件：包含 `content` 字段（AI 输出的文本块）
+  - `citations` 事件：包含引用快照
   - `done` 事件：包含 `conversation_id` 字段（对话 ID）
   - `error` 事件：包含 `error` 和 `error_code` 字段
 - 支持用户中断（`AbortController`，组件卸载时 `abort()`）
-- Buffer 处理：保留跨数据块的不完整消息
+- Buffer 处理：保留跨数据块的不完整消息，连续 `data:` 行以换行符合并。
 
 **路由守卫**
 

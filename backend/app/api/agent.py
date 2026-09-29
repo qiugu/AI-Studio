@@ -1,10 +1,8 @@
 """Agent API 路由"""
-import json
 from typing import Optional
 import uuid
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
@@ -21,7 +19,6 @@ from app.schemas.agent import (
     AgentResponse,
     AgentListResponse,
 )
-from app.schemas.stream import StreamChunk
 from app.schemas.conversation import (
     ConversationCreate,
     ConversationUpdate,
@@ -30,7 +27,7 @@ from app.schemas.conversation import (
     ChatRequest,
     ChatResponse,
 )
-from app.utils.llm import encode
+from app.utils.sse import create_sse_response, json_sse_event
 from app.core.exceptions import AppException
 
 router = APIRouter()
@@ -396,7 +393,6 @@ async def chat(
 @router.post(
     "/agents/{agent_id}/chat/stream",
     dependencies=[Depends(require_permission("agent", "chat"))],
-    # response_model=StreamingResponse
 )
 async def chat_stream(
     agent_id: str,
@@ -438,22 +434,18 @@ async def chat_stream(
                 ):
                     if chunk["type"] == "message":
                         full_content += chunk["content"]
-                        yield encode(
-                            StreamChunk(
-                                event="message",
-                                data=json.dumps({ 'content': chunk["content"] }, ensure_ascii=False),
-                            )
+                        yield json_sse_event(
+                            "message",
+                            {"content": chunk["content"]},
                         )
                     elif chunk["type"] == "citations":
                         # 检索命中来源，先于正文推送，便于前端边生成边展示来源面板
-                        yield encode(
-                            StreamChunk(
-                                event="citations",
-                                data=json.dumps({
-                                    "tool": chunk.get("tool"),
-                                    "citations": chunk.get("citations"),
-                                }, ensure_ascii=False),
-                            )
+                        yield json_sse_event(
+                            "citations",
+                            {
+                                "tool": chunk.get("tool"),
+                                "citations": chunk.get("citations"),
+                            },
                         )
                     elif chunk["type"] == "done":
                         # 添加助手消息（含引用溯源，无引用时 citations 为 None）
@@ -467,22 +459,15 @@ async def chat_stream(
                         # done 事件冗余携带完整 citations，作为前端丢包的兜底
                         if chunk.get("citations"):
                             done_data["citations"] = chunk["citations"]
-                        yield encode(
-                            StreamChunk(
-                                event="done",
-                                data=json.dumps(done_data, ensure_ascii=False)
-                            )
-                        )
+                        yield json_sse_event("done", done_data)
                     elif chunk["type"] == "error":
                         # 错误事件：直接转发 Service 层的错误信息
-                        yield encode(
-                            StreamChunk(
-                                event="error",
-                                data=json.dumps({
-                                    "error": chunk.get("error", "模型调用失败"),
-                                    "error_code": chunk.get("error_code", "UNKNOWN_ERROR"),
-                                }, ensure_ascii=False),
-                            )
+                        yield json_sse_event(
+                            "error",
+                            {
+                                "error": chunk.get("error", "模型调用失败"),
+                                "error_code": chunk.get("error_code", "UNKNOWN_ERROR"),
+                            },
                         )
             except Exception as e:
                 # 捕获其他未预期的异常（如数据库错误等）
@@ -491,25 +476,14 @@ async def chat_stream(
                     f"Unexpected error in SSE generator: {e}",
                     exc_info=True,
                 )
-                yield encode(
-                    StreamChunk(
-                        event="error",
-                        data=json.dumps({
-                            "error": "系统内部错误，请稍后重试",
-                            "error_code": "SYSTEM_ERROR",
-                        }, ensure_ascii=False),
-                    )
+                yield json_sse_event(
+                    "error",
+                    {
+                        "error": "系统内部错误，请稍后重试",
+                        "error_code": "SYSTEM_ERROR",
+                    },
                 )
 
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                # 关闭代理层（Nginx 等）的响应缓冲，保证逐块推送
-                "X-Accel-Buffering": "no",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
+        return create_sse_response(event_generator())
     except AppException as e:
         raise e
