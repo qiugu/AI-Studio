@@ -7,7 +7,6 @@ import json
 from typing import Any
 from dataclasses import asdict
 
-from app.schemas.stream import StreamChunk
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
@@ -196,8 +195,3 @@ def invoke_model(
         }
     except Exception as e:
         raise LLMException(_friendly_llm_error(e, provider_type, model_name))
-
-
-def encode(chunk: StreamChunk):
-    """生成标准 SSE 格式：event: xxx\ndata: xxx\n\n"""
-    return f"event: {chunk.event}\ndata: {chunk.data}\n\n"

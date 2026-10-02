@@ -1,10 +1,7 @@
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sse_starlette.sse import EventSourceResponse, ServerSentEvent
-import json
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user, get_current_tenant, require_permission
@@ -19,6 +16,7 @@ from app.schemas.workflow import (
 )
 from app.services.workflow import WorkflowService
 from app.services.workflow_engine import WorkflowEngine
+from app.utils.sse import create_sse_response, json_sse_event
 
 router = APIRouter(tags=["Workflow"])
 
@@ -202,12 +200,9 @@ async def execute_workflow_stream(
             input_data=data.input_data,
             user_id=current_user.id,
         ):
-            yield ServerSentEvent(
-                event=event["type"],
-                data=json.dumps(event, ensure_ascii=False),
-            )
+            yield json_sse_event(event["type"], event)
 
-    return EventSourceResponse(event_generator(), media_type="text/event-stream")
+    return create_sse_response(event_generator())
 
 
 @router.get(

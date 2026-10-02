@@ -31,13 +31,13 @@ id: 1001           # 事件 ID（可选，用于断线重连）
 retry: 3000        # 重连间隔（毫秒，可选）
 data: {"content": "你好"}  # 数据内容（必填）
 
-                   # 空行表示消息结束（\n\n）
+                   # 空行表示消息结束
 ```
 
 **关键约定**：
-- 每个字段以 `\n` 结尾
+- 行结束符可以是 CRLF、LF 或 CR，客户端不得只识别 `\n\n`
 - 连续的 `data:` 行会被合并为一条消息
-- **空行 `\n\n` 作为消息分隔符**
+- 空行作为消息分隔符
 - 以 `:` 开头的行是注释，可用于保持连接活跃
 
 ### 2.2 AI 流式对话的事件设计
@@ -63,21 +63,13 @@ data: {"error": "API认证失败", "error_code": "AUTHENTICATION_ERROR"}
 ### 3.1 关键配置
 
 ```python
-# 1. 设置正确的 Content-Type
-media_type="text/event-stream"
+from app.utils.sse import create_sse_response, json_sse_event
 
-# 2. 禁用缓冲（防止代理层缓冲响应）
-headers={
-    "Cache-Control": "no-cache",
-    "X-Accel-Buffering": "no",  # Nginx 禁用缓冲
-    "Connection": "keep-alive",
-}
+async def event_generator():
+    yield json_sse_event("message", {"content": "你好"})
 
-# 3. 生成标准 SSE 格式
-def encode_sse(event: str, data: dict) -> str:
-    """生成标准 SSE 格式"""
-    data_json = json.dumps(data, ensure_ascii=False)  # 保留中文
-    return f"event: {event}\ndata: {data_json}\n\n"
+# 公共 helper 统一负责 text/event-stream、心跳、发送超时、缓存与代理缓冲响应头。
+return create_sse_response(event_generator())
 ```
 
 ### 3.2 数据库操作时机
@@ -164,42 +156,20 @@ except Exception as e:
 
 ### 4.2 正确解析 SSE 消息边界
 
-**关键点**：SSE 消息以 `\n\n`（双换行符）分隔，但数据块可能跨多个 TCP 包到达。
+**关键点**：SSE 事件以空行分隔，行结束符可能是 CRLF、LF 或 CR，且任意位置都可能跨网络分片。
 
 ```typescript
-let buffer = ''  // 用于处理跨数据块的 SSE 消息
+import { SSEParser } from '@/utils/sseParser'
 
+const parser = new SSEParser()
 while (true) {
     const { done, value } = await reader.read()
     if (done) break
-    
+
     const chunk = decoder.decode(value, { stream: true })
-    buffer += chunk
-    
-    // SSE 消息以双换行符分隔
-    const messages = buffer.split('\n\n')
-    buffer = messages.pop() || ''  // 保留最后一个不完整的消息
-    
-    for (const message of messages) {
-        if (!message.trim()) continue
-        
-        // 解析 event 和 data 行
-        const lines = message.split('\n')
-        let eventType = ''
-        let dataStr = ''
-        
-        for (const line of lines) {
-            if (line.startsWith('event: ')) {
-                eventType = line.substring(7).trim()
-            } else if (line.startsWith('data: ')) {
-                dataStr = line.substring(6).trim()
-            }
-        }
-        
-        if (dataStr) {
-            const data = JSON.parse(dataStr)
-            // 处理不同事件类型...
-        }
+    for (const event of parser.feed(chunk)) {
+        const data = JSON.parse(event.data)
+        // 按 event.event 分发数据...
     }
 }
 ```
@@ -374,15 +344,10 @@ if (msg.status === 'error') {
 
 **解决方案**：
 ```python
-# 后端 SSE 数据序列化时，必须使用 ensure_ascii=False
-yield encode_sse("message", {
-    "content": chunk.content
-}, ensure_ascii=False)  # 关键：保留 Unicode 字符
+# JSONServerSentEvent 内部使用 ensure_ascii=False 保留 Unicode 字符。
+from app.utils.sse import json_sse_event
 
-# encode_sse 函数实现
-def encode_sse(event: str, data: dict, ensure_ascii: bool = False) -> str:
-    data_json = json.dumps(data, ensure_ascii=ensure_ascii)
-    return f"event: {event}\ndata: {data_json}\n\n"
+yield json_sse_event("message", {"content": chunk.content})
 ```
 
 **验证方法**：在前端解析后，检查中文是否正常显示。
@@ -392,76 +357,24 @@ def encode_sse(event: str, data: dict, ensure_ascii: bool = False) -> str:
 **问题描述**：前端使用 EventSource 或自定义 SSE 解析器时，无法正确提取消息内容，或前端报错"Unexpected token"。
 
 **根本原因**：
-1. 后端使用了单行 JSON 格式（如 `data: {"content": "你好"}` 没有换行符）
+1. 后端事件没有以空行结束
 2. Media Type 设置错误（使用了 `application/octet-stream` 而非 `text/event-stream`）
-3. 消息分隔符不正确（缺少 `\n\n`）
+3. 自定义客户端只识别 LF，没有兼容 CRLF 或 CR
 
 **解决方案**：
 ```python
-# 1. 使用标准 SSE 格式（event + data + \n\n）
-from sse_starlette.sse import ServerSentEvent
+from app.utils.sse import create_sse_response, json_sse_event
 
-yield ServerSentEvent(
-    event="message",  # 必须指定 event 字段
-    data=json.dumps({"content": chunk.content}, ensure_ascii=False)
-)
-
-# 2. 正确设置 Media Type
-from sse_starlette.sse import EventSourceResponse
-
-return EventSourceResponse(
-    event_generator(),
-    media_type="text/event-stream"  # 关键：不要使用 application/octet-stream
-)
-
-# 3. 手动构建 SSE 格式（如果不使用 sse_starlette）
-def encode_sse(event: str, data: dict) -> str:
-    data_json = json.dumps(data, ensure_ascii=False)
-    return f"event: {event}\ndata: {data_json}\n\n"  # 必须以 \n\n 结尾
+yield json_sse_event("message", {"content": chunk.content})
+return create_sse_response(event_generator())
 ```
 
 **前端解析示例**：
 ```typescript
-// 正确解析 SSE 消息边界
-let buffer = ''
-while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    
-    buffer += decoder.decode(value, { stream: true })
-    
-    // SSE 消息以 \n\n 分隔
-    const messages = buffer.split('\n\n')
-    buffer = messages.pop() || ''  // 保留最后一个不完整的消息
-    
-    for (const message of messages) {
-        if (!message.trim()) continue
-        
-        // 解析 event 和 data 行
-        const lines = message.split('\n')
-        let eventType = ''
-        let dataStr = ''
-        
-        for (const line of lines) {
-            if (line.startsWith('event: ')) {
-                eventType = line.substring(7).trim()
-            } else if (line.startsWith('data: ')) {
-                dataStr = line.substring(6).trim()
-            }
-        }
-        
-        if (dataStr) {
-            const data = JSON.parse(dataStr)
-            if (eventType === 'message') {
-                // 提取 content 字段
-                onContent(data.content)
-            } else if (eventType === 'done') {
-                // 提取 conversation_id 字段
-                onComplete(data.conversation_id)
-            }
-        }
-    }
-}
+import { SSEParser } from '@/utils/sseParser'
+
+const parser = new SSEParser()
+const events = parser.feed(decoder.decode(value, { stream: true }))
 ```
 
 ### 7.3 前端期望的字段名不匹配
@@ -472,24 +385,21 @@ while (true) {
 
 **解决方案**：
 ```python
-# 后端：明确约定字段名
-yield ServerSentEvent(
-    event="message",
-    data=json.dumps({
-        "content": chunk.content  # 前端期望 content 字段
-    }, ensure_ascii=False)
-)
+from app.utils.sse import json_sse_event
 
-yield ServerSentEvent(
-    event="done",
-    data=json.dumps({
-        "conversation_id": conversation_id  # 前端期望 conversation_id 字段
-    }, ensure_ascii=False)
-)
+# 后端：明确约定字段名
+yield json_sse_event("message", {
+    "content": chunk.content  # 前端期望 content 字段
+})
+
+yield json_sse_event("done", {
+    "conversation_id": conversation_id  # 前端期望 conversation_id 字段
+})
 ```
 
 **约定文档化**：
 - `message` 事件：包含 `content` 字段（AI 输出的文本块）
+- `citations` 事件：包含 `citations` 引用快照及可选的 `tool` 字段
 - `done` 事件：包含 `conversation_id` 字段（对话 ID）+ `usage` 字段（可选）
 - `error` 事件：包含 `error` 字段（错误消息）+ `error_code` 字段（错误码）
 
