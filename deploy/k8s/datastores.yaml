@@ -1,0 +1,161 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: ai-studio
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ai-studio
+    app.kubernetes.io/component: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: ai-studio
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-studio
+      app.kubernetes.io/component: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-studio
+        app.kubernetes.io/component: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          args: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: ai-studio-secrets, key: MYSQL_ROOT_PASSWORD}
+            - {name: MYSQL_DATABASE, value: ai_studio}
+            - {name: MYSQL_USER, value: ai_studio}
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: ai-studio-secrets, key: MYSQL_PASSWORD}
+            - {name: TZ, value: Asia/Shanghai}
+          ports:
+            - {name: mysql, containerPort: 3306}
+          readinessProbe:
+            exec:
+              command: [sh, -ec, "mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ROOT_PASSWORD}"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: [sh, -ec, "mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ROOT_PASSWORD}"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 768Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/mysql}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: mysql-data}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: redis, namespace: ai-studio}
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: redis}
+  ports:
+    - {name: redis, port: 6379, targetPort: 6379}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: redis, namespace: ai-studio}
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: redis}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: redis}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: [redis-server]
+          args: [--appendonly, "yes"]
+          ports:
+            - {name: redis, containerPort: 6379}
+          readinessProbe:
+            exec: {command: [redis-cli, ping]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: [redis-cli, ping]}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: redis-data}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: qdrant, namespace: ai-studio}
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: qdrant}
+  ports:
+    - {name: http, port: 6333, targetPort: 6333}
+    - {name: grpc, port: 6334, targetPort: 6334}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: qdrant, namespace: ai-studio}
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: qdrant}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: qdrant}
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:latest
+          ports:
+            - {name: http, containerPort: 6333}
+            - {name: grpc, containerPort: 6334}
+          readinessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket: {port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 600m, memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /qdrant/storage}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: qdrant-data}

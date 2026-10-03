@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: Service
+metadata: {name: backend, namespace: ai-studio}
+spec:
+  selector: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: backend}
+  ports:
+    - {name: http, port: 8000, targetPort: 8000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backend, namespace: ai-studio}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: backend}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: backend}
+    spec:
+      initContainers:
+        - name: wait-for-datastores
+          image: ai-studio-backend:local
+          imagePullPolicy: Never
+          command: [python, -c]
+          args:
+            - |
+              import socket, time
+              targets = [('mysql', 3306), ('redis', 6379), ('qdrant', 6333)]
+              deadline = time.monotonic() + 300
+              for host, port in targets:
+                  while True:
+                      try:
+                          with socket.create_connection((host, port), timeout=3):
+                              break
+                      except OSError:
+                          if time.monotonic() >= deadline:
+                              raise
+                          time.sleep(2)
+        - name: migrate
+          image: ai-studio-backend:local
+          imagePullPolicy: Never
+          command: [alembic, upgrade, head]
+          envFrom:
+            - configMapRef: {name: ai-studio-config}
+            - secretRef: {name: ai-studio-secrets}
+      containers:
+        - name: backend
+          image: ai-studio-backend:local
+          imagePullPolicy: Never
+          command: [uvicorn]
+          args: [app.main:app, --host, 0.0.0.0, --port, "8000"]
+          envFrom:
+            - configMapRef: {name: ai-studio-config}
+            - secretRef: {name: ai-studio-secrets}
+          ports:
+            - {name: http, containerPort: 8000}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits: {cpu: 700m, memory: 1Gi}
+          volumeMounts:
+            - {name: uploads, mountPath: /app/uploads}
+            - {name: hf-cache, mountPath: /root/.cache/huggingface}
+      volumes:
+        - name: uploads
+          persistentVolumeClaim: {claimName: uploads}
+        - name: hf-cache
+          persistentVolumeClaim: {claimName: hf-cache}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: celery-worker, namespace: ai-studio}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: celery-worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: celery-worker}
+    spec:
+      initContainers:
+        - name: wait-for-backend
+          image: ai-studio-backend:local
+          imagePullPolicy: Never
+          command: [python, -c]
+          args:
+            - |
+              import time, urllib.request
+              deadline = time.monotonic() + 600
+              while True:
+                  try:
+                      with urllib.request.urlopen('http://backend:8000/health', timeout=3) as response:
+                          if response.status == 200:
+                              break
+                  except Exception:
+                      if time.monotonic() >= deadline:
+                          raise
+                      time.sleep(2)
+      containers:
+        - name: celery-worker
+          image: ai-studio-backend:local
+          imagePullPolicy: Never
+          command: [celery]
+          args: [-A, app.core.celery_app, worker, --pool=threads, --loglevel=info, --concurrency=2]
+          envFrom:
+            - configMapRef: {name: ai-studio-config}
+            - secretRef: {name: ai-studio-secrets}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: 800m, memory: 2Gi}
+          volumeMounts:
+            - {name: uploads, mountPath: /app/uploads}
+            - {name: hf-cache, mountPath: /root/.cache/huggingface}
+      volumes:
+        - name: uploads
+          persistentVolumeClaim: {claimName: uploads}
+        - name: hf-cache
+          persistentVolumeClaim: {claimName: hf-cache}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: frontend, namespace: ai-studio}
+spec:
+  type: NodePort
+  selector: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: frontend}
+  ports:
+    - {name: http, port: 80, targetPort: 80, nodePort: 30080}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: frontend, namespace: ai-studio}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: frontend}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: frontend}
+    spec:
+      containers:
+        - name: frontend
+          image: ai-studio-frontend:local
+          imagePullPolicy: Never
+          ports:
+            - {name: http, containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
