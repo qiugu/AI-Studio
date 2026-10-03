@@ -72,7 +72,7 @@ AI-Studio 把这些能力收敛到一个平台：
 
 ## 快速体验
 
-推荐使用 Docker Compose 一键拉起全部依赖与前后端服务（MySQL、Redis、Qdrant、后端 API、Celery Worker、前端 Nginx）：
+项目支持多种部署方式。快速体验推荐使用 Docker Compose 一键拉起全部依赖与前后端服务（MySQL、Redis、Qdrant、后端 API、Celery Worker、前端 Nginx）：
 
 ```bash
 cp .env.example .env      # 按需修改密码与密钥
@@ -80,6 +80,15 @@ docker compose up -d --build
 ```
 
 启动后访问前端控制台 `http://localhost:80`，注册账号（自动初始化租户），在「AI 模型管理」中配置模型供应商与 API Key 即可开始使用。
+
+如果已有 Kubernetes 集群，也可以使用项目提供的可选 K8s 部署方案：
+
+```bash
+./deploy/k8s/build-images.sh
+./deploy/k8s/deploy.sh
+```
+
+Kubernetes 是在本地开发和 Docker Compose 之外新增的部署方式，不替换现有部署流程。清单、资源要求和运维命令见 [deploy/k8s/README.md](deploy/k8s/README.md)。
 
 > 完整的环境要求、本地开发启动、环境变量说明与运维命令，请查阅 [AGENTS.md](AGENTS.md)（技术架构与开发指南）。
 

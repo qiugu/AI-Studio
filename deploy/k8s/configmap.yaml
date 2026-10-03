@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-studio-config
+  namespace: ai-studio
+data:
+  AI_STUDIO_SKIP_ENV_FILE: "1"
+  DATABASE_HOST: mysql
+  DATABASE_PORT: "3306"
+  DATABASE_NAME: ai_studio
+  DATABASE_USERNAME: ai_studio
+  QDRANT_URL: http://qdrant:6333
+  QDRANT_API_KEY: ""
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_PASSWORD: ""
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  JWT_ALGORITHM: HS256
+  JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  UPLOAD_DIR: /app/uploads
+  MAX_UPLOAD_SIZE_MB: "50"
+  EMBEDDING_PROVIDER: sentence-transformers
+  EMBEDDING_MODEL: BAAI/bge-base-zh-v1.5
+  EMBEDDING_DEVICE: cpu
+  EMBEDDING_API_KEY: ""
+  EMBEDDING_API_BASE: ""
+  OLLAMA_BASE_URL: http://192.168.99.131:11434
+  CORS_ORIGINS: http://192.168.99.131:30080
+  APP_FRONTEND_BASE_URL: http://192.168.99.131:30080

@@ -1,0 +1,197 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ai-studio-local
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-studio-mysql
+  labels:
+    app.kubernetes.io/name: ai-studio
+    app.kubernetes.io/component: mysql
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ai-studio-local
+  local:
+    path: /var/lib/ai-studio/mysql
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [k8s-master]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-studio-redis
+  labels:
+    app.kubernetes.io/name: ai-studio
+    app.kubernetes.io/component: redis
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ai-studio-local
+  local:
+    path: /var/lib/ai-studio/redis
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [k8s-master]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-studio-qdrant
+  labels:
+    app.kubernetes.io/name: ai-studio
+    app.kubernetes.io/component: qdrant
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ai-studio-local
+  local:
+    path: /var/lib/ai-studio/qdrant
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [k8s-master]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-studio-uploads
+  labels:
+    app.kubernetes.io/name: ai-studio
+    app.kubernetes.io/component: uploads
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ai-studio-local
+  local:
+    path: /var/lib/ai-studio/uploads
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [k8s-master]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-studio-hf-cache
+  labels:
+    app.kubernetes.io/name: ai-studio
+    app.kubernetes.io/component: hf-cache
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ai-studio-local
+  local:
+    path: /var/lib/ai-studio/hf-cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [k8s-master]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data
+  namespace: ai-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ai-studio-local
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mysql
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: ai-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ai-studio-local
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-data
+  namespace: ai-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ai-studio-local
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: qdrant
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads
+  namespace: ai-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ai-studio-local
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: uploads
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hf-cache
+  namespace: ai-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ai-studio-local
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: hf-cache
+  resources:
+    requests:
+      storage: 8Gi

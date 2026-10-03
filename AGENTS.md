@@ -234,6 +234,19 @@ git pull && docker compose up -d --build       # 更新后重建
 
 ---
 
+## Kubernetes 可选部署
+
+Kubernetes 是项目新增的一种部署选择，不替代上面的本地开发或 Docker Compose 部署方式。当前清单针对单节点 ARM64 集群设计，使用本地持久卷并通过 NodePort 暴露前端：
+
+```bash
+./deploy/k8s/build-images.sh
+./deploy/k8s/deploy.sh
+```
+
+默认访问地址为 `http://<节点IP>:30080`。完整的环境假设、镜像导入、验证、日志与回滚说明见 [deploy/k8s/README.md](deploy/k8s/README.md)。
+
+---
+
 ## API 端点概览
 
 | 前缀 | 说明 |
