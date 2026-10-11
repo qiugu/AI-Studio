@@ -1,48 +1,48 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Table,
+  Badge,
   Button,
-  Space,
-  Tag,
-  Switch,
-  Popconfirm,
-  message,
-  Modal,
+  Collapse,
+  Drawer,
+  Empty,
   Form,
   Input,
-  Select,
-  Typography,
-  Badge,
+  message,
+  Modal,
+  Popconfirm,
+  Space,
+  Spin,
+  Switch,
+  Tag,
   Tooltip,
-  Drawer,
+  Typography,
 } from 'antd'
 import {
-  PlusOutlined,
-  EditOutlined,
+  ArrowRightOutlined,
   DeleteOutlined,
-  SettingOutlined,
+  EditOutlined,
+  PlusOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import type { ColumnsType } from 'antd/es/table'
 import {
-  listPlugins,
   createPlugin,
-  updatePlugin,
   deletePlugin,
+  listPlugins,
   testPlugin,
+  updatePlugin,
 } from '@/api/plugin'
 import type {
   Plugin,
-  PluginSourceType,
+  PluginCreateRequest,
   PluginStatus,
   PluginTestResult,
-  PluginCreateRequest,
 } from '@/types/plugin'
-import { PLUGIN_SOURCE_OPTIONS, pluginSourceMeta } from './pluginMeta'
 import { useAuthStore } from '@/stores/auth'
+import { getPluginReadiness } from './pluginExperience'
+import './PluginExperience.css'
 
-const { Title, Text } = Typography
+const { Paragraph, Text, Title } = Typography
 const { TextArea } = Input
 
 export default function PluginList() {
@@ -58,7 +58,6 @@ export default function PluginList() {
   const [form] = Form.useForm()
 
   const fetchAll = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await listPlugins({ page: 1, page_size: 200, include_public: true })
       setPlugins(res.data?.items ?? [])
@@ -70,7 +69,13 @@ export default function PluginList() {
   }, [])
 
   useEffect(() => {
-    fetchAll()
+    let active = true
+    void Promise.resolve().then(() => {
+      if (active) return fetchAll()
+    })
+    return () => {
+      active = false
+    }
   }, [fetchAll])
 
   const openCreate = () => {
@@ -118,7 +123,7 @@ export default function PluginList() {
         try {
           payload.api_spec = JSON.parse(values.api_spec)
         } catch {
-          message.error('OpenAPI 规范 JSON 格式错误')
+          message.error('服务说明格式不正确，请检查 JSON 内容')
           return
         }
       }
@@ -126,17 +131,17 @@ export default function PluginList() {
         try {
           payload.config_schema = JSON.parse(values.config_schema)
         } catch {
-          message.error('配置 Schema JSON 格式错误')
+          message.error('连接表单格式不正确，请检查 JSON 内容')
           return
         }
       }
 
       if (editing) {
         await updatePlugin(editing.id, payload)
-        message.success('更新成功')
+        message.success('插件信息已保存')
       } else {
         await createPlugin(payload)
-        message.success('创建成功')
+        message.success('插件已添加，接下来完成连接并试用')
       }
       setModalOpen(false)
       fetchAll()
@@ -150,7 +155,7 @@ export default function PluginList() {
   const handleDelete = async (id: string) => {
     try {
       await deletePlugin(id)
-      message.success('删除成功')
+      message.success('插件已删除')
       fetchAll()
     } catch {
       // interceptor handles error toast
@@ -159,8 +164,10 @@ export default function PluginList() {
 
   const handleToggleStatus = async (plugin: Plugin, checked: boolean) => {
     try {
-      await updatePlugin(plugin.id, { status: (checked ? 'active' : 'disabled') as PluginStatus })
-      message.success(checked ? '已启用' : '已禁用')
+      await updatePlugin(plugin.id, {
+        status: (checked ? 'active' : 'disabled') as PluginStatus,
+      })
+      message.success(checked ? '插件已开启' : '插件已暂停')
       fetchAll()
     } catch {
       // interceptor handles error toast
@@ -180,234 +187,272 @@ export default function PluginList() {
     }
   }
 
-  const columns: ColumnsType<Plugin> = [
-    {
-      title: '插件名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name, record) => (
-        <Space direction="vertical" size={0}>
-          <Space>
-            <span style={{ fontWeight: 600 }}>{name}</span>
-            {record.is_public && <Tag color="gold">公共</Tag>}
-            {record.tenant_id === null && !record.is_public && (
-              <Tag color="default">平台</Tag>
-            )}
-          </Space>
-          {record.description && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {record.description}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: '接入方式',
-      dataIndex: 'source_type',
-      key: 'source_type',
-      render: (s: PluginSourceType) => {
-        const meta = pluginSourceMeta(s)
-        return (
-          <Tooltip title={`${meta.description} 适用：${meta.useCases}`}>
-            <Tag color={meta.color}>{meta.label}</Tag>
-          </Tooltip>
-        )
-      },
-    },
-    {
-      title: '版本',
-      dataIndex: 'version',
-      key: 'version',
-      render: (v) => <Text type="secondary">{v}</Text>,
-    },
-    {
-      title: '作者',
-      dataIndex: 'author',
-      key: 'author',
-      render: (a) => a || '—',
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: PluginStatus, record) => (
-        <Space>
-          <Badge
-            status={status === 'active' ? 'success' : 'default'}
-            text={status === 'active' ? '启用' : status === 'disabled' ? '禁用' : '待审核'}
-          />
-          {record.tenant_id !== null && (
-            <Switch
-              size="small"
-              checked={status === 'active'}
-              onChange={(c) => handleToggleStatus(record, c)}
-            />
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_, record) => {
-        const isPublic = record.tenant_id === null
-        return (
-          <Space>
-            <Tooltip title="配置 / 端点 / 测试">
-              <Button
-                size="small"
-                icon={<SettingOutlined />}
-                onClick={() => navigate(`/plugins/${record.id}/config`)}
-              >
-                配置
-              </Button>
-            </Tooltip>
-            <Tooltip title={isPublic ? '公共/平台插件不可编辑' : '编辑'}>
-              <Button
-                size="small"
-                icon={<EditOutlined />}
-                disabled={isPublic}
-                onClick={() => openEdit(record)}
-              />
-            </Tooltip>
-            <Tooltip title="测试连通性">
-              <Button
-                size="small"
-                icon={<ThunderboltOutlined />}
-                loading={testingId === record.id}
-                onClick={() => handleTest(record)}
-              />
-            </Tooltip>
-            <Popconfirm
-              title="确认删除此插件？"
-              onConfirm={() => handleDelete(record.id)}
-              okText="删除"
-              okButtonProps={{ danger: true }}
-              cancelText="取消"
-              disabled={isPublic}
-            >
-              <Tooltip title={isPublic ? '公共/平台插件不可删除' : '删除'}>
-                <Button size="small" icon={<DeleteOutlined />} danger disabled={isPublic} />
-              </Tooltip>
-            </Popconfirm>
-          </Space>
-        )
-      },
-    },
-  ]
-
   return (
-    <div>
-      <div
-        style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}
-      >
-        <Title level={4} style={{ margin: 0 }}>
-          插件管理
-        </Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新增插件
-        </Button>
-      </div>
+    <div className="plugin-experience-page">
+      <section className="plugin-hero">
+        <div className="plugin-hero__copy">
+          <Text className="plugin-eyebrow">Agent 能力中心</Text>
+          <Title level={1}>让 Agent 连接你正在使用的服务</Title>
+          <Paragraph>
+            添加一个插件，Agent 就能在对话中查询信息、创建内容或执行操作。你只需要完成连接、试用，再选择给哪些 Agent 使用。
+          </Paragraph>
+          <Button
+            type="primary"
+            size="large"
+            icon={<PlusOutlined />}
+            aria-label="添加插件"
+            onClick={openCreate}
+          >
+            添加插件
+          </Button>
+        </div>
 
-      <Table
-        columns={columns}
-        dataSource={plugins}
-        rowKey="id"
-        loading={loading}
-        pagination={{ pageSize: 20 }}
-      />
+        <div className="capability-route" aria-label="插件使用流程">
+          <div className="capability-route__node">
+            <span className="capability-route__index">1</span>
+            <strong>你的服务</strong>
+            <small>已有的业务系统</small>
+          </div>
+          <ArrowRightOutlined className="capability-route__arrow" />
+          <div className="capability-route__node capability-route__node--active">
+            <span className="capability-route__index">2</span>
+            <strong>插件</strong>
+            <small>连接并说明能做什么</small>
+          </div>
+          <ArrowRightOutlined className="capability-route__arrow" />
+          <div className="capability-route__node">
+            <span className="capability-route__index">3</span>
+            <strong>Agent</strong>
+            <small>在对话中按需使用</small>
+          </div>
+        </div>
+      </section>
+
+      <section className="plugin-library" aria-labelledby="plugin-library-title">
+        <div className="plugin-section-heading">
+          <div>
+            <Text className="plugin-eyebrow">已添加</Text>
+            <Title id="plugin-library-title" level={3}>插件能力</Title>
+          </div>
+          <Text type="secondary">开启的插件可在 Agent 编辑页按能力授权</Text>
+        </div>
+
+        {loading ? (
+          <div className="plugin-loading"><Spin /></div>
+        ) : plugins.length === 0 ? (
+          <div className="plugin-empty">
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <Space orientation="vertical" size={4}>
+                  <Text strong>还没有插件</Text>
+                  <Text type="secondary">先添加一个你熟悉的服务，完成后就能把它交给 Agent 使用。</Text>
+                </Space>
+              }
+            >
+              <Button type="primary" onClick={openCreate}>添加第一个插件</Button>
+            </Empty>
+          </div>
+        ) : (
+          <div className="plugin-card-grid">
+            {plugins.map((plugin) => {
+              const readiness = getPluginReadiness(plugin)
+              const isPlatformPlugin = plugin.tenant_id === null
+              const preview = plugin.endpoints?.slice(0, 2) ?? []
+              return (
+                <article className="plugin-card" key={plugin.id}>
+                  <div className="plugin-card__topline">
+                    <span className={`plugin-readiness plugin-readiness--${readiness.tone}`}>
+                      <span className="plugin-readiness__dot" />
+                      {readiness.label}
+                    </span>
+                    {isPlatformPlugin ? (
+                      <Tag bordered={false}>平台提供</Tag>
+                    ) : (
+                      <Switch
+                        size="small"
+                        aria-label={`${plugin.name}${plugin.status === 'active' ? '已开启' : '已暂停'}`}
+                        checked={plugin.status === 'active'}
+                        onChange={(checked) => handleToggleStatus(plugin, checked)}
+                      />
+                    )}
+                  </div>
+
+                  <div className="plugin-card__identity">
+                    <div className="plugin-card__mark">{plugin.name.slice(0, 1).toUpperCase()}</div>
+                    <div>
+                      <Title level={4}>{plugin.name}</Title>
+                      <Paragraph ellipsis={{ rows: 2 }}>
+                        {plugin.description || '还没有说明这个插件能帮助 Agent 做什么。'}
+                      </Paragraph>
+                    </div>
+                  </div>
+
+                  <div className="plugin-card__abilities">
+                    <Text className="plugin-card__abilities-label">
+                      {plugin.endpoints?.length || 0} 项可用能力
+                    </Text>
+                    {preview.length > 0 ? preview.map((endpoint) => (
+                      <div className="plugin-ability-preview" key={endpoint.id}>
+                        <span>{endpoint.description || '未命名能力'}</span>
+                        <code>{endpoint.method.toUpperCase()} {endpoint.endpoint}</code>
+                      </div>
+                    )) : (
+                      <Text type="secondary">添加能力后，Agent 才知道可以用它完成哪些事情。</Text>
+                    )}
+                  </div>
+
+                  <div className="plugin-card__actions">
+                    <Button type="primary" onClick={() => navigate(`/plugins/${plugin.id}/config`)}>
+                      {readiness.action}
+                    </Button>
+                    <Space size={4}>
+                      <Tooltip title="快速检查连接">
+                        <Button
+                          aria-label={`检查 ${plugin.name} 的连接`}
+                          icon={<ThunderboltOutlined />}
+                          loading={testingId === plugin.id}
+                          onClick={() => handleTest(plugin)}
+                        />
+                      </Tooltip>
+                      <Tooltip title={isPlatformPlugin ? '平台插件不可编辑' : '编辑基本信息'}>
+                        <Button
+                          aria-label={`编辑 ${plugin.name}`}
+                          icon={<EditOutlined />}
+                          disabled={isPlatformPlugin}
+                          onClick={() => openEdit(plugin)}
+                        />
+                      </Tooltip>
+                      <Popconfirm
+                        title="删除这个插件？"
+                        description="删除后，Agent 将无法再使用它的能力。"
+                        onConfirm={() => handleDelete(plugin.id)}
+                        okText="删除"
+                        okButtonProps={{ danger: true }}
+                        cancelText="保留"
+                        disabled={isPlatformPlugin}
+                      >
+                        <Tooltip title={isPlatformPlugin ? '平台插件不可删除' : '删除'}>
+                          <Button
+                            aria-label={`删除 ${plugin.name}`}
+                            icon={<DeleteOutlined />}
+                            danger
+                            disabled={isPlatformPlugin}
+                          />
+                        </Tooltip>
+                      </Popconfirm>
+                    </Space>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </section>
 
       <Modal
-        title={editing ? '编辑插件' : '新增插件'}
+        title={editing ? '编辑插件信息' : '添加插件'}
         open={modalOpen}
         onOk={handleSubmit}
         onCancel={() => setModalOpen(false)}
+        okText={editing ? '保存信息' : '添加并继续'}
+        cancelText="取消"
         confirmLoading={submitting}
-        width={640}
-        destroyOnClose
+        width={680}
+        destroyOnHidden
       >
+        <div className="plugin-modal-intro">
+          {editing
+            ? '修改插件的名称和用途说明。连接信息与能力设置会保留。'
+            : '先告诉大家这个插件能做什么。添加后，再完成连接和试用。'}
+        </div>
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="插件名称" rules={[{ required: true }]}>
-            <Input placeholder="如：天气查询插件" />
+          <Form.Item name="name" label="插件名称" rules={[{ required: true, message: '请填写插件名称' }]}>
+            <Input placeholder="例如：客户信息查询" />
           </Form.Item>
-          <Space style={{ display: 'flex' }} size="large" wrap>
+          <Form.Item name="description" label="它能帮助 Agent 做什么？">
+            <TextArea
+              rows={3}
+              placeholder="例如：根据客户名称查询联系人、订单和最近一次沟通记录"
+              showCount
+              maxLength={240}
+            />
+          </Form.Item>
+          <Form.Item name="source_type" hidden><Input /></Form.Item>
+          <Form.Item name="version" hidden><Input /></Form.Item>
+          <Form.Item name="status" hidden><Input /></Form.Item>
+
+          {isPlatformAdmin && (
             <Form.Item
-              name="source_type"
-              label="接入方式（怎么接）"
-              tooltip="HTTP / OpenAPI 为当前可用方式；MCP 与 Skill 为类型占位，执行器实现属二期。"
-              rules={[{ required: true }]}
+              name="is_public"
+              label="提供给所有组织使用"
+              valuePropName="checked"
+              extra="开启后，平台中的所有组织都能看到并配置这个插件。"
             >
-              <Select options={PLUGIN_SOURCE_OPTIONS} style={{ width: 200 }} />
+              <Switch />
             </Form.Item>
-          </Space>
-          <Form.Item name="version" label="版本" rules={[{ required: true }]}>
-            <Input style={{ width: 160 }} />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <TextArea rows={2} placeholder="插件功能说明" />
-          </Form.Item>
-          <Form.Item
-            name="api_spec"
-            label="OpenAPI 规范（JSON，可选）"
-            extra="提供后将自动解析生成插件端点"
-          >
-            <TextArea rows={4} placeholder='{"openapi":"3.0.0","servers":[{"url":"https://..."}],"paths":{...}}' />
-          </Form.Item>
-          <Form.Item name="config_schema" label="配置 Schema（JSON，可选）">
-            <TextArea rows={3} placeholder='{"type":"object","properties":{"api_key":{"type":"string"}}}' />
-          </Form.Item>
-          <Space size="large">
-            <Form.Item name="status" label="状态">
-              <Select
-                style={{ width: 160 }}
-                options={[
-                  { value: 'active', label: '启用' },
-                  { value: 'disabled', label: '禁用' },
-                  { value: 'pending_review', label: '待审核' },
-                ]}
-              />
-            </Form.Item>
-            {isPlatformAdmin && (
-              <Form.Item
-                name="is_public"
-                label="设为公共插件"
-                valuePropName="checked"
-                extra="公共插件对所有租户可见可用"
-              >
-                <Switch />
-              </Form.Item>
-            )}
-          </Space>
+          )}
+
+          <Collapse
+            ghost
+            className="plugin-advanced-collapse"
+            items={[{
+              key: 'advanced',
+              label: '高级设置',
+              children: (
+                <>
+                  <Form.Item
+                    name="api_spec"
+                    label="从服务说明自动识别能力"
+                    extra="如果服务提供 OpenAPI JSON，可粘贴到这里；保存后会自动识别可用操作。也可以稍后手动添加。"
+                  >
+                    <TextArea
+                      rows={6}
+                      className="plugin-code-field"
+                      placeholder='{"openapi":"3.0.0","servers":[{"url":"https://..."}],"paths":{...}}'
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="config_schema"
+                    label="自定义连接表单"
+                    extra="仅在需要自定义连接字段时填写 JSON Schema。多数插件可以留空。"
+                  >
+                    <TextArea
+                      rows={4}
+                      className="plugin-code-field"
+                      placeholder='{"type":"object","properties":{"api_key":{"type":"string"}}}'
+                    />
+                  </Form.Item>
+                </>
+              ),
+            }]}
+          />
         </Form>
       </Modal>
 
       <Drawer
-        title="连通性测试结果"
+        title="连接检查结果"
         open={testResult !== null}
         onClose={() => setTestResult(null)}
-        width={480}
+        size="large"
       >
         {testResult && (
           <Space direction="vertical" style={{ width: '100%' }}>
             <Badge
               status={testResult.success ? 'success' : 'error'}
-              text={testResult.success ? '连通成功' : '连通失败'}
+              text={testResult.success ? '服务可以访问' : '暂时无法访问服务'}
             />
             <div>状态码：{testResult.status_code ?? '—'}</div>
             <div>耗时：{testResult.latency_ms ?? '—'} ms</div>
-            {testResult.error && (
-              <Text type="danger">错误：{testResult.error}</Text>
-            )}
-            <Text type="secondary">返回数据：</Text>
+            {testResult.error && <Text type="danger">原因：{testResult.error}</Text>}
+            <Text type="secondary">服务返回内容</Text>
             <TextArea
               readOnly
               rows={8}
-              value={
-                typeof testResult.data === 'string'
-                  ? testResult.data
-                  : JSON.stringify(testResult.data, null, 2)
-              }
+              className="plugin-code-field"
+              value={typeof testResult.data === 'string'
+                ? testResult.data
+                : JSON.stringify(testResult.data, null, 2)}
             />
           </Space>
         )}

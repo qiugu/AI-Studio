@@ -6,7 +6,7 @@
  * 也不占用模型的上下文。
  */
 
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import {
   Form,
   Input,
@@ -20,7 +20,6 @@ import {
   Checkbox,
   Tag,
   Switch,
-  Tooltip,
   Empty,
   Typography,
   Modal,
@@ -36,7 +35,7 @@ import type {
   ToolCatalogPlugin,
 } from '@/types/agent'
 import { type AIModel } from '@/types/ai-model'
-import { pluginSourceMeta } from '@/pages/Plugins/pluginMeta'
+import '@/pages/Plugins/PluginExperience.css'
 import {
   isDestructiveMethod,
   missingSelectionKeys,
@@ -65,7 +64,7 @@ export default function AgentForm() {
   const { agentId } = useParams()
   const isEdit = Boolean(agentId)
   const [form] = Form.useForm()
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(isEdit)
   const [submitting, setSubmitting] = useState(false)
   const [models, setModels] = useState<AIModel[]>([])
 
@@ -78,7 +77,7 @@ export default function AgentForm() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const [showDestructive, setShowDestructive] = useState(false)
 
-  const loadModels = async () => {
+  const loadModels = useCallback(async () => {
     try {
       const { data } = await aiModelApi.listModels({ page: 1, page_size: 100 })
       setModels(data.items)
@@ -86,10 +85,10 @@ export default function AgentForm() {
       console.error('Failed to load models:', error)
       message.error('加载AI模型列表失败')
     }
-  }
+  }, [])
 
   /** 取可绑定插件目录。返回目录，便于调用方在同一次流程里完成回填。 */
-  const loadCatalog = async (): Promise<ToolCatalogPlugin[]> => {
+  const loadCatalog = useCallback(async (): Promise<ToolCatalogPlugin[]> => {
     try {
       const { data } = await agentApi.getToolCatalog()
       setCatalog(data)
@@ -105,11 +104,10 @@ export default function AgentForm() {
     } finally {
       setCatalogLoading(false)
     }
-  }
+  }, [])
 
   /** 加载 Agent 基本信息，并按目录回填已授权的工具选择项。 */
-  const loadAgent = async (catalogData: ToolCatalogPlugin[]) => {
-    setLoading(true)
+  const loadAgent = useCallback(async (catalogData: ToolCatalogPlugin[]) => {
     try {
       const { data } = await agentApi.getAgent(agentId || '')
       form.setFieldsValue({
@@ -129,20 +127,27 @@ export default function AgentForm() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [agentId, form])
 
   /** 先取目录再取 Agent：回填依赖目录（端点路径 → 端点 id），顺序不可颠倒。 */
-  const loadCatalogThenAgent = async () => {
+  const loadCatalogThenAgent = useCallback(async () => {
     const catalogData = await loadCatalog()
     if (isEdit) {
       await loadAgent(catalogData)
     }
-  }
+  }, [isEdit, loadAgent, loadCatalog])
 
   useEffect(() => {
-    loadModels()
-    void loadCatalogThenAgent()
-  }, [agentId])
+    let active = true
+    void Promise.resolve().then(() => {
+      if (!active) return
+      void loadModels()
+      void loadCatalogThenAgent()
+    })
+    return () => {
+      active = false
+    }
+  }, [loadCatalogThenAgent, loadModels])
 
   const addSelection = (key: string) => {
     setSelectedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]))
@@ -254,19 +259,20 @@ export default function AgentForm() {
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={
-            <span>
-              暂无可绑定的插件。请先到「插件」页创建插件并配置端点，
-              且接入方式为 HTTP / OpenAPI、状态为「启用」。
-            </span>
+            <Space orientation="vertical" size={3}>
+              <Text strong>还没有可添加的插件能力</Text>
+              <Text type="secondary">先连接一个服务并完成试用，再回来选择 Agent 可以使用的能力。</Text>
+            </Space>
           }
-        />
+        >
+          <Button type="primary" onClick={() => navigate('/plugins')}>去添加插件</Button>
+        </Empty>
       )
     }
 
     return (
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         {catalog.map((plugin) => {
-          const sourceMeta = pluginSourceMeta(plugin.source_type)
           const visibleEndpoints = showDestructive
             ? plugin.endpoints
             : plugin.endpoints.filter((item) => !isDestructiveMethod(item.method))
@@ -274,17 +280,11 @@ export default function AgentForm() {
           return (
             <div
               key={plugin.id}
-              style={{
-                border: '1px solid #f0f0f0',
-                borderRadius: 8,
-                padding: '12px 16px',
-              }}
+              className="agent-plugin-card"
             >
               <Space size="small" wrap>
                 <Text strong>{plugin.name}</Text>
-                <Tooltip title={sourceMeta.description}>
-                  <Tag color={sourceMeta.color}>{sourceMeta.label}</Tag>
-                </Tooltip>
+                <Tag color="cyan">插件</Tag>
                 {plugin.is_public && <Tag>平台内置</Tag>}
               </Space>
               {plugin.description && (
@@ -298,10 +298,10 @@ export default function AgentForm() {
               <div style={{ marginTop: 8 }}>
                 {visibleEndpoints.length === 0 ? (
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    该插件仅含破坏性端点，已隐藏。开启上方开关后可选择。
+                    这个插件只有高风险操作。开启上方开关后才会显示。
                   </Text>
                 ) : (
-                  <Space direction="vertical" size={4}>
+                  <Space orientation="vertical" size={4}>
                     {visibleEndpoints.map((endpoint) => {
                       const destructive = isDestructiveMethod(endpoint.method)
                       const key = selectionKey(plugin.id, endpoint.id)
@@ -313,16 +313,13 @@ export default function AgentForm() {
                             handleToggleEndpoint(plugin, endpoint.id, event.target.checked)
                           }
                         >
-                          <Space size="small">
-                            <Text code>{endpoint.method.toUpperCase()}</Text>
-                            <span>{endpoint.endpoint}</span>
-                            {destructive && <Tag color="red">破坏性</Tag>}
-                            {endpoint.description && (
-                              <Text type="secondary" style={{ fontSize: 12 }}>
-                                {endpoint.description}
-                              </Text>
-                            )}
-                          </Space>
+                          <span className="agent-ability-choice">
+                            <span>
+                              <strong>{endpoint.description || '未命名能力'}</strong>
+                              {destructive && <Tag color="red">高风险操作</Tag>}
+                            </span>
+                            <code>{endpoint.method.toUpperCase()} {endpoint.endpoint}</code>
+                          </span>
                         </Checkbox>
                       )
                     })}
@@ -402,11 +399,17 @@ export default function AgentForm() {
 
             <Card
               type="inner"
-              title="工具能力"
+              className="agent-plugin-capabilities"
+              title={
+                <div className="agent-capability-title">
+                  <strong>给 Agent 添加插件能力</strong>
+                  <span>只选择它完成任务时真正需要的操作</span>
+                </div>
+              }
               extra={
                 <Space size="small">
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    显示破坏性端点
+                    显示高风险操作
                   </Text>
                   <Switch checked={showDestructive} onChange={setShowDestructive} />
                 </Space>
@@ -414,7 +417,7 @@ export default function AgentForm() {
               style={{ marginBottom: 24 }}
             >
               <Text type="secondary" style={{ fontSize: 12 }}>
-                只有在此勾选的端点才会暴露给该 Agent；未勾选的插件不会被注入工具池。
+                勾选后，Agent 会在适合的对话中主动使用这项能力；没有选择的操作不会交给它。
               </Text>
 
               {catalogError && (
@@ -422,8 +425,8 @@ export default function AgentForm() {
                   type="error"
                   showIcon
                   style={{ marginTop: 12 }}
-                  message="可绑定插件目录加载失败，暂不可提交"
-                  description="目录是工具清单的唯一依据，加载失败时保存会误清空该 Agent 已有的插件授权。请刷新页面重试。"
+                  title="插件能力加载失败，暂时不能保存"
+                  description="刷新页面后重试，避免已有的插件能力被误删。"
                 />
               )}
 
@@ -432,8 +435,8 @@ export default function AgentForm() {
                   type="warning"
                   showIcon
                   style={{ marginTop: 12 }}
-                  message={`有 ${missingKeys.length} 个已授权插件或端点在目录中已失效`}
-                  description="对应的插件可能已被删除、停用，或端点已被移除。保存后这些授权将不再生效，请重新选择。"
+                  title={`有 ${missingKeys.length} 项已添加的能力失效`}
+                  description="对应插件可能已删除、暂停或移除了这项能力。请重新选择后再保存。"
                 />
               )}
 
@@ -442,8 +445,8 @@ export default function AgentForm() {
                   type="error"
                   showIcon
                   style={{ marginTop: 12 }}
-                  message={`已授权 ${destructiveSelectedCount} 个破坏性端点`}
-                  description="这些操作可能删除或覆盖外部系统中的数据，请确认确有必要。"
+                  title={`已添加 ${destructiveSelectedCount} 项高风险操作`}
+                  description="这些操作可能删除或覆盖外部系统中的数据，请确认 Agent 确实需要。"
                 />
               )}
 

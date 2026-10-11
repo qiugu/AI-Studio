@@ -9,15 +9,14 @@ import {
   Button,
   Space,
   Typography,
-  Tag,
   Table,
   Modal,
   message,
-  Descriptions,
   Badge,
   Popconfirm,
   Alert,
   Tooltip,
+  Collapse,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -28,6 +27,8 @@ import {
   ThunderboltOutlined,
   ImportOutlined,
   QuestionCircleOutlined,
+  CheckOutlined,
+  ArrowRightOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
@@ -50,7 +51,12 @@ import type {
   PluginEndpointCreateRequest,
   PluginEndpointUpdateRequest,
 } from '@/types/plugin'
-import { pluginSourceMeta } from './pluginMeta'
+import {
+  buildConnectionConfigItems,
+  getSetupProgress,
+  splitConnectionConfig,
+} from './pluginExperience'
+import './PluginExperience.css'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -191,9 +197,12 @@ export default function PluginConfig() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
+  const [connectionForm] = Form.useForm()
 
   const [hasSchema, setHasSchema] = useState(false)
   const [rawConfig, setRawConfig] = useState('{}')
+  const [hasConnection, setHasConnection] = useState(false)
+  const [hasExistingApiKey, setHasExistingApiKey] = useState(false)
 
   // 端点管理
   const [endpoints, setEndpoints] = useState<PluginEndpoint[]>([])
@@ -219,7 +228,6 @@ export default function PluginConfig() {
 
   const load = useCallback(async () => {
     if (!id) return
-    setLoading(true)
     try {
       const [pluginRes, configRes] = await Promise.all([
         getPlugin(id),
@@ -235,14 +243,26 @@ export default function PluginConfig() {
         nextHasValue[it.name] = !!it.has_value
       })
       hasValueRef.current = nextHasValue
+      setHasExistingApiKey(Boolean(nextHasValue.api_key))
+
+      const servers = (p.api_spec?.servers as Array<{ url?: string }> | undefined) || []
+      const hasServerInDefinition = servers.some((server) => Boolean(server.url))
 
       const schema = (p.config_schema as Record<string, unknown>) || null
       if (schema && (schema.properties as Record<string, unknown>)) {
         setHasSchema(true)
         form.setFieldsValue(cfgMap)
+        setHasConnection(hasServerInDefinition || cfgItems.some((item) => item.has_value))
       } else {
         setHasSchema(false)
-        setRawConfig(JSON.stringify(cfgMap, null, 2))
+        const split = splitConnectionConfig(cfgItems)
+        connectionForm.setFieldsValue({
+          baseUrl: split.fields.baseUrl,
+          apiKey: split.fields.apiKey,
+          headersText: split.fields.headersText,
+        })
+        setRawConfig(JSON.stringify(split.advanced, null, 2))
+        setHasConnection(hasServerInDefinition || Boolean(split.fields.baseUrl))
       }
 
       const epRes = await listEndpoints(id)
@@ -252,10 +272,16 @@ export default function PluginConfig() {
     } finally {
       setLoading(false)
     }
-  }, [id, form])
+  }, [connectionForm, form, id])
 
   useEffect(() => {
-    load()
+    let active = true
+    void Promise.resolve().then(() => {
+      if (active) return load()
+    })
+    return () => {
+      active = false
+    }
   }, [load])
 
   const schemaProperties = useMemo(() => {
@@ -304,14 +330,27 @@ function isSecretName(name: string): boolean {
           setSaving(false)
           return
         }
-        const obj = parsed.value as Record<string, unknown>
-        // 裸 JSON 模式：剥离 null 与脱敏占位 "********"，避免覆盖已设置的敏感项
-        items = Object.entries(obj)
-          .filter(([, v]) => v !== null && v !== '********')
-          .map(([name, value]) => ({ name, value }))
+        const values = await connectionForm.validateFields()
+        try {
+          items = buildConnectionConfigItems({
+            fields: {
+              baseUrl: values.baseUrl || '',
+              apiKey: values.apiKey || '',
+              headersText: values.headersText || '{}',
+            },
+            advanced: (parsed.value || {}) as Record<string, unknown>,
+            hasExistingApiKey: Boolean(hasValueRef.current.api_key),
+          })
+        } catch {
+          message.error('附加请求头格式不正确，请填写 JSON 对象')
+          return
+        }
       }
       await updatePluginConfig(id, items)
-      message.success('配置已保存')
+      const serverConfigured = items.some((item) => item.name === 'base_url' && item.value)
+      const servers = (plugin?.api_spec?.servers as Array<{ url?: string }> | undefined) || []
+      setHasConnection(serverConfigured || servers.some((server) => Boolean(server.url)))
+      message.success('连接信息已保存')
     } catch {
       // interceptor handles error toast
     } finally {
@@ -457,173 +496,159 @@ function isSecretName(name: string): boolean {
 
   const epColumns: ColumnsType<PluginEndpoint> = [
     {
-      title: '方法',
-      dataIndex: 'method',
-      key: 'method',
-      render: (m) => <Tag color="blue">{m}</Tag>,
-    },
-    { title: '端点', dataIndex: 'endpoint', key: 'endpoint', render: (e) => <code>{e}</code> },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      render: (d) => d || '—',
+      title: '能力',
+      key: 'ability',
+      render: (_, record) => (
+        <Space orientation="vertical" size={2}>
+          <Text strong>{record.description || '未命名能力'}</Text>
+          <Text type="secondary" className="plugin-technical">
+            {record.method.toUpperCase()} {record.endpoint}
+          </Text>
+        </Space>
+      ),
     },
     {
       title: '操作',
       key: 'actions',
       render: (_, record) => (
         <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEpModal(record)} />
-          <Popconfirm title="确认删除此端点？" onConfirm={() => handleDeleteEp(record.id)} okText="删除" cancelText="取消">
-            <Button size="small" icon={<DeleteOutlined />} danger />
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEpModal(record)}>
+            编辑
+          </Button>
+          <Popconfirm title="删除这项能力？" onConfirm={() => handleDeleteEp(record.id)} okText="删除" cancelText="保留">
+            <Button size="small" icon={<DeleteOutlined />} danger>删除</Button>
           </Popconfirm>
         </Space>
       ),
     },
   ]
 
-  const sourceMeta = pluginSourceMeta(plugin?.source_type)
+  const setupSteps = getSetupProgress({
+    hasConnection,
+    endpointCount: endpoints.length,
+    testSucceeded: Boolean(testResult?.success),
+  })
 
   if (loading) return null
 
   return (
-    <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/plugins')}>
-          返回
-        </Button>
-        <Title level={4} style={{ margin: 0 }}>
-          插件配置
-        </Title>
-      </Space>
+    <div className="plugin-experience-page plugin-setup-page">
+      <Button
+        type="text"
+        className="plugin-back-button"
+        icon={<ArrowLeftOutlined />}
+        onClick={() => navigate('/plugins')}
+      >
+        返回插件
+      </Button>
 
       {plugin && (
-        <Card style={{ marginBottom: 16 }}>
-          <Descriptions column={2} size="small">
-            <Descriptions.Item label="名称">{plugin.name}</Descriptions.Item>
-            <Descriptions.Item label="接入方式">
-              <Tooltip title={`${sourceMeta.description} 适用：${sourceMeta.useCases}`}>
-                <Tag color={sourceMeta.color}>{sourceMeta.label}</Tag>
-              </Tooltip>
-            </Descriptions.Item>
-            <Descriptions.Item label="版本">{plugin.version}</Descriptions.Item>
-            <Descriptions.Item label="状态">
-              <Badge
-                status={plugin.status === 'active' ? 'success' : 'default'}
-                text={plugin.status}
-              />
-            </Descriptions.Item>
-            <Descriptions.Item label="作者">{plugin.author || '—'}</Descriptions.Item>
-            <Descriptions.Item label="可见性">
-              {plugin.is_public ? '公共插件' : '租户私有'}
-            </Descriptions.Item>
-            {plugin.description && (
-              <Descriptions.Item label="描述" span={2}>
-                {plugin.description}
-              </Descriptions.Item>
-            )}
-          </Descriptions>
-        </Card>
+        <section className="plugin-setup-hero">
+          <div>
+            <Text className="plugin-eyebrow">设置与试用</Text>
+            <Title level={1}>让{plugin.name}开始工作</Title>
+            <Text>{plugin.description || '连接服务并添加能力，完成后就可以交给 Agent 使用。'}</Text>
+          </div>
+          <span className={`plugin-readiness plugin-readiness--${plugin.status === 'active' ? 'ready' : 'muted'}`}>
+            <span className="plugin-readiness__dot" />
+            {plugin.status === 'active' ? '插件已开启' : '插件已暂停'}
+          </span>
+        </section>
       )}
 
-      {/* 配置表单 */}
+      <nav className="plugin-setup-track" aria-label="插件设置进度">
+        {setupSteps.map((step, index) => (
+          <div className={`plugin-setup-step plugin-setup-step--${step.status}`} key={step.key}>
+            <span className="plugin-setup-step__marker">
+              {step.status === 'complete' ? <CheckOutlined /> : index + 1}
+            </span>
+            <span>
+              <strong>{step.label}</strong>
+              <small>{step.hint}</small>
+            </span>
+          </div>
+        ))}
+      </nav>
+
       <Card
-        title="连接与凭据配置"
+        className="plugin-setup-card"
+        title={
+          <div className="plugin-card-title">
+            <span className="plugin-card-title__number">1</span>
+            <span><strong>连接服务</strong><small>告诉系统去哪里访问服务，以及需要使用哪些凭据</small></span>
+          </div>
+        }
         extra={
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            loading={saving}
-            onClick={handleSaveConfig}
-          >
-            保存配置
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSaveConfig}>
+            保存连接
           </Button>
         }
-        style={{ marginBottom: 16 }}
       >
         {hasSchema ? (
-          <Form form={form} layout="vertical">
-            {Object.entries(schemaProperties).map(([name, prop]) =>
-              renderSchemaField(name, prop)
-            )}
+          <Form form={form} layout="vertical" className="plugin-connection-form">
+            {Object.entries(schemaProperties).map(([name, prop]) => renderSchemaField(name, prop))}
           </Form>
         ) : (
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Alert
-              type="info"
-              showIcon
-              style={{ width: '100%' }}
-              message="填写你的组织接入该插件所需的连接与凭据"
-              description={
-                <div>
-                  <div>
-                    这是<strong>当前组织（租户）使用该插件</strong>所需的地址与密钥，仅对本组织生效，与其他租户互不干扰。该插件未定义表单 Schema，请以 JSON 对象形式填写，每个顶层键对应一个配置项。
-                  </div>
-                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                    <li>
-                      <code>base_url</code>（<strong>必填</strong>）：插件后端服务的基址，例如{' '}
-                      <code>https://api.example.com</code>。测试连通性、调用端点都依赖它。
-                    </li>
-                    <li>
-                      <code>api_key</code>（可选）：鉴权密钥，会自动以 Bearer 方式注入请求头；如需自定义头名可配 <code>api_key_header</code>。
-                    </li>
-                    <li>
-                      <code>headers</code>（可选）：额外的默认请求头，例如{' '}
-                      <code>{'{"X-Tenant-Id":"abc"}'}</code>。
-                    </li>
-                  </ul>
-                </div>
-              }
+          <Form form={connectionForm} layout="vertical" className="plugin-connection-form">
+            <div className="plugin-form-grid">
+              <Form.Item
+                name="baseUrl"
+                label="服务地址"
+                extra="插件要访问的服务地址。若服务说明中已经包含地址，可以留空。"
+              >
+                <Input placeholder="https://api.example.com" />
+              </Form.Item>
+              <Form.Item
+                name="apiKey"
+                label="访问密钥"
+                extra={hasExistingApiKey ? '已保存密钥；留空会继续使用原密钥。' : '服务无需密钥时可以留空。'}
+              >
+                <Password placeholder={hasExistingApiKey ? '已保存，留空不修改' : '输入访问密钥'} />
+              </Form.Item>
+            </div>
+            <Form.Item
+              name="headersText"
+              label="附加请求头"
+              extra="仅在服务要求额外身份信息时填写；多数情况下保持空对象即可。"
+            >
+              <TextArea rows={4} className="plugin-code-field" placeholder='{"X-Team":"studio"}' />
+            </Form.Item>
+            <Collapse
+              ghost
+              className="plugin-advanced-collapse"
+              items={[{
+                key: 'other-config',
+                label: '其他连接设置',
+                children: (
+                  <JsonField
+                    label="高级配置"
+                    tooltip="用于该服务特有的连接字段。每个顶层键会保存为一个独立配置项。"
+                    placeholder='{"region":"cn-east"}'
+                    example='{\n  "region": "cn-east"\n}'
+                    value={rawConfig}
+                    onChange={setRawConfig}
+                    rows={5}
+                  />
+                ),
+              }]}
             />
-            <TextArea
-              rows={8}
-              value={rawConfig}
-              onChange={(e) => setRawConfig(e.target.value)}
-              placeholder={`{\n  "base_url": "https://api.example.com",\n  "api_key": "...",\n  "headers": { "X-Tenant-Id": "abc" }\n}`}
-              status={
-                (() => {
-                  const parsed = parseJsonField(rawConfig || '{}', { allowEmpty: false })
-                  return parsed.ok ? '' : 'error'
-                })()
-              }
-            />
-            {(() => {
-              const parsed = parseJsonField(rawConfig || '{}', { allowEmpty: false })
-              if (parsed.ok && parsed.value && typeof parsed.value === 'object') {
-                const keys = Object.keys(parsed.value as Record<string, unknown>)
-                if (keys.length > 0 && !keys.includes('base_url')) {
-                  return (
-                    <Alert
-                      type="warning"
-                      showIcon
-                      style={{ width: '100%' }}
-                      message="建议配置 base_url"
-                      description="当前配置缺少 base_url，测试连通性（不选择端点时）将无法进行。请补充 base_url 指向插件后端服务地址。"
-                    />
-                  )
-                }
-              }
-              return null
-            })()}
-          </Space>
+          </Form>
         )}
       </Card>
 
-      {/* 端点管理 */}
       <Card
-        title="插件端点"
+        className="plugin-setup-card"
+        title={
+          <div className="plugin-card-title">
+            <span className="plugin-card-title__number">2</span>
+            <span><strong>添加能力</strong><small>明确告诉 Agent，这个插件可以完成哪些操作</small></span>
+          </div>
+        }
         extra={
-          <Space>
-            <Button icon={<ImportOutlined />} onClick={handleImportEndpoints}>
-              从 OpenAPI 导入
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => openEpModal()}>
-              新增端点
-            </Button>
-            <Button icon={<ThunderboltOutlined />} onClick={openTestModal}>
-              测试
-            </Button>
+          <Space wrap>
+            <Button icon={<ImportOutlined />} onClick={handleImportEndpoints}>从服务说明读取</Button>
+            <Button icon={<PlusOutlined />} onClick={() => openEpModal()}>手动添加</Button>
+            <Button type="primary" icon={<ThunderboltOutlined />} onClick={openTestModal}>试用插件</Button>
           </Space>
         }
       >
@@ -632,124 +657,154 @@ function isSecretName(name: string): boolean {
           dataSource={endpoints}
           rowKey="id"
           pagination={false}
-          locale={{ emptyText: '暂无端点，可手动新增或从 OpenAPI 导入' }}
+          locale={{ emptyText: '还没有可用能力。可以从服务说明读取，也可以手动添加一项。' }}
         />
       </Card>
 
+      <section className="plugin-activation-card">
+        <div>
+          <Text className="plugin-eyebrow">最后一步</Text>
+          <Title level={3}>把需要的能力交给 Agent</Title>
+          <Text>进入 Agent 编辑页，选择这个插件中允许它使用的能力。未选择的操作不会暴露给 Agent。</Text>
+        </div>
+        <Button type="primary" size="large" onClick={() => navigate('/agents')}>
+          去 Agent 开启使用 <ArrowRightOutlined />
+        </Button>
+      </section>
+
       {/* 端点编辑弹窗 */}
       <Modal
-        title={editingEp ? '编辑端点' : '新增端点'}
+        title={editingEp ? '编辑能力' : '添加能力'}
         open={epModalOpen}
         onOk={handleEpSubmit}
         onCancel={() => setEpModalOpen(false)}
         confirmLoading={epSubmitting}
+        okText={editingEp ? '保存能力' : '添加能力'}
+        cancelText="取消"
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
+        <div className="plugin-modal-intro">
+          一项能力代表 Agent 可以完成的一件事。名称要说明什么时候使用、能得到什么结果。
+        </div>
         <Form form={epForm} layout="vertical">
           <Space style={{ display: 'flex' }} size="large">
-            <Form.Item name="method" label="方法" rules={[{ required: true }]}>
+            <Form.Item name="method" label="调用方式" rules={[{ required: true }]}>
               <Select options={HTTP_METHODS.map((m) => ({ value: m, label: m }))} style={{ width: 140 }} />
             </Form.Item>
             <Form.Item
               name="endpoint"
-              label="端点路径"
+              label="服务路径"
               rules={[{ required: true }]}
               style={{ flex: 1 }}
             >
               <Input placeholder="/v1/search" />
             </Form.Item>
           </Space>
-          <Form.Item name="description" label="描述">
-            <Input placeholder="对该端点的简要说明，例如：网页搜索" />
+          <Form.Item name="description" label="能力名称与用途">
+            <Input placeholder="例如：搜索企业资料，返回匹配的文档摘要" />
           </Form.Item>
-          <JsonField
-            label="请求头"
-            tooltip="调用该端点时默认携带的请求头，会与服务配置中的 headers / api_key 合并。标准 JSON 对象。"
-            placeholder='{"X-Api-Key":"..."}'
-            example='{\n  "X-Api-Key": "xxx",\n  "Content-Type": "application/json"\n}'
-            value={epHeaders}
-            onChange={setEpHeaders}
-            rows={2}
-          />
-          <JsonField
-            label="请求体 Schema"
-            tooltip="描述该端点请求体的 JSON Schema（不是 function-calling 描述）。用于约定调用参数结构，可留空。"
-            placeholder='{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}'
-            example='{\n  "type": "object",\n  "properties": {\n    "query": { "type": "string", "description": "查询内容" }\n  },\n  "required": ["query"]\n}'
-            value={epReqSchema}
-            onChange={setEpReqSchema}
-            rows={4}
-          />
-          <JsonField
-            label="响应 Schema"
-            tooltip="描述该端点返回结构的 JSON Schema，可选。"
-            placeholder='{"type":"object","properties":{"result":{"type":"string"}}}'
-            example='{\n  "type": "object",\n  "properties": {\n    "result": { "type": "string" }\n  }\n}'
-            value={epRespSchema}
-            onChange={setEpRespSchema}
-            rows={4}
+          <Collapse
+            ghost
+            className="plugin-advanced-collapse"
+            items={[{
+              key: 'ability-advanced',
+              label: '高级设置',
+              children: (
+                <>
+                  <JsonField
+                    label="固定请求头"
+                    tooltip="每次使用这项能力时都会携带的请求头，会与连接信息中的请求头合并。"
+                    placeholder='{"X-Api-Key":"..."}'
+                    example='{\n  "X-Api-Key": "xxx",\n  "Content-Type": "application/json"\n}'
+                    value={epHeaders}
+                    onChange={setEpHeaders}
+                    rows={2}
+                  />
+                  <JsonField
+                    label="输入格式"
+                    tooltip="用 JSON Schema 告诉 Agent 这项能力接受哪些输入。"
+                    placeholder='{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}'
+                    example='{\n  "type": "object",\n  "properties": {\n    "query": { "type": "string", "description": "查询内容" }\n  },\n  "required": ["query"]\n}'
+                    value={epReqSchema}
+                    onChange={setEpReqSchema}
+                    rows={4}
+                  />
+                  <JsonField
+                    label="返回格式"
+                    tooltip="用 JSON Schema 描述服务返回的内容，可以留空。"
+                    placeholder='{"type":"object","properties":{"result":{"type":"string"}}}'
+                    example='{\n  "type": "object",\n  "properties": {\n    "result": { "type": "string" }\n  }\n}'
+                    value={epRespSchema}
+                    onChange={setEpRespSchema}
+                    rows={4}
+                  />
+                </>
+              ),
+            }]}
           />
         </Form>
       </Modal>
 
       {/* 测试弹窗 */}
       <Modal
-        title="测试插件"
+        title="试用插件"
         open={testModalOpen}
         onOk={handleTest}
         onCancel={() => setTestModalOpen(false)}
         confirmLoading={testing}
-        okText="运行测试"
+        okText="开始试用"
       >
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="两种测试模式"
-          description={
-            <div>
-              <div>
-                <strong>选择端点</strong>：按下方参数真实调用该端点（POST/PUT 等会作为请求体发送）。
-              </div>
-              <div style={{ marginTop: 4 }}>
-                <strong>不选端点</strong>：仅探测服务连通性，需要先在上方「连接与凭据配置」中填写 <code>base_url</code>
-                （或插件 OpenAPI 的 <code>servers</code>）。否则会提示「未配置服务地址」。
-              </div>
-            </div>
-          }
+          title="先选择一项能力并提供示例内容，系统会立即调用真实服务。留空能力时只检查服务是否可以访问。"
         />
         <Form form={testForm} layout="vertical">
           <Form.Item
             name="endpoint"
-            label="端点路径"
-            tooltip="留空则进行服务连通性探测；需已在上方「连接与凭据配置」中填写 base_url。"
+            label="选择要试用的能力"
+            tooltip="留空时仅检查服务是否可以访问。"
           >
             <Select
               allowClear
-              placeholder="留空 = 探测连通性"
-              options={endpoints.map((e) => ({ value: e.endpoint, label: `${e.method} ${e.endpoint}` }))}
-            />
-          </Form.Item>
-          <Form.Item name="method" label="方法（覆盖端点默认方法）">
-            <Select
-              allowClear
-              options={HTTP_METHODS.map((m) => ({ value: m, label: m }))}
-              style={{ width: 160 }}
+              placeholder="选择一项能力；留空只检查连接"
+              options={endpoints.map((e) => ({
+                value: e.endpoint,
+                label: e.description ? `${e.description} · ${e.method} ${e.endpoint}` : `${e.method} ${e.endpoint}`,
+              }))}
             />
           </Form.Item>
           <JsonField
-            label="调用参数"
-            tooltip="调用参数。选择端点且为非 GET 方法时作为请求体；含 {id} 形式的键会替换路径参数。"
+            label="试用内容"
+            tooltip="填写一次真实试用需要的内容，例如查询词或记录信息。"
             placeholder='{"query":"北京天气"}'
             example='{\n  "query": "北京天气"\n}'
             value={testParamsText}
             onChange={setTestParamsText}
             rows={4}
           />
+          <Collapse
+            ghost
+            className="plugin-advanced-collapse"
+            items={[{
+              key: 'test-advanced',
+              label: '高级设置',
+              children: (
+                <Form.Item name="method" label="临时覆盖调用方式">
+                  <Select
+                    allowClear
+                    options={HTTP_METHODS.map((m) => ({ value: m, label: m }))}
+                    style={{ width: 180 }}
+                  />
+                </Form.Item>
+              ),
+            }]}
+          />
         </Form>
         {testResult && (
-          <Space direction="vertical" style={{ width: '100%' }}>
+          <Space orientation="vertical" style={{ width: '100%' }}>
             <Badge
               status={testResult.success ? 'success' : 'error'}
               text={testResult.success ? '调用成功' : '调用失败'}
