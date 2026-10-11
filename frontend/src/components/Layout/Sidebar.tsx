@@ -1,86 +1,82 @@
-import { Layout, Menu } from 'antd'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Layout, Menu, type MenuProps } from 'antd'
 import {
   DashboardOutlined,
   RobotOutlined,
-  CodeOutlined,
-  DatabaseOutlined,
-  ThunderboltOutlined,
-  AppstoreOutlined as PluginOutlined,
   SettingOutlined,
-  TeamOutlined,
   SafetyOutlined,
-  FileTextOutlined,
   BranchesOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { canManageSystem } from '@/utils/permission'
+import {
+  getNavigationItems,
+  keepActiveGroupOpen,
+  resolveNavigationState,
+  type NavigationAudience,
+  type NavigationIcon,
+  type NavigationItem,
+} from './navigation'
 
 const { Sider } = Layout
 
-const baseMenuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
-  {
-    key: 'ai-group',
-    icon: <RobotOutlined />,
-    label: 'AI 模型',
-    children: [
-      { key: '/providers', label: '供应商管理' },
-      { key: '/ai-models', label: '模型管理' },
-    ],
-  },
-  { key: '/prompts', icon: <CodeOutlined />, label: 'Prompt 管理' },
-  { key: '/knowledge', icon: <DatabaseOutlined />, label: '知识库' },
-  {
-    key: 'workflows-group',
-    icon: <BranchesOutlined />,
-    label: '工作流',
-    children: [
-      { key: '/workflows', label: '工作流列表' },
-      { key: '/workflows/create', label: '创建工作流' },
-    ],
-  },
-  { key: '/agents', icon: <ThunderboltOutlined />, label: 'Agent' },
-  { key: '/plugins', icon: <PluginOutlined />, label: '插件' },
-]
-
-const systemMenuGroup = {
-  key: 'system-group',
-  icon: <SettingOutlined />,
-  label: '系统管理',
-  children: [
-    { key: '/system/users', icon: <TeamOutlined />, label: '用户管理' },
-    { key: '/system/roles', icon: <SafetyOutlined />, label: '角色权限' },
-    { key: '/system/audit-logs', icon: <FileTextOutlined />, label: '审计日志' },
-    { key: '/system/tenant', icon: <SettingOutlined />, label: '租户设置' },
-  ],
+const navigationIcons: Record<NavigationIcon, ReactNode> = {
+  dashboard: <DashboardOutlined />,
+  resources: <RobotOutlined />,
+  apps: <BranchesOutlined />,
+  system: <SettingOutlined />,
+  platform: <SafetyOutlined />,
 }
 
-const adminMenuGroup = {
-  key: 'admin-group',
-  icon: <SafetyOutlined />,
-  label: '平台管理',
-  children: [
-    { key: '/admin/tenants', icon: <TeamOutlined />, label: '租户管理' },
-  ],
+function toMenuItems(items: NavigationItem[]): MenuProps['items'] {
+  return items.map((item) => ({
+    key: item.key,
+    icon: item.icon ? navigationIcons[item.icon] : undefined,
+    label: item.label,
+    ...('children' in item
+      ? {
+          children: item.children.map((child) => ({
+            key: child.key,
+            label: child.label,
+          })),
+        }
+      : {}),
+  }))
 }
 
 export default function Sidebar() {
   const collapsed = useAppStore((s) => s.sidebarCollapsed)
   const user = useAuthStore((s) => s.user)
-  const isPlatformAdmin = useAuthStore((s) => s.user?.is_platform_admin)
   const navigate = useNavigate()
   const location = useLocation()
 
-  // 系统管理与平台管理仅对（租户/平台）管理员可见
-  const canManage = canManageSystem(user)
+  const isPlatformAdmin = Boolean(user?.is_platform_admin)
+  const isTenantAdmin = canManageSystem(user)
 
-  const menuItems = [
-    ...baseMenuItems,
-    ...(canManage ? [systemMenuGroup] : []),
-    ...(isPlatformAdmin ? [adminMenuGroup] : []),
-  ]
+  const audience: NavigationAudience = isPlatformAdmin
+    ? 'platform-admin'
+    : isTenantAdmin
+      ? 'tenant-admin'
+      : 'tenant-member'
+  const navigationItems = useMemo(() => getNavigationItems(audience), [audience])
+  const menuItems = useMemo(() => toMenuItems(navigationItems), [navigationItems])
+  const navigationState = useMemo(
+    () => resolveNavigationState(location.pathname, navigationItems),
+    [location.pathname, navigationItems],
+  )
+  const [menuOpenState, setMenuOpenState] = useState(() => ({
+    pathname: location.pathname,
+    openKeys: navigationState.activeGroupKey ? [navigationState.activeGroupKey] : [],
+  }))
+
+  if (menuOpenState.pathname !== location.pathname) {
+    setMenuOpenState((current) => ({
+      pathname: location.pathname,
+      openKeys: keepActiveGroupOpen(current.openKeys, navigationState.activeGroupKey),
+    }))
+  }
 
   const handleMenuClick = ({ key }: { key: string }) => {
     if (key.startsWith('/')) {
@@ -114,10 +110,15 @@ export default function Sidebar() {
       <Menu
         theme="dark"
         mode="inline"
-        selectedKeys={[location.pathname]}
-        // defaultOpenKeys={['ai-group', 'system-group']}
+        selectedKeys={navigationState.selectedKey ? [navigationState.selectedKey] : []}
+        openKeys={collapsed ? [] : menuOpenState.openKeys}
         items={menuItems}
         onClick={handleMenuClick}
+        onOpenChange={(keys) => {
+          if (!collapsed) {
+            setMenuOpenState({ pathname: location.pathname, openKeys: keys })
+          }
+        }}
       />
     </Sider>
   )
