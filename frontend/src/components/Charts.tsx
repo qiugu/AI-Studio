@@ -26,7 +26,7 @@ function makeScale(values: number[], maxOverride?: number) {
 export function LineChart({
   data,
   valueKey = 'total_tokens',
-  color = '#1677ff',
+  color = 'var(--app-color-primary)',
 }: {
   data: Array<Record<string, any>>
   valueKey?: string

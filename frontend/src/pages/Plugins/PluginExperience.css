@@ -1,11 +1,11 @@
 .plugin-experience-page {
-  --plugin-ink: #162033;
-  --plugin-teal: #0d7c73;
-  --plugin-mint: #ddf4ee;
-  --plugin-sky: #eaf2ff;
-  --plugin-amber: #f7b955;
-  --plugin-canvas: #f4f7f7;
-  --plugin-border: #d9e5e3;
+  --plugin-ink: var(--app-color-text);
+  --plugin-teal: var(--app-color-primary);
+  --plugin-mint: var(--app-color-primary-soft);
+  --plugin-sky: var(--app-color-info-soft);
+  --plugin-amber: var(--app-color-warning);
+  --plugin-canvas: var(--app-color-surface);
+  --plugin-border: var(--app-color-border);
   color: var(--plugin-ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
 }
@@ -58,8 +58,8 @@
 }
 
 .plugin-experience-page .ant-btn-primary:not(:disabled):hover {
-  border-color: #09685f;
-  background: #09685f;
+  border-color: var(--app-color-primary-strong);
+  background: var(--app-color-primary-strong);
 }
 
 .capability-route {

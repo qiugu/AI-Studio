@@ -1,0 +1,224 @@
+from typing import Optional
+import uuid
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+
+from app.core.database import get_session
+from app.core.dependencies import get_current_user, get_current_tenant, require_permission, require_tenant_user
+from app.schemas.common import ResponseBase, PaginatedResponse
+from app.schemas.workflow import (
+    WorkflowCreate,
+    WorkflowUpdate,
+    WorkflowResponse,
+    WorkflowListResponse,
+    WorkflowExecutionRequest,
+    WorkflowExecutionResponse,
+)
+from app.services.workflow import WorkflowService
+from app.services.workflow_engine import WorkflowEngine
+from app.utils.sse import create_sse_response, json_sse_event
+
+router = APIRouter(tags=["Workflow"], dependencies=[Depends(require_tenant_user)])
+
+
+# ── Workflow CRUD ───────────────────────────────────────────────────────────────
+
+@router.post(
+    "",
+    response_model=ResponseBase[WorkflowResponse],
+    dependencies=[Depends(require_permission("workflow", "create"))],
+)
+async def create_workflow(
+    data: WorkflowCreate,
+    db: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+    tenant_id=Depends(get_current_tenant),
+):
+    """创建工作流"""
+    service = WorkflowService(db=db, tenant_id=tenant_id)
+    workflow = service.create_workflow(data, current_user.id)
+    return ResponseBase(data=WorkflowResponse.model_validate(workflow))
+
+
+@router.get(
+    "/{workflow_id}",
+    response_model=ResponseBase[WorkflowResponse],
+    dependencies=[Depends(require_permission("workflow", "read"))],
+)
+async def get_workflow(
+    workflow_id: uuid.UUID,
+    db: Session = Depends(get_session),
+    tenant_id=Depends(get_current_tenant),
+):
+    """获取工作流详情"""
+    service = WorkflowService(db=db, tenant_id=tenant_id)
+    workflow = service.get_workflow(workflow_id)
+    return ResponseBase(data=WorkflowResponse.model_validate(workflow))
+
+
+@router.get(
+    "",
+    response_model=ResponseBase[WorkflowListResponse],
+    dependencies=[Depends(require_permission("workflow", "read"))],
+)
+async def list_workflows(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_session),
+    current_tenant=Depends(get_current_tenant),
+    current_user=Depends(get_current_user),
+):
+    """列出工作流"""
+    service = WorkflowService(db=db, tenant_id=current_tenant)
+    if not any(role.is_admin and role.status for role in current_user.roles):
+        status = "published"
+    workflows, total = service.list_workflows(page=page, page_size=page_size, status=status)
+    items = [WorkflowResponse.model_validate(w) for w in workflows]
+    return ResponseBase(
+        data=WorkflowListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+    )
+
+
+@router.put(
+    "/{workflow_id}",
+    response_model=ResponseBase[WorkflowResponse],
+    dependencies=[Depends(require_permission("workflow", "update"))],
+)
+async def update_workflow(
+    workflow_id: uuid.UUID,
+    data: WorkflowUpdate,
+    db: Session = Depends(get_session),
+    current_tenant=Depends(get_current_tenant),
+):
+    """更新工作流"""
+    service = WorkflowService(db=db, tenant_id=current_tenant)
+    workflow = service.update_workflow(workflow_id, data)
+    return ResponseBase(data=WorkflowResponse.model_validate(workflow))
+
+
+@router.delete(
+    "/{workflow_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("workflow", "delete"))],
+)
+async def delete_workflow(
+    workflow_id: uuid.UUID,
+    db: Session = Depends(get_session),
+    current_tenant=Depends(get_current_tenant),
+):
+    """删除工作流"""
+    service = WorkflowService(db=db, tenant_id=current_tenant)
+    service.delete_workflow(workflow_id)
+    return ResponseBase(message="工作流已删除")
+
+
+# ── Workflow状态管理 ───────────────────────────────────────────────────────────
+
+@router.post(
+    "/{workflow_id}/publish",
+    response_model=ResponseBase[WorkflowResponse],
+    dependencies=[Depends(require_permission("workflow", "update"))],
+)
+async def publish_workflow(
+    workflow_id: uuid.UUID,
+    db: Session = Depends(get_session),
+    current_tenant=Depends(get_current_tenant),
+):
+    """发布工作流"""
+    service = WorkflowService(db=db, tenant_id=current_tenant)
+    workflow = service.publish_workflow(workflow_id)
+    return ResponseBase(data=WorkflowResponse.model_validate(workflow))
+
+
+@router.post(
+    "/{workflow_id}/archive",
+    response_model=ResponseBase[WorkflowResponse],
+    dependencies=[Depends(require_permission("workflow", "update"))],
+)
+async def archive_workflow(
+    workflow_id: uuid.UUID,
+    db: Session = Depends(get_session),
+    current_tenant=Depends(get_current_tenant),
+):
+    """归档工作流"""
+    service = WorkflowService(db=db, tenant_id=current_tenant)
+    workflow = service.archive_workflow(workflow_id)
+    return ResponseBase(data=WorkflowResponse.model_validate(workflow))
+
+
+# ── Workflow执行 ───────────────────────────────────────────────────────────────
+
+@router.post(
+    "/{workflow_id}/execute",
+    response_model=ResponseBase[WorkflowExecutionResponse],
+    dependencies=[Depends(require_permission("workflow", "execute"))],
+)
+async def execute_workflow(
+    workflow_id: uuid.UUID,
+    data: WorkflowExecutionRequest,
+    db: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+    current_tenant=Depends(get_current_tenant),
+):
+    """执行工作流（阻塞式）"""
+    engine = WorkflowEngine(db=db, tenant_id=current_tenant)
+    result = await engine.execute_workflow(
+        workflow_id=workflow_id,
+        input_data=data.input_data,
+        user_id=current_user.id,
+    )
+
+    from app.models.workflow_execution import WorkflowExecution
+    execution = db.query(WorkflowExecution).filter(
+        WorkflowExecution.id == result["execution_id"],
+        WorkflowExecution.tenant_id == current_tenant,
+    ).first()
+
+    return ResponseBase(data=WorkflowExecutionResponse.model_validate(execution))
+
+
+@router.post(
+    "/{workflow_id}/execute/stream",
+    dependencies=[Depends(require_permission("workflow", "execute"))],
+)
+async def execute_workflow_stream(
+    workflow_id: uuid.UUID,
+    data: WorkflowExecutionRequest,
+    db: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+    current_tenant=Depends(get_current_tenant),
+):
+    """执行工作流（SSE流式）"""
+    engine = WorkflowEngine(db=db, tenant_id=current_tenant)
+
+    async def event_generator():
+        async for event in engine.execute_workflow_stream(
+            workflow_id=workflow_id,
+            input_data=data.input_data,
+            user_id=current_user.id,
+        ):
+            yield json_sse_event(event["type"], event)
+
+    return create_sse_response(event_generator())
+
+
+@router.get(
+    "/{workflow_id}/validate",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("workflow", "read"))],
+)
+async def validate_workflow(
+    workflow_id: uuid.UUID,
+    db: Session = Depends(get_session),
+    current_tenant=Depends(get_current_tenant),
+):
+    """验证工作流DAG结构"""
+    service = WorkflowService(db=db, tenant_id=current_tenant)
+    result = service.validate_workflow_dag(workflow_id)
+    return ResponseBase(data=result)

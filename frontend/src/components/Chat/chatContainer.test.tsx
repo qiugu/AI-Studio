@@ -95,4 +95,72 @@ describe('ChatContainer 错误消息渲染位置', () => {
     )
     expect(screen.getByText('执行失败')).toBeTruthy()
   })
+
+  it('流式响应异常中断时显示明确标题', () => {
+    render(
+      <ChatContainer
+        messages={[
+          msg({
+            id: 'e3',
+            role: 'assistant',
+            content: '响应流意外中断，请重试',
+            is_error: true,
+            error_code: 'STREAM_INCOMPLETE',
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('响应流中断')).toBeTruthy()
+  })
+
+  it('Provider 密钥无法解密时显示重新保存提示标题', () => {
+    render(
+      <ChatContainer
+        messages={[
+          msg({
+            id: 'e4',
+            role: 'assistant',
+            content: 'AI供应商 API Key 无法解密，请重新保存该供应商的 API Key',
+            is_error: true,
+            error_code: 'PROVIDER_KEY_DECRYPT_ERROR',
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('供应商密钥无效')).toBeTruthy()
+  })
+
+  it('用户消息的头像紧跟气泡，而不是被布局推到内容区另一端', () => {
+    const { container } = render(
+      <ChatContainer messages={[msg({ id: 'u1', role: 'user', content: '帮我规划行程' })]} />,
+    )
+
+    const wrapper = container.querySelector('.message-wrapper.user')
+    expect(wrapper).toBeTruthy()
+    expect(wrapper?.firstElementChild?.classList.contains('message-content-wrapper')).toBe(true)
+    expect(wrapper?.lastElementChild?.classList.contains('message-avatar')).toBe(true)
+  })
+
+  it('用户消息使用独立的右侧对齐槽位，避免气泡被可伸展列推到中间', () => {
+    const { container } = render(
+      <ChatContainer messages={[msg({ id: 'u2', role: 'user', content: '给我一个企业级方案' })]} />,
+    )
+
+    expect(container.querySelector('.message-content-wrapper--user')).toBeTruthy()
+  })
+
+  it('空会话提供可执行的任务起点，而不是只显示占位文案', () => {
+    render(
+      <ChatContainer
+        messages={[]}
+        agentName="知识助手"
+        starterPrompts={['总结这份文档']}
+        onStarterPrompt={() => undefined}
+      />,
+    )
+
+    expect(screen.getByText('准备好开始工作了吗？')).toBeTruthy()
+    expect(screen.getByText('与知识助手描述目标，Agent 会在这里完成推理与执行。')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '总结这份文档' })).toBeTruthy()
+  })
 })

@@ -7,13 +7,13 @@
 
 :root {
   /* Colors - Neutral palette with purposeful accents */
-  --wf-bg-canvas: #f8f9fa;
-  --wf-bg-panel: #ffffff;
-  --wf-border-subtle: #e5e7eb;
-  --wf-border-default: #d1d5db;
-  --wf-text-primary: #111827;
-  --wf-text-secondary: #6b7280;
-  --wf-text-tertiary: #9ca3af;
+  --wf-bg-canvas: var(--app-color-surface);
+  --wf-bg-panel: var(--app-color-surface-strong);
+  --wf-border-subtle: var(--app-color-border);
+  --wf-border-default: #b9cbd3;
+  --wf-text-primary: var(--app-color-text);
+  --wf-text-secondary: var(--app-color-text-secondary);
+  --wf-text-tertiary: var(--app-color-text-muted);
 
   /* Node accent colors - Muted and sophisticated */
   --wf-node-start: #10b981;
@@ -99,7 +99,7 @@
 
 .react-flow__handle:hover {
   transform: scale(1.4);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 4px rgba(27, 127, 140, 0.3);
 }
 
 /* Primary handles (left/right) - Larger and more prominent */
@@ -113,7 +113,7 @@
 .handle-left:hover,
 .handle-right:hover {
   transform: scale(1.5);
-  box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 0 5px rgba(27, 127, 140, 0.4);
 }
 
 /* Secondary handles (top/bottom) - Smaller for vertical connections */
@@ -141,7 +141,7 @@
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #3b82f6;
+  stroke: var(--app-color-primary);
   stroke-width: 3;
 }
 
@@ -197,7 +197,7 @@
 }
 
 .workflow-node.selected {
-  box-shadow: 0 0 0 2px #3b82f6, var(--wf-shadow-md);
+  box-shadow: 0 0 0 2px var(--app-color-primary), var(--wf-shadow-md);
 }
 
 /* Node accent bar - top colored line */
@@ -294,8 +294,8 @@
 }
 
 .workflow-node-action-btn.danger:hover {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--app-color-danger-soft);
+  color: var(--app-color-danger);
 }
 
 /* Node content */
@@ -413,7 +413,7 @@
 
 .workflow-node:focus,
 .node-palette-item:focus {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--app-color-primary);
   outline-offset: 2px;
 }
 

@@ -1,0 +1,23 @@
+# AI-Studio 后端镜像（API 服务 / Celery Worker 共用）
+ARG PYTHON_BASE_IMAGE=python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE}
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# 先拷贝依赖清单，充分利用镜像层缓存
+# torch 使用 CPU 专用源（--extra-index-url），避免拉取 CUDA 版大体积轮子
+COPY requirements.txt .
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+
+# 拷贝应用代码（含 Alembic 迁移）
+COPY . .
+
+EXPOSE 8000
+
+# 启动前自动执行数据库迁移，随后启动 API 服务
+CMD ["sh", "-c", "alembic upgrade head && python -m scripts.bootstrap_platform_admin && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

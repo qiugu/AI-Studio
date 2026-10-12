@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Form, Input, Button, Card, Typography, message, Tabs, Alert } from 'antd'
-import { MailOutlined, LockOutlined, UserOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
+import { Form, Input, Button, Card, Typography, message, Alert } from 'antd'
+import { MailOutlined, LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import { getErrorMessage } from '@/utils/request'
@@ -12,22 +12,13 @@ interface LoginFormValues {
   password: string
 }
 
-interface RegisterFormValues {
-  email: string
-  nickname?: string
-  password: string
-  password_repeat: string
-}
-
 /** 登录被「邮箱未验证」拦截时的提示文案特征，用于区分并引导验证。 */
 const UNVERIFIED_HINT = /(邮箱尚未验证|请.*验证.*邮箱|验证邮件)/
 
 export default function Login() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
-  const register = useAuthStore((s) => s.register)
   const loading = useAuthStore((s) => s.loading)
-  const [activeTab, setActiveTab] = useState('login')
   // 邮箱未验证被拒时记录邮箱，展示「去验证」引导
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null)
 
@@ -46,18 +37,6 @@ export default function Login() {
     }
   }
 
-  const handleRegister = async (values: RegisterFormValues) => {
-    try {
-      await register(values.email, values.password, values.password_repeat, values.nickname)
-      // 注册成功进入邮箱验证流程，不再自动登录
-      const devToken = useAuthStore.getState().pendingVerification?.devToken ?? null
-      message.success('注册成功，请验证邮箱以激活账号')
-      navigate('/verify-email', { state: { email: values.email, devToken } })
-    } catch {
-      // 错误提示已由全局响应拦截器统一弹出，此处无需重复处理
-    }
-  }
-
   return (
     <div
       style={{
@@ -65,7 +44,7 @@ export default function Login() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, var(--app-color-primary-strong) 0%, var(--app-color-primary) 100%)',
       }}
     >
       <Card style={{ width: 420, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
@@ -100,18 +79,7 @@ export default function Login() {
           <p style={{ color: '#999' }}>企业级 AI 应用平台</p>
         </div>
 
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          centered
-          items={[
-            { key: 'login', label: '登录' },
-            { key: 'register', label: '注册' },
-          ]}
-        />
-
-        {activeTab === 'login' ? (
-          <Form<LoginFormValues> onFinish={handleLogin} size="large" autoComplete="off">
+        <Form<LoginFormValues> onFinish={handleLogin} size="large" autoComplete="off">
             <Form.Item name="email" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱' }]}>
               <Input prefix={<MailOutlined />} placeholder="邮箱" />
             </Form.Item>
@@ -123,46 +91,10 @@ export default function Login() {
                 登录
               </Button>
             </Form.Item>
-          </Form>
-        ) : (
-          <Form<RegisterFormValues>
-            onFinish={handleRegister}
-            size="large"
-            autoComplete="off"
-          >
-            <Form.Item name="email" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '请输入有效的邮箱' }]}>
-              <Input prefix={<MailOutlined />} placeholder="邮箱" />
-            </Form.Item>
-            <Form.Item name="nickname">
-              <Input prefix={<UserOutlined />} placeholder="昵称（可选）" />
-            </Form.Item>
-            <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }, { min: 6, message: '密码至少6位' }]}>
-              <Input.Password prefix={<LockOutlined />} placeholder="密码" />
-            </Form.Item>
-            <Form.Item
-              name="password_repeat"
-              dependencies={['password']}
-              rules={[
-                { required: true, message: '请确认密码' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (!value || getFieldValue('password') === value) {
-                      return Promise.resolve()
-                    }
-                    return Promise.reject(new Error('两次密码不一致'))
-                  },
-                }),
-              ]}
-            >
-              <Input.Password prefix={<LockOutlined />} placeholder="确认密码" />
-            </Form.Item>
-            <Form.Item>
-              <Button type="primary" htmlType="submit" block loading={loading}>
-                注册
-              </Button>
-            </Form.Item>
-          </Form>
-        )}
+        </Form>
+        <p style={{ textAlign: 'center', color: '#999', marginBottom: 0 }}>
+          普通成员账号由租户管理员创建；平台管理员账号由平台负责人开通
+        </p>
       </Card>
     </div>
   )

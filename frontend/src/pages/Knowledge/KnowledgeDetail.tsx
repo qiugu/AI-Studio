@@ -23,9 +23,8 @@ import {
   UploadOutlined,
   SearchOutlined,
   FileTextOutlined,
-  ArrowLeftOutlined,
 } from "@ant-design/icons";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import * as kbApi from "@/api/knowledge";
 import { type KnowledgeBase, type KnowledgeDocument, type KnowledgeChunk, type SearchResult } from "@/types/knowledge";
 import { formatCitation } from "@/utils/citation";
@@ -34,6 +33,9 @@ import type { RcFile } from "antd/es/upload";
 import { getErrorMessage } from "@/utils/request";
 import { CitationMarker } from "@/components/CitationBadge";
 import ChunkContentView from "@/components/ChunkContentView";
+import { useAuthStore } from "@/stores/auth";
+import { canManageSystem } from "@/utils/permission";
+import RouteHeader from "@/components/Layout/RouteHeader";
 
 const DocumentStatusTag: Record<string, any> = {
   pending: { color: "default", label: "待处理" },
@@ -53,7 +55,7 @@ const SEARCH_TOP_K = 10;
 
 export default function KnowledgeDetail() {
   const { kbId } = useParams<{ kbId: string }>();
-  const navigate = useNavigate();
+  const canManage = canManageSystem(useAuthStore((s) => s.user));
   const [kb, setKb] = useState<KnowledgeBase | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(false);
@@ -213,7 +215,7 @@ export default function KnowledgeDetail() {
               查看分块
             </Button>
           )}
-          <Popconfirm
+          {canManage && <Popconfirm
             title="删除文档"
             description="删除文档会同时删除对应的向量数据，是否确认？"
             onConfirm={() => handleDeleteDocument(record.id)}
@@ -221,7 +223,7 @@ export default function KnowledgeDetail() {
             cancelText="否"
           >
             <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          </Popconfirm>}
         </Space>
       ),
     },
@@ -235,17 +237,28 @@ export default function KnowledgeDetail() {
   );
 
   if (!kb) {
-    return <Spin />;
+    return (
+      <div style={{ padding: "24px" }}>
+        <RouteHeader
+          eyebrow="应用开发 / 知识库"
+          title="知识库详情"
+          backTo="/knowledge"
+          backLabel="返回知识库列表"
+        />
+        <Spin />
+      </div>
+    );
   }
 
   return (
     <div style={{ padding: "24px" }}>
-      {/* 顶部导航 */}
-      <div style={{ marginBottom: "24px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/knowledge")} />
-        <h2 style={{ marginTop: "12px" }}>{kb.name}</h2>
-        {kb.description && <p style={{ color: "#666" }}>{kb.description}</p>}
-      </div>
+      <RouteHeader
+        eyebrow="应用开发 / 知识库"
+        title={kb.name}
+        description={kb.description || undefined}
+        backTo="/knowledge"
+        backLabel="返回知识库列表"
+      />
 
       {/* 统计信息 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "24px" }}>
@@ -278,19 +291,23 @@ export default function KnowledgeDetail() {
             children: (
               <Card>
                 <Space style={{ marginBottom: "16px", width: "100%" }} direction="vertical">
-                  <Upload
-                    beforeUpload={handleUploadDocument}
-                    maxCount={1}
-                    accept=".txt,.pdf,.docx,.md"
-                    disabled={uploading}
-                  >
-                    <Button icon={<UploadOutlined />} loading={uploading}>
-                      上传文档
-                    </Button>
-                  </Upload>
-                  <div style={{ fontSize: "12px", color: "#999" }}>
-                    支持格式: TXT, PDF, DOCX, Markdown
-                  </div>
+                  {canManage && (
+                    <>
+                      <Upload
+                        beforeUpload={handleUploadDocument}
+                        maxCount={1}
+                        accept=".txt,.pdf,.docx,.md"
+                        disabled={uploading}
+                      >
+                        <Button icon={<UploadOutlined />} loading={uploading}>
+                          上传文档
+                        </Button>
+                      </Upload>
+                      <div style={{ fontSize: "12px", color: "#999" }}>
+                        支持格式: TXT, PDF, DOCX, Markdown
+                      </div>
+                    </>
+                  )}
                 </Space>
 
                 <Table

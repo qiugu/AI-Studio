@@ -26,7 +26,9 @@ const ERROR_TITLES: Record<string, string> = {
   SERVICE_CONNECTION_ERROR: '无法连接模型服务',
   API_STATUS_ERROR: '模型服务异常',
   OLLAMA_NOT_FOUND_ERROR: '模型或端点不存在',
+  PROVIDER_KEY_DECRYPT_ERROR: '供应商密钥无效',
   SYSTEM_ERROR: '系统内部错误',
+  STREAM_INCOMPLETE: '响应流中断',
   UNKNOWN_ERROR: '执行失败',
 }
 
@@ -43,13 +45,14 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
   if (isUser) {
     return (
       <div className={`message-wrapper ${isUser ? 'user' : ''}`}>
-        <div className="message-avatar user">
-          <UserOutlined />
-        </div>
-        <div className="message-content-wrapper">
+        <div className="message-content-wrapper message-content-wrapper--user">
+          <div className="message-meta message-meta--user">你</div>
           <div className="message-content user">
             <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message.content}</p>
           </div>
+        </div>
+        <div className="message-avatar user">
+          <UserOutlined />
         </div>
       </div>
     )
@@ -59,11 +62,12 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
   if (isError) {
     const title = ERROR_TITLES[message.error_code ?? ''] ?? '执行失败'
     return (
-      <div className="message-wrapper">
+      <div className="message-wrapper message-wrapper--assistant">
         <div className="message-avatar ai">
           <RobotOutlined />
         </div>
         <div className="message-content-wrapper">
+          <div className="message-meta">Agent</div>
           <div className="message-content error">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <span style={{ fontSize: '16px' }}>⚠️</span>
@@ -80,11 +84,12 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
 
   // AI 消息样式
   return (
-    <div className="message-wrapper">
+    <div className="message-wrapper message-wrapper--assistant">
       <div className="message-avatar ai">
         <RobotOutlined />
       </div>
       <div className="message-content-wrapper">
+        <div className="message-meta">Agent</div>
         <div className="message-content ai">
           {isStreaming && !message.content ? (
             <div className="streaming-indicator">

@@ -32,7 +32,8 @@ AI-Studio 是前后端分离的企业级 AI 应用平台：
 | ORM | SQLAlchemy 2.0 |
 | 主数据库 | MySQL + PyMySQL |
 | 向量数据库 | Qdrant |
-| 缓存/队列 | Redis |
+| 缓存/限流 | Redis |
+| 消息代理 | RabbitMQ（Celery quorum queue） |
 | 异步任务 | Celery |
 | LLM 抽象层 | LangChain |
 | 认证 | JWT (PyJWT) + passlib/bcrypt |
@@ -75,13 +76,16 @@ AI-Studio 是前后端分离的企业级 AI 应用平台：
 │                    Service Layer                             │
 │  Auth · User · AIModel · Prompt · Knowledge · Agent        │
 │  Workflow · Plugin · Audit · Quota · Admin                  │
-└──┬───────────────────┬────────────────────┬─────────────────┘
-   │                   │                    │
-   ▼                   ▼                    ▼
-┌───────┐      ┌──────────────┐      ┌──────────┐
-│ MySQL │      │ Qdrant       │      │  Redis   │
-│(关系型)│      │  (向量检索)  │      │(缓存/队列)│
-└───────┘      └──────────────┘      └──────────┘
+└──┬──────────────┬──────────────┬──────────────┬─────────────┘
+   ▼              ▼              ▼              ▼
+┌───────┐  ┌──────────────┐  ┌──────────┐  ┌──────────────┐
+│ MySQL │  │ Qdrant       │  │  Redis   │  │ RabbitMQ     │
+│业务状态│  │  向量检索     │  │缓存/限流  │  │ Celery Broker│
+└───────┘  └──────────────┘  └──────────┘  └──────┬───────┘
+                                                   ▼
+                                            ┌──────────────┐
+                                            │Celery Worker │
+                                            └──────────────┘
 ```
 
 ---
@@ -159,7 +163,7 @@ AI-Studio/
 
 - Python 3.11+
 - Node.js 20+
-- MySQL 8.0+ / Qdrant / Redis 7+
+- MySQL 8.0+ / Qdrant / Redis 7+ / RabbitMQ 4+
 
 ### 后端
 
@@ -196,10 +200,12 @@ curl http://localhost:8000/health
 DATABASE_HOST / DATABASE_PORT / DATABASE_NAME / DATABASE_USERNAME / DATABASE_PASSWORD
 QDRANT_URL / QDRANT_API_KEY
 REDIS_HOST / REDIS_PORT / REDIS_PASSWORD
+RABBITMQ_HOST / RABBITMQ_PORT / RABBITMQ_USERNAME / RABBITMQ_PASSWORD / RABBITMQ_VHOST
 JWT_SECRET_KEY / JWT_ALGORITHM / JWT_ACCESS_TOKEN_EXPIRE_MINUTES / JWT_REFRESH_TOKEN_EXPIRE_DAYS
 FERNET_KEY                      # API Key 加密；生成：python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD  # 首次部署平台管理员；同时配置，密码至少 12 位；不设默认凭据
 UPLOAD_DIR / MAX_UPLOAD_SIZE_MB
-CELERY_BROKER_URL / CELERY_RESULT_BACKEND
+CELERY_BROKER_URL              # 可选：托管 RabbitMQ 的完整 AMQP(S) URL；默认由 RABBITMQ_* 构造
 EMBEDDING_PROVIDER / EMBEDDING_MODEL / EMBEDDING_API_KEY / EMBEDDING_API_BASE
 OLLAMA_BASE_URL
 ```
@@ -210,7 +216,7 @@ OLLAMA_BASE_URL
 
 ```bash
 cd AI-Studio
-cp .env.example .env          # 必改：MYSQL_ROOT_PASSWORD / MYSQL_PASSWORD / JWT_SECRET_KEY / FERNET_KEY
+cp .env.example .env          # 必改：数据库/RabbitMQ/JWT/Fernet 密钥；首次引导管理员时同时设置 PLATFORM_ADMIN_EMAIL/PASSWORD
 docker compose up -d --build
 docker compose ps
 ```
@@ -220,11 +226,13 @@ docker compose ps
 | 前端控制台 | http://localhost:80 |
 | Swagger API 文档 | http://localhost:8000/docs |
 | Qdrant 管理面板 | http://localhost:6333/dashboard |
+| RabbitMQ 管理面板 | http://127.0.0.1:15672 |
 
 常用运维命令：
 
 ```bash
 docker compose logs -f backend                 # 后端日志
+docker compose logs -f rabbitmq celery-worker # Broker / Worker 日志
 docker compose down                            # 停止（保留数据卷）
 docker compose down -v                         # 停止并删除数据卷（清空数据库！）
 git pull && docker compose up -d --build       # 更新后重建
@@ -232,11 +240,13 @@ git pull && docker compose up -d --build       # 更新后重建
 
 > Docker 部署使用项目根目录 `.env`，与本地开发的 `backend/.env` 是两套独立配置。数据持久化于 Docker 命名卷，`docker compose down` 不删数据，仅 `-v` 会清空。
 
+后端容器在 Alembic 迁移后运行 `backend/scripts/bootstrap_platform_admin.py`。设置上述平台管理员凭据时，首次运行会原子创建系统归属租户和平台管理员；未设置时跳过。重复部署不会重置已有管理员密码；邮箱已被普通账号占用或密码不足 12 位时启动失败。生产环境应从 Secret 管理器注入凭据，避免将真实密码提交到 `.env` 或写入镜像。
+
 ---
 
 ## Kubernetes 可选部署
 
-Kubernetes 是项目新增的一种部署选择，不替代上面的本地开发或 Docker Compose 部署方式。当前清单针对单节点 ARM64 集群设计，使用本地持久卷并通过 NodePort 暴露前端：
+Kubernetes 是项目新增的一种部署选择，不替代上面的本地开发或 Docker Compose 部署方式。当前清单针对单节点 ARM64 集群设计，使用本地持久卷部署 Redis 与 RabbitMQ，并通过 NodePort 暴露前端：
 
 ```bash
 ./deploy/k8s/build-images.sh
@@ -244,6 +254,10 @@ Kubernetes 是项目新增的一种部署选择，不替代上面的本地开发
 ```
 
 默认访问地址为 `http://<节点IP>:30080`。完整的环境假设、镜像导入、验证、日志与回滚说明见 [deploy/k8s/README.md](deploy/k8s/README.md)。
+
+Kubernetes 首次部署时，在运行 `deploy.sh` 前通过环境变量设置 `PLATFORM_ADMIN_EMAIL` 和 `PLATFORM_ADMIN_PASSWORD`（密码至少 12 位）；脚本将两者写入 `ai-studio-secrets`，等待后端迁移完成后创建并等待一次性管理员引导 Job。Job 完成记录会保留，后续部署不重复运行；需要手动重跑时先删除 `job/bootstrap-platform-admin` 再执行 `deploy.sh`。已有 Secret 会被复用，不会覆盖或轮换已有凭据。生产集群建议使用外部 Secret 管理方案，并保护 Kubernetes Secret 的读取权限。
+
+`deploy.sh` 会为新旧 `ai-studio-secrets` 幂等补齐 RabbitMQ 凭据。当前单节点清单中的 RabbitMQ 只实现缓存与消息代理的故障域分离，不构成基础设施高可用；正式多节点生产应使用托管 RabbitMQ 或至少 3 个跨节点副本的 RabbitMQ 集群承载 quorum queue。
 
 ---
 

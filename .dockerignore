@@ -1,0 +1,26 @@
+.venv/
+__pycache__
+*.pyc
+.env
+.env.bak*
+.pytest_cache/
+.pytest-tmp/
+.pytest_run/
+.mypy_cache
+.ruff_cache
+*.log
+.hf-cache/
+node_modules/
+frontend/
+.git/
+.DS_Store
+data/backups/
+
+# 可由评测脚本重新生成的大体积数据，不属于 API / Worker 运行时镜像
+data/rag_eval/corpus.jsonl
+data/rag_eval/chunks.jsonl
+data/rag_eval/index_manifest.json
+data/rag_eval/reports/
+data/rag_eval/v3_448_64/
+data/rag_eval/smoke_448_64/
+data/rag_eval/reports_smoke/

@@ -1,0 +1,413 @@
+"""知识库 API 路由"""
+from typing import Optional
+import uuid
+from fastapi import APIRouter, Depends, UploadFile, File, Query, Response
+from sqlalchemy.orm import Session
+
+from app.core.database import get_session
+from app.core.dependencies import get_current_user, require_permission, require_tenant_user
+from app.models.user import User
+from app.services.knowledge import KnowledgeBaseService
+from app.models.knowledge_document import DocumentStatus
+from app.schemas.common import ResponseBase, PaginatedResponse
+from app.schemas.knowledge import KnowledgeBaseResponse, KnowledgeDocumentResponse
+from app.core.exceptions import AppException, BadRequestException
+from app.core.config import config
+import tempfile
+import os
+
+router = APIRouter(dependencies=[Depends(require_tenant_user)])
+
+@router.post(
+    "/knowledge-bases",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("knowledge", "create"))],
+)
+async def create_knowledge_base(
+    name: str = Query(..., min_length=1, max_length=255),
+    description: Optional[str] = Query(None, max_length=500),
+    embedding_model: Optional[str] = Query(
+        None,
+        description="向量模型标识；缺省时使用服务端配置 embedding_model",
+    ),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """创建知识库"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        kb = service.create_knowledge_base(
+            name=name,
+            description=description,
+            embedding_model=embedding_model,
+        )
+        return ResponseBase.ok(
+            data=KnowledgeBaseResponse.model_validate(kb).model_dump()
+        )
+    except AppException as e:
+        raise e
+
+
+@router.get(
+    "/knowledge-bases",
+    response_model=PaginatedResponse,
+    dependencies=[Depends(require_permission("knowledge", "read"))],
+)
+async def list_knowledge_bases(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """列出知识库"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        kbs, total = service.list_knowledge_bases(page=page, page_size=page_size)
+        return {
+            "code": 0,
+            "message": "success",
+            "data": {
+                "items": [
+                    {
+                        "id": kb.id,
+                        "name": kb.name,
+                        "description": kb.description,
+                        "embedding_model": kb.embedding_model,
+                        "document_count": kb.document_count,
+                        "chunk_count": kb.chunk_count,
+                        "created_at": kb.created_at.isoformat(),
+                        "updated_at": kb.updated_at.isoformat(),
+                    }
+                    for kb in kbs
+                ],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            },
+        }
+    except AppException as e:
+        raise e
+
+
+@router.get(
+    "/knowledge-bases/{kb_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("knowledge", "read"))],
+)
+async def get_knowledge_base(
+    kb_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """获取知识库详情"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        kb = service.get_knowledge_base(kb_id)
+        return ResponseBase.ok(
+            data=KnowledgeBaseResponse.model_validate(kb).model_dump()
+        )
+    except AppException as e:
+        raise e
+
+
+@router.put(
+    "/knowledge-bases/{kb_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("knowledge", "update"))],
+)
+async def update_knowledge_base(
+    kb_id: str,
+    name: Optional[str] = Query(None, min_length=1, max_length=255),
+    description: Optional[str] = Query(None, max_length=500),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """更新知识库"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        kb = service.update_knowledge_base(kb_id=kb_id, name=name, description=description)
+        return ResponseBase.ok(
+            data=KnowledgeBaseResponse.model_validate(kb).model_dump()
+        )
+    except AppException as e:
+        raise e
+
+
+@router.delete(
+    "/knowledge-bases/{kb_id}",
+    dependencies=[Depends(require_permission("knowledge", "delete"))],
+)
+async def delete_knowledge_base(
+    kb_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """删除知识库"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service.delete_knowledge_base(kb_id)
+        return {"code": 0, "message": "success", "data": None}
+    except AppException as e:
+        raise e
+
+
+# ── 文档 API ─────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/knowledge-bases/{kb_id}/documents/upload",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("knowledge", "upload"))],
+)
+async def upload_document(
+    kb_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """上传文档"""
+    # 1) 扩展名白名单
+    valid_types = ["txt", "pdf", "docx", "md"]
+    file_ext = file.filename.split(".")[-1].lower() if "." in file.filename else ""
+    if file_ext not in valid_types:
+        raise BadRequestException(f"Unsupported file type: {file_ext}")
+
+    # 2) 文件头（magic bytes）校验，防止仅靠扩展名伪造类型
+    magic_map = {
+        "pdf": b"%PDF",
+        "docx": b"PK\x03\x04",
+        # txt/md 为纯文本，不强制 magic，交由后续解析
+    }
+    head = await file.read(8)
+    expected = magic_map.get(file_ext)
+    if expected is not None and not head.startswith(expected):
+        raise BadRequestException(f"File content does not match extension: {file_ext}")
+
+    # 3) 分块读取并强制大小上限，避免整文件读入内存被打满（DoS）
+    max_bytes = config.max_upload_size_mb * 1024 * 1024
+    chunks: list[bytes] = [head]
+    total = len(head)
+    while True:
+        if total > max_bytes:
+            raise BadRequestException("Uploaded file exceeds size limit")
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        chunks.append(chunk)
+    content = b"".join(chunks)
+
+    # 4) 落临时文件
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        doc = service.upload_document(
+            kb_id=kb_id,
+            file_path=tmp_path,
+            file_name=file.filename,
+            file_type=file_ext,
+        )
+        return ResponseBase.ok(
+            data=KnowledgeDocumentResponse.model_validate(doc).model_dump()
+        )
+    finally:
+        # 清理临时文件
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+@router.get(
+    "/knowledge-bases/{kb_id}/documents",
+    response_model=PaginatedResponse,
+    dependencies=[Depends(require_permission("knowledge", "read"))],
+)
+async def list_documents(
+    kb_id: str,
+    status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """列出知识库的文档"""
+    try:
+        doc_status = None
+        if status:
+            try:
+                doc_status = DocumentStatus(status)
+            except ValueError:
+                raise BadRequestException(f"Invalid status: {status}")
+
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        docs, total = service.list_documents(
+            kb_id=kb_id,
+            status=doc_status,
+            page=page,
+            page_size=page_size,
+        )
+        return ResponseBase.ok(
+            data={
+                "items": [
+                    {
+                        "id": doc.id,
+                        "kb_id": doc.kb_id,
+                        "file_name": doc.file_name,
+                        "file_type": doc.file_type,
+                        "file_size": doc.file_size,
+                        "status": doc.status.value,
+                        "chunk_count": doc.chunk_count,
+                        "error_message": doc.error_message,
+                        "processed_at": doc.processed_at.isoformat() if doc.processed_at else None,
+                        "created_at": doc.created_at.isoformat(),
+                    }
+                    for doc in docs
+                ],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+        )
+    except AppException as e:
+        raise e
+
+
+@router.get(
+    "/documents/{doc_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("knowledge", "read"))],
+)
+async def get_document(
+    doc_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """获取文档详情"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        doc = service.get_document(doc_id)
+        return ResponseBase.ok(
+            data=KnowledgeDocumentResponse.model_validate(doc).model_dump()
+        )
+    except AppException as e:
+        raise e
+
+
+@router.delete(
+    "/documents/{doc_id}",
+    dependencies=[Depends(require_permission("knowledge", "delete"))],
+)
+async def delete_document(
+    doc_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """删除文档"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service.delete_document(doc_id)
+        return ResponseBase.ok()
+    except AppException as e:
+        raise e
+
+
+# ── 分块 API ─────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/documents/{doc_id}/chunks",
+    response_model=PaginatedResponse,
+    dependencies=[Depends(require_permission("knowledge", "read"))],
+)
+async def get_document_chunks(
+    doc_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """获取文档的分块列表"""
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        chunks, total = service.get_chunks(doc_id=doc_id, page=page, page_size=page_size)
+        return ResponseBase.ok(
+            data={
+                "items": [
+                    {
+                        "id": chunk.id,
+                        "content": chunk.content,
+                        "chunk_index": chunk.chunk_index,
+                        # 出处区间：块可跨页/跨小节（结构组合并的必然结果），故用
+                        # [source_page, source_page_end] 表达页码范围，前端显示
+                        # 「第 37–38 页」。单页块两者相等；非 PDF 两者同为 None。
+                        # heading_path_mixed 为真时 heading_path 是**粗化**的公共祖先，
+                        # 应显示成「§A 等小节」而不是断言「本块出自 A」。
+                        "source_page": chunk.source_page,
+                        "source_page_end": chunk.source_page_end,
+                        "heading_path": chunk.heading_path,
+                        "heading_path_mixed": chunk.heading_path_mixed,
+                        # 块类型：前端据此选择渲染方式（表格按列渲染、代码保留换行）。
+                        # 迁移已把历史行回填为 'text'，故此处不做 None 兜底——若出现
+                        # None 说明列约束被绕过，那是应当暴露的问题而不是该静默掩盖的。
+                        "chunk_type": chunk.chunk_type,
+                        "created_at": chunk.created_at.isoformat(),
+                    }
+                    for chunk in chunks
+                ],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+        )
+    except AppException as e:
+        raise e
+
+
+# ── 向量检索 API ─────────────────────────────────────────────────────────────
+
+@router.post(
+    "/knowledge-bases/{kb_id}/search",
+    dependencies=[Depends(require_permission("knowledge", "read"))],
+)
+async def search_knowledge_base(
+    response: Response,
+    kb_id: str,
+    query: str = Query(..., min_length=1),
+    top_k: int = Query(5, ge=1, le=50),
+    score_threshold: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="相似度下限；缺省时使用服务端配置 retrieval_score_threshold",
+    ),
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """检索知识库
+
+    降级时（Qdrant 集合缺失 / 后端不可用）仍返回 200 与空结果，以保持既有调用方
+    （前端 ``SearchResult[]``、Agent 工具、工作流节点）行为不变；同时通过
+    ``X-Retrieval-Degraded`` 与 ``X-Retrieval-Reason`` 响应头把「后端故障」与
+    「确无相关内容」区分开——调用方与排障者据此判断，而不必翻日志、更不必去猜。
+
+    之所以用响应头而非修改响应体：响应体结构已被前端直接消费，改成
+    ``{results, degraded}`` 属破坏性变更，而该诊断信息的价值不足以抵偿联调成本。
+    """
+    try:
+        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        outcome = service.search_with_diagnostics(
+            kb_id=kb_id,
+            query=query,
+            top_k=top_k,
+            score_threshold=score_threshold,
+        )
+        if outcome.degraded:
+            response.headers["X-Retrieval-Degraded"] = "1"
+            response.headers["X-Retrieval-Reason"] = outcome.reason or "unknown"
+        return ResponseBase.ok(
+            data=outcome.results
+        )
+    except AppException as e:
+        raise e

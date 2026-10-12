@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
+import { appTheme } from '@/theme'
 import { useEffect } from 'react'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/Layout/AppLayout'
@@ -30,8 +31,9 @@ import Roles from '@/pages/System/Roles'
 import AuditLogs from '@/pages/System/AuditLogs'
 import TenantSettings from '@/pages/System/TenantSettings'
 import TenantList from '@/pages/Admin/TenantList'
-import TenantDetail from '@/pages/Admin/TenantDetail'
 import AdminGuard from '@/components/AdminGuard'
+import TenantAdminGuard from '@/components/TenantAdminGuard'
+import TenantUserGuard from '@/components/TenantUserGuard'
 import './styles/global.css'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
@@ -71,7 +73,7 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider locale={zhCN} theme={appTheme}>
       <BrowserRouter>
         <AppInitializer>
           <Routes>
@@ -95,62 +97,60 @@ export default function App() {
               path="/"
               element={
                 <AuthRoute>
-                  <AppLayout />
+                  <TenantUserGuard>
+                    <AppLayout />
+                  </TenantUserGuard>
                 </AuthRoute>
               }
             >
-              <Route index element={<Dashboard />} />
+              <Route index element={<TenantHome />} />
               {/* Phase 2: AI 模型管理 */}
-              <Route path="providers" element={<ProviderList />} />
-              <Route path="providers/new" element={<ProviderForm />} />
-              <Route path="providers/:id/edit" element={<ProviderForm />} />
-              <Route path="ai-models" element={<ModelList />} />
-              <Route path="ai-models/new" element={<ModelForm />} />
-              <Route path="ai-models/:id/edit" element={<ModelForm />} />
+              <Route path="providers" element={<TenantAdminGuard><ProviderList /></TenantAdminGuard>} />
+              <Route path="providers/new" element={<TenantAdminGuard><ProviderForm /></TenantAdminGuard>} />
+              <Route path="providers/:id/edit" element={<TenantAdminGuard><ProviderForm /></TenantAdminGuard>} />
+              <Route path="ai-models" element={<TenantAdminGuard><ModelList /></TenantAdminGuard>} />
+              <Route path="ai-models/new" element={<TenantAdminGuard><ModelForm /></TenantAdminGuard>} />
+              <Route path="ai-models/:id/edit" element={<TenantAdminGuard><ModelForm /></TenantAdminGuard>} />
               {/* Phase 3: Prompt 管理 */}
-              <Route path="prompts" element={<PromptList />} />
-              <Route path="prompts/new" element={<PromptEditor />} />
-              <Route path="prompts/:id/edit" element={<PromptEditor />} />
-              <Route path="prompts/:id" element={<PromptDetail />} />
+              <Route path="prompts" element={<TenantAdminGuard><PromptList /></TenantAdminGuard>} />
+              <Route path="prompts/new" element={<TenantAdminGuard><PromptEditor /></TenantAdminGuard>} />
+              <Route path="prompts/:id/edit" element={<TenantAdminGuard><PromptEditor /></TenantAdminGuard>} />
+              <Route path="prompts/:id" element={<TenantAdminGuard><PromptDetail /></TenantAdminGuard>} />
               {/* Phase 4: 知识库 */}
               <Route path="knowledge" element={<KnowledgeList />} />
               <Route path="knowledge/:kbId" element={<KnowledgeDetail />} />
               {/* Phase 5: Agent */}
               <Route path="agents" element={<AgentList />} />
-              <Route path="agents/create" element={<AgentForm />} />
-              <Route path="agents/:agentId/edit" element={<AgentForm />} />
+              <Route path="agents/create" element={<TenantAdminGuard><AgentForm /></TenantAdminGuard>} />
+              <Route path="agents/:agentId/edit" element={<TenantAdminGuard><AgentForm /></TenantAdminGuard>} />
               <Route path="agents/:agentId/chat" element={<AgentChat />} />
               {/* Phase 6: Workflow */}
               <Route path="workflows" element={<WorkflowList />} />
-              <Route path="workflows/create" element={<WorkflowForm />} />
-              <Route path="workflows/:workflowId" element={<WorkflowEditor />} />
-              <Route path="workflows/:workflowId/edit" element={<WorkflowEditor />} />
+              <Route path="workflows/create" element={<TenantAdminGuard><WorkflowForm /></TenantAdminGuard>} />
+              <Route path="workflows/:workflowId" element={<TenantAdminGuard><WorkflowEditor /></TenantAdminGuard>} />
+              <Route path="workflows/:workflowId/edit" element={<TenantAdminGuard><WorkflowEditor /></TenantAdminGuard>} />
               <Route path="workflows/:workflowId/execute" element={<WorkflowExecution />} />
               {/* Phase 7: 插件系统 */}
-              <Route path="plugins" element={<PluginList />} />
-              <Route path="plugins/:id/config" element={<PluginConfig />} />
+              <Route path="plugins" element={<TenantAdminGuard><PluginList /></TenantAdminGuard>} />
+              <Route path="plugins/:id/config" element={<TenantAdminGuard><PluginConfig /></TenantAdminGuard>} />
               {/* Phase 8: 监控审计 & 系统管理 */}
-              <Route path="system/users" element={<Users />} />
-              <Route path="system/roles" element={<Roles />} />
-              <Route path="system/audit-logs" element={<AuditLogs />} />
-              <Route path="system/tenant" element={<TenantSettings />} />
-              {/* Phase 8: 平台管理（仅超级管理员） */}
-              <Route
-                path="admin/tenants"
-                element={
+              <Route path="system/users" element={<TenantAdminGuard><Users /></TenantAdminGuard>} />
+              <Route path="system/roles" element={<TenantAdminGuard><Roles /></TenantAdminGuard>} />
+              <Route path="system/audit-logs" element={<TenantAdminGuard><AuditLogs /></TenantAdminGuard>} />
+              <Route path="system/tenant" element={<TenantAdminGuard><TenantSettings /></TenantAdminGuard>} />
+            </Route>
+            {/* 平台管理员只进入租户创建页面，不进入租户业务工作区。 */}
+            <Route
+              path="/admin/tenants"
+              element={
+                <AuthRoute>
                   <AdminGuard>
-                    <TenantList />
+                    <AppLayout />
                   </AdminGuard>
-                }
-              />
-              <Route
-                path="admin/tenants/:id"
-                element={
-                  <AdminGuard>
-                    <TenantDetail />
-                  </AdminGuard>
-                }
-              />
+                </AuthRoute>
+              }
+            >
+              <Route index element={<TenantList />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -158,4 +158,10 @@ export default function App() {
       </BrowserRouter>
     </ConfigProvider>
   )
+}
+
+function TenantHome() {
+  const user = useAuthStore((s) => s.user)
+  if (user?.roles?.some((role) => role.is_admin && role.status)) return <Dashboard />
+  return <Navigate to="/agents" replace />
 }

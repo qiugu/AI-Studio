@@ -1,4 +1,4 @@
-import { Layout, Avatar, Dropdown, Space } from 'antd'
+import { Layout, Avatar, Dropdown, Space, Button, Tooltip } from 'antd'
 import { MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined, LogoutOutlined } from '@ant-design/icons'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -45,16 +45,21 @@ export default function Header() {
     <AntHeader
       style={{
         padding: '0 24px',
-        background: '#fff',
+        background: 'var(--app-color-surface-strong)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+        boxShadow: '0 1px 4px rgba(8, 29, 44, 0.1)',
       }}
     >
-      <div style={{ fontSize: 18, cursor: 'pointer' }} onClick={toggleSidebar}>
-        {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-      </div>
+      <Tooltip title={collapsed ? '展开侧栏' : '收起侧栏'}>
+        <Button
+          type="text"
+          aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
+          icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          onClick={toggleSidebar}
+        />
+      </Tooltip>
       <Dropdown menu={{ items: dropdownItems, onClick: handleDropdownClick }} placement="bottomRight">
         <Space style={{ cursor: 'pointer' }}>
           <Avatar icon={<UserOutlined />} src={user?.avatar || undefined} size="small" />

@@ -72,14 +72,22 @@ AI-Studio 把这些能力收敛到一个平台：
 
 ## 快速体验
 
-项目支持多种部署方式。快速体验推荐使用 Docker Compose 一键拉起全部依赖与前后端服务（MySQL、Redis、Qdrant、后端 API、Celery Worker、前端 Nginx）：
+项目支持多种部署方式。快速体验推荐使用 Docker Compose 一键拉起全部依赖与前后端服务（MySQL、Redis、RabbitMQ、Qdrant、后端 API、Celery Worker、前端 Nginx）：
 
 ```bash
 cp .env.example .env      # 按需修改密码与密钥
 docker compose up -d --build
 ```
 
-启动后访问前端控制台 `http://localhost:80`，注册账号（自动初始化租户），在「AI 模型管理」中配置模型供应商与 API Key 即可开始使用。
+Redis 仅承担缓存、限流和 Token 黑名单；Celery 任务通过 RabbitMQ 的持久 quorum queue 投递，任务业务状态写入 MySQL。
+
+开发时可直接启动 Compose Watch；后端和 Celery 代码会同步重启，依赖或前端源码变化会自动重建对应镜像：
+
+```bash
+docker compose watch
+```
+
+启动后访问前端控制台 `http://localhost:80`。平台管理员创建租户并开通首位租户管理员账号；租户管理员再创建成员账号并配置模型与业务权限。
 
 如果已有 Kubernetes 集群，也可以使用项目提供的可选 K8s 部署方案：
 

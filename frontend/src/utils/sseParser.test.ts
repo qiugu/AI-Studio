@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { SSEParser } from './sseParser'
 
 describe('SSEParser', () => {
+  it('keeps the event name for a complete CRLF frame', () => {
+    const parser = new SSEParser()
+
+    expect(parser.feed('event: done\r\ndata: {}\r\n\r\n')).toEqual([
+      { event: 'done', data: '{}' },
+    ])
+  })
+
   it('parses CRLF frames split across chunks', () => {
     const parser = new SSEParser()
 
@@ -28,6 +36,15 @@ describe('SSEParser', () => {
 
     expect(parser.feed('event: message\ndata: first\ndata: second\n\n')).toEqual([
       { event: 'message', data: 'first\nsecond' },
+    ])
+  })
+
+  it('flushes a final frame without a trailing blank line', () => {
+    const parser = new SSEParser()
+
+    expect(parser.feed('event: done\r\ndata: {"conversation_id":"c1"}')).toEqual([])
+    expect(parser.flush()).toEqual([
+      { event: 'done', data: '{"conversation_id":"c1"}' },
     ])
   })
 })

@@ -37,6 +37,12 @@
 
 **关系**: users ↔ roles (多对多, 通过 user_roles)
 
+### 平台管理员首次引导
+
+平台管理员仍作为 `users` 记录保存，`is_platform_admin=true` 作为平台级授权标记，不通过租户 RBAC 角色提权。由于 `users.tenant_id` 是必填外键，初始化器会在首次运行时创建或复用 `is_system_init=true` 的系统归属租户，并将引导管理员关联到该租户、设为 owner。该账号邮箱需全局唯一。
+
+部署时由 `PLATFORM_ADMIN_EMAIL` 与 `PLATFORM_ADMIN_PASSWORD` 显式提供首次凭据；两者必须同时设置，密码至少 12 位。密码仅以项目密码哈希函数生成的哈希写入数据库。初始化器可重复运行：已有同邮箱平台管理员保持原状，不会重置密码；邮箱已归属普通用户时中止初始化，不会将其静默提升。凭据未设置则跳过创建，不存在内置默认账号/密码。详细部署步骤见 [Kubernetes 部署说明](../deploy/k8s/README.md) 与根目录 `AGENTS.md`。
+
 ### roles 角色表
 
 | 字段 | 类型 | 说明 |

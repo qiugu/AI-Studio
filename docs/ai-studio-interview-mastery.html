@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI-Studio 面试作战图</title>
+  <style>
+    :root{--paper:#f5f7fb;--ink:#172033;--muted:#657089;--line:#d9dfeb;--panel:#fff;--accent:#176b87;--accent-soft:#e4f2f6;--warn:#8a4b08;--warn-soft:#fff4dc;--ok:#276749;--rail:#101827}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+    button,input{font:inherit}.shell{min-height:100vh;display:grid;grid-template-columns:240px minmax(0,1fr)}
+    aside{position:sticky;top:0;height:100vh;background:var(--rail);color:#e9eef7;padding:28px 20px;display:flex;flex-direction:column;gap:24px}
+    .brand{font:700 25px/1.2 Georgia,"Songti SC",serif;letter-spacing:.02em}.brand small{display:block;margin-top:8px;color:#9eabc1;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+    nav{display:grid;gap:5px}.nav{border:0;background:transparent;color:#aeb9ca;text-align:left;padding:10px 12px;border-left:2px solid transparent;cursor:pointer}.nav:hover,.nav.active{color:white;border-left-color:#62c7e5;background:#192438}
+    .progress{margin-top:auto;border-top:1px solid #2c374b;padding-top:18px;color:#aeb9ca;font-size:12px}.bar{height:5px;background:#2c374b;margin-top:8px}.bar i{display:block;height:100%;background:#62c7e5;width:0;transition:width .25s}
+    main{padding:44px clamp(24px,5vw,72px) 80px;max-width:1280px}.view{display:none}.view.active{display:block}
+    .eyebrow{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);letter-spacing:.12em;text-transform:uppercase}.hero{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:36px;align-items:end;border-bottom:1px solid var(--line);padding-bottom:28px}
+    h1,h2,h3{font-family:Georgia,"Songti SC",serif;margin:0}h1{font-size:clamp(34px,5vw,60px);line-height:1.08;max-width:760px;margin-top:10px}h2{font-size:28px;margin:38px 0 16px}h3{font-size:18px}p{margin:8px 0}.lede{font-size:18px;color:var(--muted);max-width:820px}
+    .stamp{border:1px solid var(--line);background:var(--panel);padding:16px;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace}.stamp b{display:block;color:var(--ok);font-size:20px}
+    .grid{display:grid;gap:14px}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:repeat(2,1fr)}
+    .stat,.card,.flow{background:var(--panel);border:1px solid var(--line)}.stat{padding:18px}.stat strong{font:700 30px Georgia,serif;display:block}.stat span{color:var(--muted);font-size:13px}
+    .card{padding:22px}.card p{color:var(--muted)}.callout{padding:18px 20px;border-left:4px solid var(--accent);background:var(--accent-soft);margin:18px 0}.callout.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+    .pitch{font-size:17px;line-height:1.85}.numbered{counter-reset:item;display:grid;gap:10px}.numbered .item{counter-increment:item;display:grid;grid-template-columns:42px 1fr;gap:12px;padding:15px 0;border-bottom:1px solid var(--line)}.numbered .item:before{content:counter(item,decimal-leading-zero);font:13px ui-monospace,monospace;color:var(--accent)}
+    .arch{display:grid;grid-template-columns:1fr 46px 1fr 46px 1fr;align-items:stretch;margin:26px 0}.arch .box{background:var(--panel);border:1px solid var(--line);padding:22px}.arrow{display:grid;place-items:center;color:var(--accent);font-weight:700}
+    table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line)}th,td{text-align:left;vertical-align:top;padding:13px 14px;border-bottom:1px solid var(--line)}th{font:12px ui-monospace,monospace;color:var(--muted);background:#eef2f7}td:first-child{font-weight:650}
+    .flow{padding:0;margin:12px 0}.flow summary,.qa summary{cursor:pointer;list-style:none;padding:17px 20px;font-weight:700}.flow summary:before,.qa summary:before{content:"+";display:inline-block;width:24px;color:var(--accent)}.flow[open] summary:before,.qa[open] summary:before{content:"−"}.flow .body,.qa .body{border-top:1px solid var(--line);padding:18px 20px}.flow .body p,.qa .body p{color:var(--muted)}
+    .filters{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.filter{border:1px solid var(--line);background:var(--panel);padding:7px 13px;cursor:pointer}.filter.active{background:var(--rail);color:white;border-color:var(--rail)}
+    .qa{background:var(--panel);border-bottom:1px solid var(--line)}.follow{font-size:13px;color:var(--accent)!important}.train{display:grid;gap:0;background:var(--panel);border:1px solid var(--line)}.train label{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer}.train label:last-child{border:0}.train input{accent-color:var(--accent)}.train input:checked+span{text-decoration:line-through;color:var(--muted)}
+    .tag{display:inline-block;background:var(--accent-soft);color:var(--accent);padding:2px 8px;font:12px ui-monospace,monospace;margin-right:6px}.danger{color:#9c2f2f}.muted{color:var(--muted)}
+    @media(max-width:900px){.shell{grid-template-columns:1fr}aside{position:relative;height:auto}.progress{margin-top:0}.hero{grid-template-columns:1fr}.g4,.g3,.g2{grid-template-columns:1fr}.arch{grid-template-columns:1fr}.arrow{padding:6px}.arrow:after{content:"↓"}.arrow{font-size:0}.arrow:after{font-size:16px}main{padding:28px 18px 60px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.bar i{transition:none}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside>
+    <div class="brand">AI-Studio<br/>面试作战图<small>FULL-STACK / AGENT / RAG</small></div>
+    <nav>
+      <button class="nav active" data-view="home">作战首页</button>
+      <button class="nav" data-view="architecture">架构地图</button>
+      <button class="nav" data-view="flows">核心链路</button>
+      <button class="nav" data-view="questions">高频拷打</button>
+      <button class="nav" data-view="training">训练计划</button>
+      <button class="nav" data-view="limits">边界与复盘</button>
+    </nav>
+    <div class="progress">训练进度 <span id="progressText">0 / 14</span><div class="bar"><i id="progressBar"></i></div></div>
+  </aside>
+  <main>
+    <section id="home" class="view active">
+      <div class="hero"><div><div class="eyebrow">Interview field manual · 2026-10-10</div><h1>把项目讲成一套可信的工程决策</h1><p class="lede">从业务价值一路讲到请求链路、数据边界、模型编排、失败策略、技术取舍与未完成部分。</p></div><div class="stamp"><b>当前代码实证</b>前端 102 条测试通过<br/>后端 990 条通过<br/>1 条环境失败 · 2 条跳过</div></div>
+      <div class="grid g4" style="margin-top:22px"><div class="stat"><strong>117</strong><span>后端 Python 文件</span></div><div class="stat"><strong>106</strong><span>前端 TS/TSX 文件</span></div><div class="stat"><strong>4</strong><span>必须讲透的核心链路</span></div><div class="stat"><strong>14</strong><span>训练日程</span></div></div>
+      <div class="callout"><b>一句话定位</b><br/>AI-Studio 是面向企业多租户场景的 AI 应用平台，把多模型接入、RAG 知识库、可配置 Agent、插件工具、可视化工作流与权限审计统一到一套前后端系统中。</div>
+      <h2>30 秒项目介绍</h2><div class="card pitch">我做的是一个 React + FastAPI 的企业级 AI 应用平台。它不是单纯封装大模型接口，而是把模型、Prompt、知识库、Agent、插件和工作流统一治理。后端用 SQLAlchemy + MySQL 管业务数据，Qdrant 做向量检索，Redis + Celery 做限流和异步文档处理；前端用 React Flow 做工作流、SSE 做对话与执行过程流式展示。项目里我最关注的是多租户隔离、端点级工具授权、RAG 可追溯引用，以及外部依赖失败时的降级与可观测性。</div>
+      <h2>六个必须讲透的亮点</h2><div class="grid g2" id="highlights"></div>
+    </section>
+    <section id="architecture" class="view">
+      <div class="eyebrow">System map</div><h1>架构地图</h1><p class="lede">白板顺序：用户与前端 → 横切中间件 → 业务服务 → 存储与外部依赖。</p>
+      <div class="arch"><div class="box"><h3>React 19 前端</h3><p class="muted">Ant Design · Zustand · React Flow · fetch SSE</p></div><div class="arrow">→</div><div class="box"><h3>FastAPI 应用层</h3><p class="muted">Auth · Tenant · RBAC · Rate Limit · Audit · Service</p></div><div class="arrow">→</div><div class="box"><h3>基础设施</h3><p class="muted">MySQL · Qdrant · Redis · Celery · 外部 LLM/API</p></div></div>
+      <h2>四种组件的职责边界</h2><table><thead><tr><th>组件</th><th>负责</th><th>不负责</th><th>关键词</th></tr></thead><tbody><tr><td>MySQL</td><td>租户、用户、配置、会话、分块原文、执行记录</td><td>近似向量搜索</td><td>事实源、事务、软删除、UUID</td></tr><tr><td>Qdrant</td><td>稠密/稀疏向量与近似召回</td><td>业务权限与完整元数据</td><td>HNSW、payload、collection layout</td></tr><tr><td>Redis</td><td>限流、Token 黑名单、Celery broker/result</td><td>永久业务事实</td><td>TTL、共享状态、降级</td></tr><tr><td>Celery</td><td>解析、分块、Embedding、向量写入</td><td>同步 API 响应</td><td>异步、幂等、状态机</td></tr></tbody></table>
+      <h2>五道防线</h2><div class="numbered"><div class="item"><div><b>CORS 与安全头</b><br/><span class="muted">浏览器边界</span></div></div><div class="item"><div><b>Rate Limit</b><br/><span class="muted">流量边界</span></div></div><div class="item"><div><b>Tenant Middleware</b><br/><span class="muted">租户存在与启停状态</span></div></div><div class="item"><div><b>JWT + RBAC</b><br/><span class="muted">身份与动作权限</span></div></div><div class="item"><div><b>ORM Tenant Scope</b><br/><span class="muted">最终的数据行边界</span></div></div></div>
+    </section>
+    <section id="flows" class="view"><div class="eyebrow">End-to-end</div><h1>四条核心链路</h1><p class="lede">每条都按“入口 → 守卫 → 状态变化 → 外部依赖 → 失败策略 → 观测证据”讲。</p><div id="flowList"></div></section>
+    <section id="questions" class="view"><div class="eyebrow">Drill down</div><h1>高频拷打</h1><p class="lede">先给结论，再讲实现，再讲取舍，最后主动说明边界。</p><div class="filters" id="filters"></div><div id="qaList"></div></section>
+    <section id="training" class="view"><div class="eyebrow">Fourteen days</div><h1>训练计划</h1><p class="lede">勾选状态保存在浏览器本地，刷新后仍会保留。</p><div class="train" id="trainingList"></div><div class="callout"><b>最终练法</b><br/>对我说：“开始 AI-Studio 模拟面试，先让我做 2 分钟项目介绍，然后从全栈追问到 Agent 和 RAG；每题只问一个问题，回答后按准确性、深度、结构、可信度评分。”</div></section>
+    <section id="limits" class="view"><div class="eyebrow">Credibility check</div><h1>边界与复盘</h1><div class="callout warn"><b>可信度比包装更重要</b><br/>高质量回答不是“项目没有问题”，而是能指出边界、影响和可执行的演进路径。</div><table><thead><tr><th>当前边界</th><th>代码事实</th><th>正确说法</th></tr></thead><tbody id="limitRows"></tbody></table></section>
+  </main>
+</div>
+<script>
+const highlights=[['机制化多租户隔离','ContextVar + do_orm_execute + with_loader_criteria，让隔离不依赖每条查询手写。'],['原生工具调用 Agent','StructuredTool + JSON Schema + astream_events，兼顾参数可靠性与流式体验。'],['可演进 RAG 检索','dense / sparse / fusion / dedup / rerank / neighbor window，并具备灰度集合指针。'],['引用可追溯','轮次级编号、chunk 去重、内容快照、SSE 增量与 done 兜底。'],['端点级能力授权','设计期候选裁剪、写入 fail-closed、运行时再校验与 SSRF 防护。'],['全链路可观测','审计、Token/模型调用记录、Workflow/NodeExecution、结构化 SSE 事件。']];
+const flows=[['Agent 流式对话','AgentChat → POST fetch → 权限守卫 → Conversation → 保存用户消息 → AgentService 构建 LLM 与工具 → AgentExecutor 事件流 → message/citations/done SSE → 前端增量合并 → 保存助手消息与引用快照。','为什么 POST SSE、为什么 astream_events、工具多轮 token 如何累计、断流时消息是否落库。'],['RAG 文档入库','上传校验 → pending 文档 → Celery → 结构解析与分块 → embedding → 探测 Qdrant 布局 → 写向量与 MySQL chunk → active_chunk_epoch → completed。','双写一致性、重复任务幂等、vector_id 为什么含 epoch、失败残留如何清理。'],['RAG 在线检索','query embedding → dense → 可选 sparse → weighted fusion → 批量回 MySQL → 去重 → 可选 CrossEncoder → top_k → 邻块窗口与出处 → CitationCollector。','为什么布局和开关分离、为什么先去重再精排、故障与空结果如何区分。'],['工作流执行','发布态校验 → DAG 校验 → WorkflowExecution → Kahn 拓扑排序 → 上游输出合并 → NodeExecution → context → end 输出 → commit → SSE。','同层并发、分支调度、循环展开、长事务、两条执行路径的超时一致性。']];
+const qa={
+'全栈':[
+['为什么这不是一个聊天机器人？','它把模型、Prompt、知识库、Agent、工作流和插件纳入统一租户、权限、审计、配额和部署体系。企业级重点是治理、隔离、可追溯和失败降级。','追问：最难的不是 UI，而是数据边界和外部依赖的不确定性。'],
+['路由、Service、Repository 如何分工？','路由负责校验、权限和协议；Service 负责业务规则与事务；复杂复用查询才进 Repository。租户隔离的最终兜底是 ORM 全局过滤器。','追问：避免为了分层而产生贫血包装。'],
+['多租户如何做到不靠自觉？','认证依赖写入 ContextVar，SQLAlchemy do_orm_execute 在 ORM SELECT 前通过 with_loader_criteria 注入 tenant_id 条件。公共模型和插件有独立 scope clause。','追问：原生 SQL、UPDATE/DELETE、alias 场景仍需显式保护。'],
+['为什么 SSE 用 fetch 而非 EventSource？','需要 POST JSON 请求体和 Authorization header，原生 EventSource 不适合；fetch + ReadableStream 可以流式读取且支持 AbortController。','追问：解析器还要处理跨块半帧、三种换行、多行 data 和心跳。'],
+['JWT 并发刷新如何避免风暴？','isRefreshing 保证单飞，其他 401 请求排队；成功后统一重试，失败则全部 reject 并清认证态。','追问：token 仍在 localStorage，是明确安全欠账。']],
+'Agent':[
+['项目里的 Agent 是什么？','配置化 LLM 运行单元：模型、system prompt、采样参数、历史和授权工具。有工具时走 create_tool_calling_agent + AgentExecutor。','README 写 ReAct 已漂移；当前是模型原生 function calling。'],
+['为什么统一 StructuredTool？','普通 Tool 是单入参语义，多字段 dict 会错绑；StructuredTool 把 JSON Schema 暴露给模型并按关键字执行。','追问：插件 schema 从端点参数定义动态构建。'],
+['工具授权怎样防越权？','候选目录先裁剪，绑定到 plugin_id + endpoint_id；写入 fail-closed，破坏性方法显式确认；运行时再校验。','追问：插件级授权无法区分只读 GET 和破坏性 DELETE。'],
+['工具调用怎样流式输出？','订阅 AgentExecutor.astream_events(v2) 中的模型流和工具事件；工具结束推 citations，最终回答推 message。','追问：多轮模型调用的 token 必须累加。'],
+['CitationCollector 解决什么？','在单轮内跨知识库、跨工具调用统一分配 marker，按 chunk_id 去重并保存内容快照。','追问：重建会让 chunk_id 失效，所以历史引用不能依赖回查。'],
+['如何防 SSRF？','最终 URL 替换路径参数后校验，阻断私网、环回、链路本地、云元数据、保留和 CGNAT，并关闭重定向。','追问：DNS rebinding 仍需网络层出站策略。']],
+'RAG':[
+['为什么 MySQL 和 Qdrant 都要存？','Qdrant 负责近似召回；MySQL 是业务事实源，保存原文、页码、标题、代次与软删状态，召回后批量回表再次约束可见性。','追问：避免 payload 与数据库形成难同步的双份事实。'],
+['混合检索如何工作？','dense 与 sparse 独立召回，经归一化和 alpha 加权融合。集合布局决定 dense using，开关只决定是否跑 sparse。','追问：二者解耦才能安全关闭混合检索而不破坏查询。'],
+['为什么先去重再精排？','副本会吃掉候选预算和 CrossEncoder 成本；先折叠等值正文，再精排，再截 top_k。','追问：不做大小写折叠，避免代码语境误合并。'],
+['邻块扩展解决什么？','命中块可能在句中截断；对最终 top_k 按同文档同代次拉取前后块，去掉 overlap 后拼接。','追问：灰度回滚时必须按命中块代次，而不是文档当前代。'],
+['如何区分故障和没结果？','SearchOutcome 同时返回 results、degraded、reason、collection；Qdrant 故障不能被 Agent 误读为知识库没有内容。','追问：旧 search() 只返回列表，诊断信息会丢失。']],
+'Workflow':[
+['为什么用 Kahn 拓扑排序？','按入度获得依赖顺序；输出节点数不足说明有环，执行前就拒绝。','追问：当前同层节点仍是串行。'],
+['运行态怎样可观测？','WorkflowExecution 记录整次运行，NodeExecution 记录节点输入输出；SSE 同步推送 started/completed/failed。','追问：长事务包含外部调用，后续应拆状态提交边界。'],
+['LLM 节点有什么可靠性保护？','校验模型状态和输出上限，客户端超时，节点指数退避重试，阻塞路径还有总超时。','追问：流式路径未看到同级总超时。'],
+['条件、循环、工具节点完整吗？','不完整。条件只算 label 但仍遍历全部节点；循环只返回描述；工具节点返回模拟字符串。当前应称为可扩展骨架。','改进：条件边激活、循环子图调度、工具复用统一执行器与授权。']]};
+const training=['背熟 30 秒与 2 分钟项目介绍，能画系统边界','追踪登录请求到租户过滤、RBAC 和统一异常','手画文档入库链路，讲清四个基础设施职责','讲清 dense、sparse、fusion、dedup、rerank','追踪 AgentChat 到 SSE、AgentExecutor 与引用落库','讲清插件端点级授权、SSRF 与破坏性门禁','讲清 React Flow、DAG 校验、执行记录与能力边界','复盘请求层、并发刷新、SSE 解析、Markdown 安全','复盘 Docker/K8s、健康检查、迁移与管理员引导','完成 45 分钟全栈模拟面试','只练 Qdrant/Redis/LLM/Celery 故障场景','只练 SSE/Qdrant/LangChain/ContextVar 取舍题','只练工作流骨架、token 存储、长事务等诚实边界','无资料完成系统设计白板与 20 连问'];
+const limits=[['工作流分支未闭环','condition 只产出 label，执行器仍遍历全部节点','当前完成 DAG 骨架；下一步做条件边与激活态调度'],['循环/工具节点是骨架','loop 返回描述，tool 返回模拟字符串','UI 与 Schema 先行，运行语义尚需补齐'],['代码节点不是安全沙箱','限制 builtins 但仍在 API 进程 exec','生产应放独立容器或 microVM，并限制 CPU、内存、网络和超时'],['流式总超时不一致','阻塞路径有 wait_for，SSE 循环没有同级保护','两条协议路径应共享执行策略'],['Token 在 localStorage','access/refresh token 可被脚本读取','更强方案是 HttpOnly Cookie + CSRF'],['AgentService 过大','当前约 1667 行','拆 ToolFactory、AgentRunner、UsageRecorder、ErrorMapper'],['逐字符 SSE','服务端把大块内容拆成单字符事件','应按 token 或小片段批量并设计背压'],['文档存在漂移','README 仍写 ReAct，旧架构文档仍强调 BaseRepository','以代码为准，并用 ADR/OpenAPI/CI 收敛'],['租户过滤有边界','只自动覆盖 ORM SELECT','原生 SQL、写操作与 alias 要显式约束和跨租户测试']];
+document.querySelector('#highlights').innerHTML=highlights.map((x,i)=>`<div class="card"><span class="tag">0${i+1}</span><h3>${x[0]}</h3><p>${x[1]}</p></div>`).join('');
+document.querySelector('#flowList').innerHTML=flows.map(x=>`<details class="flow" open><summary>${x[0]}</summary><div class="body"><p>${x[1]}</p><p><b>重点追问：</b>${x[2]}</p></div></details>`).join('');
+let activeTrack='Agent';function renderQA(){document.querySelector('#filters').innerHTML=Object.keys(qa).map(k=>`<button class="filter ${k===activeTrack?'active':''}" data-track="${k}">${k}</button>`).join('');document.querySelector('#qaList').innerHTML=qa[activeTrack].map((x,i)=>`<details class="qa"><summary>${i+1}. ${x[0]}</summary><div class="body"><p>${x[1]}</p><p class="follow">${x[2]}</p></div></details>`).join('');document.querySelectorAll('[data-track]').forEach(b=>b.onclick=()=>{activeTrack=b.dataset.track;renderQA()})}renderQA();
+const saved=JSON.parse(localStorage.getItem('aiStudioInterviewProgress')||'{}');function updateProgress(){const n=Object.values(saved).filter(Boolean).length;document.querySelector('#progressText').textContent=`${n} / 14`;document.querySelector('#progressBar').style.width=`${n/14*100}%`}document.querySelector('#trainingList').innerHTML=training.map((x,i)=>`<label><input type="checkbox" data-day="${i}" ${saved[i]?'checked':''}/><span>第 ${i+1} 天：${x}</span></label>`).join('');document.querySelectorAll('[data-day]').forEach(c=>c.onchange=()=>{saved[c.dataset.day]=c.checked;localStorage.setItem('aiStudioInterviewProgress',JSON.stringify(saved));updateProgress()});updateProgress();
+document.querySelector('#limitRows').innerHTML=limits.map(x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td>${x[2]}</td></tr>`).join('');
+document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav,.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelector('#'+b.dataset.view).classList.add('active');window.scrollTo(0,0)});
+</script>
+</body>
+</html>

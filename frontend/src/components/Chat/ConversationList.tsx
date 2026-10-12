@@ -11,6 +11,7 @@ interface ConversationListProps {
   onCreateNew: () => void
   onDelete?: (conversation: Conversation) => void
   onRename?: (conversation: Conversation) => void
+  showCreateButton?: boolean
 }
 
 // Extract last message preview
@@ -119,14 +120,7 @@ const ConversationItem = memo(function ConversationItem({
 
   return (
     <div
-      className={`
-        group relative flex items-start justify-between gap-4 px-4 py-3.5 rounded-lg cursor-pointer
-        transition-all duration-200 ease-in-out border-l-3
-        ${isActive
-          ? 'bg-blue-50/40 border-blue-500 shadow-xs'
-          : 'bg-white hover:bg-gray-50/80 border-transparent hover:border-gray-400'
-        }
-      `}
+      className={`conversation-item ${isActive ? 'conversation-item--active' : ''}`}
       onClick={onSelect}
       role="button"
       tabIndex={0}
@@ -137,17 +131,18 @@ const ConversationItem = memo(function ConversationItem({
         }
       }}
     >
-      <div className="flex-1 min-w-0">
+      <div className="conversation-item__body">
         {/* Title and badge */}
-        <div className="flex items-center gap-2.5 mb-2">
-          <h3 className="font-semibold text-base text-gray-900 truncate flex-1 leading-snug">
+        <div className="conversation-item__title-row">
+          <h3 className="conversation-item__title">
             {conversation.title}
           </h3>
           {messageCount > 0 && (
             <Badge
               count={messageCount}
+              className="conversation-item__count"
               style={{
-                backgroundColor: isActive ? '#3b82f6' : '#9ca3af',
+                backgroundColor: isActive ? 'var(--app-color-primary)' : 'var(--app-color-text-muted)',
                 fontSize: '11px',
                 fontWeight: '500',
                 minWidth: '20px',
@@ -160,15 +155,15 @@ const ConversationItem = memo(function ConversationItem({
 
         {/* Message preview */}
         {messagePreview && (
-          <p className="text-sm text-gray-600 truncate leading-relaxed">
+          <p className="conversation-item__preview">
             {messagePreview}
           </p>
         )}
       </div>
 
       {/* Time and actions */}
-      <div className="flex flex-col items-end gap-2 flex-shrink-0 mt-0.5">
-        <span className="text-xs text-gray-500 tabular-nums">
+      <div className="conversation-item__aside">
+        <span className="conversation-item__time">
           {formatRelativeTime(conversation.updated_at)}
         </span>
 
@@ -180,15 +175,11 @@ const ConversationItem = memo(function ConversationItem({
             placement="bottomRight"
           >
             <button
-              className={`
-                opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                p-1.5 hover:bg-gray-100 rounded-md focus:outline-none focus-visible:ring-2
-                focus-visible:ring-blue-500 focus-visible:ring-offset-2
-              `}
+              className="conversation-item__more"
               onClick={(e) => e.stopPropagation()}
               aria-label="对话操作"
             >
-              <MoreOutlined className="text-base text-gray-600" />
+              <MoreOutlined />
             </button>
           </Dropdown>
         )}
@@ -204,6 +195,7 @@ export default function ConversationList({
   onCreateNew,
   onDelete,
   onRename,
+  showCreateButton = true,
 }: ConversationListProps) {
   const groupedConversations = useMemo(
     () => groupConversationsByDate(conversations),
@@ -211,37 +203,39 @@ export default function ConversationList({
   )
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="conversation-list">
       {/* New conversation button */}
-      <Button
-        type="primary"
-        icon={<PlusOutlined />}
-        onClick={onCreateNew}
-        block
-        className="mb-5 h-11 font-semibold text-base shadow-sm hover:shadow-md transition-shadow"
-      >
-        新对话
-      </Button>
+      {showCreateButton && (
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={onCreateNew}
+          block
+          className="conversation-list__new"
+        >
+          新对话
+        </Button>
+      )}
 
       {/* Conversation list */}
-      <div className="flex-1 overflow-y-auto -mx-2 px-2 space-y-5">
+      <div className="conversation-list__scroll">
         {conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center px-8 py-16">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center mb-6 shadow-sm">
-              <MessageOutlined className="text-4xl text-gray-400" />
+          <div className="conversation-list__empty">
+            <div className="conversation-list__empty-icon">
+              <MessageOutlined />
             </div>
-            <p className="text-gray-700 mb-2 font-semibold text-lg">暂无对话历史</p>
-            <p className="text-sm text-gray-500 mb-5 max-w-xs leading-relaxed">
-              开始创建你的第一个对话，与 AI 助手交流想法
+            <p className="conversation-list__empty-title">暂无对话历史</p>
+            <p className="conversation-list__empty-hint">
+              创建一个会话，保留这次任务的上下文
             </p>
             <Button
               type="default"
-              size="large"
+              size="middle"
               icon={<PlusOutlined />}
               onClick={onCreateNew}
-              className="shadow-sm hover:shadow-md transition-shadow"
+              className="conversation-list__empty-action"
             >
-              创建对话
+              创建首个对话
             </Button>
           </div>
         ) : (
@@ -249,21 +243,21 @@ export default function ConversationList({
             if (convs.length === 0) return null
 
             return (
-              <div key={period} className="space-y-2">
+              <div key={period} className="conversation-group">
                 {/* Period header */}
-                <div className="px-3 mb-3 sticky top-0 bg-white z-10 py-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">
+                <div className="conversation-group__header">
+                  <div className="conversation-group__label-row">
+                    <span className="conversation-group__label">
                       {period}
                     </span>
-                    <span className="text-xs text-gray-500 tabular-nums">
+                    <span className="conversation-group__count">
                       {convs.length} 个对话
                     </span>
                   </div>
                 </div>
 
                 {/* Conversation items */}
-                <div className="space-y-2">
+                <div className="conversation-group__items">
                   {convs.map((conv) => (
                     <ConversationItem
                       key={conv.id}

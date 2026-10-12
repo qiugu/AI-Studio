@@ -218,35 +218,15 @@ export interface TenantSettings {
   usage: TenantUsage
 }
 
-export interface AdminTenant {
-  id: string
-  name: string
-  description: string | null
-  plan: string
-  max_users: number
-  max_models: number
-  status: boolean
-  is_system_init: boolean
-  created_at: string | null
-  usage: TenantUsage | null
-}
-
 export interface TenantCreateRequest {
   name: string
   description?: string
-  plan?: string
-  max_users?: number
-  max_models?: number
+  admin_email: string
+  admin_password: string
 }
 
-export interface TenantUpdateRequest {
-  name?: string
-  description?: string
-  plan?: string
-  status?: boolean
-}
-
-export interface TenantQuotaUpdate {
-  max_users?: number
-  max_models?: number
+export interface TenantCreateResponse {
+  tenant_id: string
+  admin_email: string
+  message: string
 }

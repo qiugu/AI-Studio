@@ -3,7 +3,7 @@
  */
 
 import { getToken } from './auth'
-import { SSEParser } from './sseParser'
+import { SSEParser, type SSEEvent } from './sseParser'
 import type { Citation } from '@/types/agent'
 
 /**
@@ -86,58 +86,61 @@ export function createStreamRequest(
       let conversationId: string | undefined
       const parser = new SSEParser()
 
+      const handleEvents = (events: SSEEvent[]): boolean => {
+        for (const { event: eventType, data: dataStr } of events) {
+          try {
+            const data: SSEData = JSON.parse(dataStr)
+
+            if (eventType === 'message') {
+              if (data.content) {
+                fullContent += data.content
+                callbacks.onContent?.(data.content)
+              }
+            } else if (eventType === 'citations') {
+              if (data.citations && data.citations.length > 0) {
+                callbacks.onCitations?.(data.citations, data.tool, data.query)
+              }
+            } else if (eventType === 'done') {
+              if (data.conversation_id) {
+                conversationId = data.conversation_id
+              }
+              if (data.citations && data.citations.length > 0) {
+                callbacks.onCitations?.(data.citations, undefined, undefined)
+              }
+              callbacks.onComplete?.(fullContent, conversationId)
+              return true
+            } else if (eventType === 'error') {
+              callbacks.onError?.(data.error || '执行失败', data.error_code)
+              return true
+            }
+          } catch (e) {
+            // JSON 解析失败，忽略
+            console.warn('Failed to parse SSE data:', dataStr, e)
+          }
+        }
+        return false
+      }
+
       try {
         while (true) {
           const { done, value } = await reader.read()
 
           if (done) {
-            // 流式结束
-            callbacks.onComplete?.(fullContent, conversationId)
-            break
+            // 代理可能在最后一帧后省略 SSE 规范中的空行；先刷新解码器和解析器，
+            // 避免把已完整收到的 done/error 帧误判为流中断。
+            const trailingChunk = decoder.decode()
+            if (handleEvents(parser.feed(trailingChunk).concat(parser.flush()))) return
+
+            // Agent SSE 契约要求以 done / error 事件结束。底层流直接关闭意味着
+            // 网关、后端或网络在终止事件到达前中断；若仍按成功完成处理，页面会把
+            // 助手占位符固化成空白气泡，掩盖真正故障。
+            callbacks.onError?.('响应流意外中断，请重试', 'STREAM_INCOMPLETE')
+            return
           }
 
           // 解码数据块
           const chunk = decoder.decode(value, { stream: true })
-          for (const { event: eventType, data: dataStr } of parser.feed(chunk)) {
-            try {
-              const data: SSEData = JSON.parse(dataStr)
-
-              // 根据事件类型处理
-              if (eventType === 'message') {
-                // 内容块
-                if (data.content) {
-                  fullContent += data.content
-                  callbacks.onContent?.(data.content)
-                }
-              } else if (eventType === 'citations') {
-                // 引用溯源：知识库工具召回后增量推送，先于正文到达，
-                // 前端因此可以在模型还在生成时就展示来源面板。
-                if (data.citations && data.citations.length > 0) {
-                  callbacks.onCitations?.(data.citations, data.tool, data.query)
-                }
-              } else if (eventType === 'done') {
-                // 流式完成
-                if (data.conversation_id) {
-                  conversationId = data.conversation_id
-                }
-                // done 冗余携带全量引用（设计 D5）：流式 citations 事件若因网络
-                // 或后端异常丢包，这里仍能把来源补回来。调用方按 marker 去重后合并。
-                if (data.citations && data.citations.length > 0) {
-                  callbacks.onCitations?.(data.citations, undefined, undefined)
-                }
-                callbacks.onComplete?.(fullContent, conversationId)
-                return
-              } else if (eventType === 'error') {
-                // 错误事件（后端未给 error 文案时的兜底措辞，不能写死成「模型调用失败」——
-                // 认证/限流/工具装配等失败并未走到模型）
-                callbacks.onError?.(data.error || '执行失败', data.error_code)
-                return
-              }
-            } catch (e) {
-              // JSON 解析失败，忽略
-              console.warn('Failed to parse SSE data:', dataStr, e)
-            }
-          }
+          if (handleEvents(parser.feed(chunk))) return
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {

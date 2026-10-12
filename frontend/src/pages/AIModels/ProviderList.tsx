@@ -120,7 +120,7 @@ export default function ProviderList() {
                     okButtonProps={{ danger: true }}
                     cancelText="取消"
                   >
-                    <DeleteOutlined title="删除" style={{ color: '#ff4d4f' }} />
+                    <DeleteOutlined title="删除" style={{ color: 'var(--app-color-danger)' }} />
                   </Popconfirm>,
                 ]}
               >

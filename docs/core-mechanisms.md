@@ -724,10 +724,10 @@ def search(
 }
 ```
 
-### 3.6 Celery 异步任务（待完成）
+### 3.6 Celery 异步任务
 
 ```python
-# app/services/knowledge_processor.py (待实现)
+# app/services/knowledge_processor.py（实现入口示意）
 from celery import shared_task
 from app.utils.document import DocumentParser, TextSplitter
 from app.utils.embedding import get_embedding_client
@@ -783,17 +783,20 @@ def process_document_task(doc_id: int, file_path: str, tenant_id: int):
         doc_repo.update(doc_id, status=DocumentStatus.FAILED, error_message=str(e))
 ```
 
-**Celery 配置**（待完成）：
+**Celery 配置**：
 ```bash
 # 启动 Celery worker
-celery -A app.core.celery_app worker --loglevel=info
+celery -A app.core.celery_app worker --pool=threads --loglevel=info \
+  --queues=default,document.ingest,tenant.cleanup
 
 # 启动 Celery beat（定时任务调度器，可选）
 celery -A app.core.celery_app beat --loglevel=info
 ```
 
 **注意事项**：
-- Celery broker 需配置 Redis（`config.redis_url`）
+- Celery Broker 使用 RabbitMQ quorum queue，并启用 publisher confirms
+- Redis 仅用于缓存、限流和 Token 黑名单，不再承担 Broker 或 Result Backend
+- 任务采用 late ack；任务实现必须幂等，失败写入 MySQL 后仍须向 Celery 传播异常
 - Worker 进程需独立运行，不依赖 FastAPI 主进程
 - 任务失败时会记录 `error_message` 到文档记录，便于排查
 
@@ -1117,6 +1120,13 @@ class Config(BaseSettings):
     redis_password: SecretStr = SecretStr('')
     redis_db: int = 0
 
+    # RabbitMQ / Celery Broker
+    rabbitmq_host: str = 'localhost'
+    rabbitmq_port: int = 5672
+    rabbitmq_username: str = 'ai_studio'
+    rabbitmq_password: SecretStr = SecretStr('')
+    rabbitmq_vhost: str = 'ai-studio'
+
     # JWT (新增)
     jwt_secret_key: SecretStr = SecretStr('change-me-in-production')
     jwt_algorithm: str = 'HS256'
@@ -1131,8 +1141,8 @@ class Config(BaseSettings):
     max_upload_size_mb: int = 50
 
     # Celery (新增)
-    celery_broker_url: str = 'redis://localhost:6379/1'
-    celery_result_backend: str = 'redis://localhost:6379/2'
+    celery_broker_url: str = ''      # 留空时由 rabbitmq_* 安全构造
+    celery_result_backend: str = ''  # 业务状态存 MySQL，默认禁用
 
     model_config = {'env_file': str(BASE_DIR / '.env')}
 ```

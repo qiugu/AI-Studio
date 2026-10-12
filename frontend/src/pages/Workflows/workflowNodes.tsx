@@ -14,12 +14,12 @@ import {
   EditOutlined,
   DeleteOutlined,
 } from '@ant-design/icons'
-import type { NodeType } from '../../types/workflow'
+import type { NodeType, WorkflowNodeConfig } from '../../types/workflow'
 import './WorkflowEditor.css'
 
 interface CustomNodeData {
   name: string
-  config?: any
+  config?: WorkflowNodeConfig
   onEdit?: (nodeId: string) => void
   onDelete?: (nodeId: string) => void
 }
@@ -108,10 +108,10 @@ const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> =
         {/* Node content preview */}
         <div className="workflow-node-content">
           {nodeType === 'llm' && data.config?.model_id && (
-            <div>模型ID: {data.config.model_id}</div>
+            <div>模型：已选择</div>
           )}
           {nodeType === 'knowledge' && data.config?.knowledge_base_id && (
-            <div>知识库ID: {data.config.knowledge_base_id}</div>
+            <div>知识库：已选择</div>
           )}
           {nodeType === 'condition' && data.config?.conditions && (
             <div>条件数: {data.config.conditions.length}</div>
@@ -121,8 +121,8 @@ const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> =
               <pre>{data.config.code.substring(0, 100)}</pre>
             </div>
           )}
-          {nodeType === 'loop' && data.config?.iterations && (
-            <div>迭代次数: {data.config.iterations}</div>
+          {nodeType === 'loop' && data.config?.max_iterations && (
+            <div>最大迭代次数: {data.config.max_iterations}</div>
           )}
         </div>
 
@@ -152,6 +152,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> =
   }
 )
 
+// eslint-disable-next-line react-refresh/only-export-components -- React Flow 需要稳定的节点组件工厂
 export const createNodeComponent = (nodeType: NodeType) => {
   return (props: NodeProps<CustomNodeData>) => (
     <CustomNode {...props} nodeType={nodeType} />

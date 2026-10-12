@@ -26,7 +26,7 @@ spec:
           args:
             - |
               import socket, time
-              targets = [('mysql', 3306), ('redis', 6379), ('qdrant', 6333)]
+              targets = [('mysql', 3306), ('redis', 6379), ('rabbitmq', 5672), ('qdrant', 6333)]
               deadline = time.monotonic() + 300
               for host, port in targets:
                   while True:
@@ -89,14 +89,23 @@ spec:
       labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: celery-worker}
     spec:
       initContainers:
-        - name: wait-for-backend
+        - name: wait-for-backend-and-broker
           image: ai-studio-backend:local
           imagePullPolicy: Never
           command: [python, -c]
           args:
             - |
-              import time, urllib.request
+              import socket, time, urllib.request
               deadline = time.monotonic() + 600
+              for host, port in [('rabbitmq', 5672)]:
+                  while True:
+                      try:
+                          with socket.create_connection((host, port), timeout=3):
+                              break
+                      except OSError:
+                          if time.monotonic() >= deadline:
+                              raise
+                          time.sleep(2)
               while True:
                   try:
                       with urllib.request.urlopen('http://backend:8000/health', timeout=3) as response:
@@ -111,7 +120,14 @@ spec:
           image: ai-studio-backend:local
           imagePullPolicy: Never
           command: [celery]
-          args: [-A, app.core.celery_app, worker, --pool=threads, --loglevel=info, --concurrency=2]
+          args:
+            - -A
+            - app.core.celery_app
+            - worker
+            - --pool=threads
+            - --loglevel=info
+            - --concurrency=2
+            - --queues=default,document.ingest,tenant.cleanup
           envFrom:
             - configMapRef: {name: ai-studio-config}
             - secretRef: {name: ai-studio-secrets}
@@ -126,6 +142,7 @@ spec:
           persistentVolumeClaim: {claimName: uploads}
         - name: hf-cache
           persistentVolumeClaim: {claimName: hf-cache}
+      terminationGracePeriodSeconds: 90
 ---
 apiVersion: v1
 kind: Service

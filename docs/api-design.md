@@ -55,20 +55,12 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | /auth/login | 登录，返回JWT |
-| POST | /auth/register | 注册（同时创建租户 + 初始 admin 用户，返回 JWT） |
+| POST | /auth/register | 已关闭自助注册（返回 403）；租户由平台管理员开通 |
 | POST | /auth/refresh | 刷新Token |
 | POST | /auth/logout | 登出 |
 | GET | /auth/me | 获取当前用户信息 |
 
-**注册流程说明**:
-- 请求体: `{ tenant_name, email, password, plan? }`
-- 服务端原子操作:
-  1. 创建 `tenants` 记录（plan 默认 `free`，max_users=10，max_models=5）
-  2. 创建 `users` 记录，绑定 tenant_id，密码 bcrypt 哈希
-  3. 为该租户初始化内置角色: `tenant_admin`（全部权限）、`tenant_member`（只读权限）
-  4. 将新用户分配 `tenant_admin` 角色
-  5. 返回 `{ access_token, refresh_token, user_info, tenant_info }`
-- 以上步骤在同一数据库事务中完成，任一失败全部回滚
+租户管理员账号由平台管理员在创建租户时指定邮箱和初始密码。成员账号由租户管理员在用户管理中创建，默认绑定当前租户的 `tenant_member` 角色。
 
 ---
 
@@ -359,32 +351,19 @@ Content-Type: application/json
 
 ---
 
-## 14. 平台管理 `/api/admin`（仅平台超级管理员）
+## 14. 平台租户开通 `/api/admin`（仅平台管理员）
 
 > 所有接口均需 `users.is_platform_admin = true`，通过 `require_platform_admin` 依赖守卫鉴权，**不走普通 RBAC 权限表**。
 
-### 租户管理 `/api/admin/tenants`
+平台管理员只负责创建租户并开通首位租户管理员；不提供租户列表/详情、配额、删除或平台公共模型管理接口。
+
+### 租户创建 `/api/admin/tenants`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /admin/tenants | 租户列表 |
-| POST | /admin/tenants | 创建租户 |
-| GET | /admin/tenants/{tenant_id} | 租户详情 |
-| PUT | /admin/tenants/{tenant_id} | 更新租户（含状态/套餐字段） |
-| PUT | /admin/tenants/{tenant_id}/quota | 设置租户配额 |
-| DELETE | /admin/tenants/{tenant_id} | 删除租户 |
-| GET | /admin/tenants/{id}/stats | 租户用量统计 | ❌ 未实现（无独立端点） |
+| POST | /admin/tenants | 原子创建租户、内置角色和指定的首位管理员账号 |
 
-### 平台公共模型管理 `/api/admin/models`
-
-> 实际前缀为 `/admin/models`（而非 `/admin/ai-models`）。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /admin/models | 平台公共模型列表（`tenant_id IS NULL`） |
-| POST | /admin/models | 创建平台公共模型（所有租户只读可用） |
-| PUT | /admin/models/{model_id} | 更新平台公共模型 |
-| DELETE | /admin/models/{model_id} | 删除平台公共模型 |
+请求字段包括租户名称、描述、管理员邮箱和初始密码。新账号被绑定为租户 owner，并获得该租户的 `tenant_admin` 角色。
 
 **Dashboard响应示例**:
 ```json

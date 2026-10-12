@@ -1,13 +1,23 @@
 import { useEffect, useRef } from 'react'
+import { ArrowUpOutlined, RobotOutlined } from '@ant-design/icons'
 import MessageBubble from './MessageBubble'
 import type { Message } from '@/types/agent'
 
 interface ChatContainerProps {
   messages: Message[]
   isStreaming?: boolean
+  agentName?: string
+  starterPrompts?: string[]
+  onStarterPrompt?: (prompt: string) => void
 }
 
-export default function ChatContainer({ messages, isStreaming = false }: ChatContainerProps) {
+export default function ChatContainer({
+  messages,
+  isStreaming = false,
+  agentName = 'AI Agent',
+  starterPrompts = [],
+  onStarterPrompt,
+}: ChatContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // 自动滚动到底部
@@ -21,9 +31,27 @@ export default function ChatContainer({ messages, isStreaming = false }: ChatCon
     <div ref={containerRef} className="messages-container">
       {messages.length === 0 ? (
         <div className="messages-empty">
-          <div className="messages-empty-icon">💬</div>
-          <div className="messages-empty-text">开始新对话</div>
-          <div className="messages-empty-hint">输入消息开始与 AI 交流</div>
+          <div className="messages-empty__brand" aria-hidden="true">
+            <RobotOutlined />
+            <span>AI Studio</span>
+          </div>
+          <h2>准备好开始工作了吗？</h2>
+          <p>与{agentName}描述目标，Agent 会在这里完成推理与执行。</p>
+          {onStarterPrompt && starterPrompts.length > 0 && (
+            <div className="starter-prompts" aria-label="推荐任务">
+              {starterPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="starter-prompt"
+                  onClick={() => onStarterPrompt(prompt)}
+                >
+                  <span>{prompt}</span>
+                  <ArrowUpOutlined aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div>

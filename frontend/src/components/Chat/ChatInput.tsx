@@ -50,6 +50,7 @@ export default function ChatInput({
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
+        aria-label="消息输入框"
         disabled={disabled || isLoading}
         className="input-textarea"
         style={{ minHeight: '24px', maxHeight: '200px' }}
@@ -57,6 +58,7 @@ export default function ChatInput({
       />
 
       <div className="input-actions">
+        <span className="input-shortcut">Ctrl / ⌘ + Enter 发送</span>
         {isLoading && onCancel ? (
           <button
             className="input-button stop"

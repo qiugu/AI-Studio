@@ -2,10 +2,10 @@
  * Agent对话页面 - Professional AI Conversation Interface
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { Spin, Empty, Drawer, message } from 'antd'
-import { HistoryOutlined } from '@ant-design/icons'
+import { Spin, Empty, Drawer, Button, message } from 'antd'
+import { CheckCircleOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons'
 import * as agentApi from '@/api/agent'
 import { type Agent, type Citation, type Conversation, type Message } from '@/types/agent'
 import { createStreamRequest } from '@/utils/streamRequest'
@@ -15,6 +15,7 @@ import {
   ChatInput,
   ConversationList,
 } from '@/components/Chat'
+import RouteHeader from '@/components/Layout/RouteHeader'
 import './AgentChat.css'
 
 export default function AgentChat() {
@@ -27,13 +28,6 @@ export default function AgentChat() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [drawerVisible, setDrawerVisible] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
-
-  useEffect(() => {
-    if (agentId) {
-      loadAgent()
-      loadConversations()
-    }
-  }, [agentId])
 
   /**
    * 将错误消息作为助手消息添加到聊天记录中
@@ -58,7 +52,7 @@ export default function AgentChat() {
     setMessages((prev) => [...prev, errorMessage])
   }
 
-  const loadAgent = async () => {
+  const loadAgent = useCallback(async () => {
     setLoading(true)
     try {
       const { data } = await agentApi.getAgent(agentId || '')
@@ -69,16 +63,31 @@ export default function AgentChat() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [agentId])
 
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     try {
       const { data } = await agentApi.listConversations(agentId || '', 1, 20)
       setConversations(data.items)
     } catch (error) {
       console.error('Failed to load conversations:', error)
     }
-  }
+  }, [agentId])
+
+  useEffect(() => {
+    if (!agentId) return
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      void loadAgent()
+      void loadConversations()
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, loadAgent, loadConversations])
 
   const loadConversationMessages = async (conversationId: string) => {
     try {
@@ -255,59 +264,134 @@ export default function AgentChat() {
     setDrawerVisible(false)
   }
 
+  const starterPrompts = [
+    '帮我梳理这份材料的重点',
+    '把这个目标拆成执行步骤',
+    '根据知识库回答一个问题',
+  ]
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full p-6">
-        <Spin size="large" />
+      <div className="agent-chat-container">
+        <RouteHeader
+          compact
+          title="Agent 对话"
+          description="正在连接 Agent"
+          backTo="/agents"
+          backLabel="返回 Agent 列表"
+        />
+        <div className="flex items-center justify-center flex-1 p-6">
+          <Spin size="large" />
+        </div>
       </div>
     )
   }
 
   if (!agent) {
     return (
-      <div className="flex items-center justify-center h-full p-6">
-        <Empty description="Agent不存在" />
+      <div className="agent-chat-container">
+        <RouteHeader
+          compact
+          title="Agent 对话"
+          description="Agent 工作台"
+          backTo="/agents"
+          backLabel="返回 Agent 列表"
+        />
+        <div className="flex items-center justify-center flex-1 p-6">
+          <Empty description="Agent不存在" />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="agent-chat-container">
-      {/* 智能渐变顶栏 */}
-      <div className="intelligence-bar" />
+      <RouteHeader
+        compact
+        title="Agent 对话"
+        description={agent.name}
+        backTo="/agents"
+        backLabel="返回 Agent 列表"
+      />
+      <div className="chat-workspace">
+        <aside className="conversation-sidebar" aria-label="对话历史">
+          <div className="conversation-sidebar__header">
+            <div>
+              <span className="conversation-sidebar__eyebrow">工作会话</span>
+              <strong>任务记录</strong>
+            </div>
+            <Button
+              type="text"
+              icon={<PlusOutlined />}
+              aria-label="新建对话"
+              onClick={handleCreateNewConversation}
+            />
+          </div>
+          <ConversationList
+            conversations={conversations}
+            currentConversationId={currentConversation?.id}
+            onSelect={handleSelectConversation}
+            onCreateNew={handleCreateNewConversation}
+            showCreateButton={false}
+          />
+        </aside>
 
-      {/* Agent 信息区域 */}
-      <div className="agent-info-wrapper">
-        <AgentInfo agent={agent} />
+        <main className="chat-main">
+          {/* 智能状态线：只作为工作状态信号，不把整页做成装饰性渐变。 */}
+          <div className="intelligence-bar" />
+          <div className="chat-main__header">
+            <div className="chat-main__session">
+              <span className="chat-main__session-label">当前任务</span>
+              <strong>{currentConversation?.title || '新对话'}</strong>
+            </div>
+            <div className="chat-main__header-actions">
+              <span className={`chat-runtime-status ${isStreaming ? 'chat-runtime-status--active' : ''}`}>
+                <CheckCircleOutlined />
+                {isStreaming ? 'Agent 执行中' : 'Agent 就绪'}
+              </span>
+              <Button
+                type="text"
+                className="history-toggle-button"
+                icon={<HistoryOutlined />}
+                onClick={() => setDrawerVisible(true)}
+              >
+                <span>历史会话</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Agent 信息区域 */}
+          <div className="agent-info-wrapper">
+            <AgentInfo agent={agent} />
+          </div>
+
+          {/* 消息列表区域 */}
+          <div className="messages-wrapper">
+            <ChatContainer
+              messages={messages}
+              isStreaming={isStreaming}
+              agentName={agent.name}
+              starterPrompts={starterPrompts}
+              onStarterPrompt={handleSendMessage}
+            />
+          </div>
+
+          {/* 输入框区域 */}
+          <div className="input-wrapper">
+            <ChatInput
+              onSend={handleSendMessage}
+              onCancel={handleAbortStream}
+              isLoading={isStreaming}
+              disabled={isStreaming}
+            />
+          </div>
+        </main>
       </div>
-
-      {/* 消息列表区域 */}
-      <div className="messages-wrapper">
-        <ChatContainer messages={messages} isStreaming={isStreaming} />
-      </div>
-
-      {/* 输入框区域 */}
-      <div className="input-wrapper">
-        <ChatInput
-          onSend={handleSendMessage}
-          onCancel={handleAbortStream}
-          isLoading={isStreaming}
-          disabled={isStreaming}
-        />
-      </div>
-
-      {/* 对话历史按钮 */}
-      <button
-        className="history-toggle-button"
-        onClick={() => setDrawerVisible(true)}
-      >
-        <HistoryOutlined />
-        <span>对话历史</span>
-      </button>
 
       {/* 对话历史抽屉 */}
       <Drawer
         title="对话历史"
+        className="chat-history-drawer"
         placement="right"
         size={400}
         open={drawerVisible}
@@ -318,6 +402,7 @@ export default function AgentChat() {
           currentConversationId={currentConversation?.id}
           onSelect={handleSelectConversation}
           onCreateNew={handleCreateNewConversation}
+          showCreateButton
         />
       </Drawer>
     </div>

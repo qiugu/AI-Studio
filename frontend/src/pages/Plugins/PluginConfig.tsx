@@ -13,6 +13,7 @@ import {
   Modal,
   message,
   Badge,
+  Spin,
   Popconfirm,
   Alert,
   Tooltip,
@@ -148,7 +149,7 @@ function JsonField({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        style={error ? { borderColor: '#ff4d4f' } : undefined}
+        style={error ? { borderColor: 'var(--app-color-danger)' } : undefined}
       />
     </Form.Item>
   )
@@ -529,7 +530,21 @@ function isSecretName(name: string): boolean {
     testSucceeded: Boolean(testResult?.success),
   })
 
-  if (loading) return null
+  if (loading) {
+    return (
+      <div className="plugin-experience-page plugin-setup-page">
+        <Button
+          type="text"
+          className="plugin-back-button"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => navigate('/plugins')}
+        >
+          返回插件
+        </Button>
+        <div className="plugin-loading"><Spin /></div>
+      </div>
+    )
+  }
 
   return (
     <div className="plugin-experience-page plugin-setup-page">

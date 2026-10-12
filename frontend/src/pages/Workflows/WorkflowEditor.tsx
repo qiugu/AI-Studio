@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import ReactFlow, {
   Controls,
   Background,
@@ -14,11 +14,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Button, Space, message, Modal } from 'antd'
 import { SaveOutlined, PlayCircleOutlined, CheckOutlined } from '@ant-design/icons'
 import { getWorkflow, updateWorkflow, publishWorkflow, validateWorkflow } from '../../api/workflow'
-import type { Workflow, WorkflowNodeCreate, WorkflowNodeConfig } from '../../types/workflow'
-import type { WorkflowEdgeCreate } from '../../types/workflow'
+import type { NodeType, Workflow, WorkflowNodeConfig } from '../../types/workflow'
+import { getErrorMessage } from '../../utils/request'
 import { createNodeComponent } from './workflowNodes'
 import NodePalette from './NodePalette'
 import NodeConfigPanel from './NodeConfigPanel'
+import { buildWorkflowGraphPayload } from './workflowPayload'
 import './WorkflowEditor.css'
 
 const WorkflowEditor: React.FC = () => {
@@ -27,7 +28,6 @@ const WorkflowEditor: React.FC = () => {
   const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
-  const [_, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingNode, setEditingNode] = useState<Node | null>(null)
   const [configPanelVisible, setConfigPanelVisible] = useState(false)
@@ -49,16 +49,6 @@ const WorkflowEditor: React.FC = () => {
     setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId))
   }, [setNodes, setEdges])
 
-  // 使用 ref 存储处理器函数，避免依赖变化
-  const handlersRef = useRef({
-    onEdit: handleEditNode,
-    onDelete: handleDeleteNode,
-  })
-
-  // 每次渲染时更新 ref，确保处理器是最新的
-  handlersRef.current.onEdit = handleEditNode
-  handlersRef.current.onDelete = handleDeleteNode
-
   // 自定义节点类型 - 使用 useMemo 避免每次渲染重新创建
   const nodeTypes: NodeTypes = useMemo(() => ({
     start: createNodeComponent('start'),
@@ -73,7 +63,6 @@ const WorkflowEditor: React.FC = () => {
   }), [])
 
   const fetchWorkflow = useCallback(async () => {
-    setLoading(true)
     try {
       const response = await getWorkflow(workflowId!)
       const workflowData = response.data
@@ -87,8 +76,8 @@ const WorkflowEditor: React.FC = () => {
         data: {
           name: node.name,
           config: node.config,
-          onEdit: handlersRef.current.onEdit,
-          onDelete: handlersRef.current.onDelete,
+          onEdit: handleEditNode,
+          onDelete: handleDeleteNode,
         },
       }))
 
@@ -105,25 +94,23 @@ const WorkflowEditor: React.FC = () => {
 
       setNodes(flowNodes)
       setEdges(flowEdges)
-    } catch (error) {
+    } catch {
       message.error('获取工作流失败')
-    } finally {
-      setLoading(false)
     }
-  }, [workflowId, setNodes, setEdges])
+  }, [workflowId, setNodes, setEdges, handleEditNode, handleDeleteNode])
 
   useEffect(() => {
     if (workflowId) {
-      fetchWorkflow()
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 路由参数变化后加载远端资源
+      void fetchWorkflow()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflowId])
+  }, [workflowId, fetchWorkflow])
 
   const onConnect = useCallback((params: Connection) => {
     setEdges((eds) => addEdge(params, eds))
   }, [setEdges])
 
-  const handleAddNode = useCallback((nodeType: any) => {
+  const handleAddNode = useCallback((nodeType: NodeType) => {
     const newNode: Node = {
       id: `temp-${Date.now()}`, // 临时ID，保存时会替换为真实ID
       type: nodeType,
@@ -131,12 +118,12 @@ const WorkflowEditor: React.FC = () => {
       data: {
         name: `新${nodeType}节点`,
         config: {},
-        onEdit: handlersRef.current.onEdit,
-        onDelete: handlersRef.current.onDelete,
+        onEdit: handleEditNode,
+        onDelete: handleDeleteNode,
       },
     }
     setNodes((nds) => [...nds, newNode])
-  }, [setNodes])
+  }, [setNodes, handleEditNode, handleDeleteNode])
 
   const handleSaveNodeConfig = useCallback(
     (nodeId: string, data: { name: string; config: WorkflowNodeConfig }) => {
@@ -154,53 +141,12 @@ const WorkflowEditor: React.FC = () => {
   const handleSave = async () => {
     setSaving(true)
     try {
-      // 将React Flow节点转换为数据库节点
-      const workflowNodes: WorkflowNodeCreate[] = nodes.map((node) => {
-        const nodeData: WorkflowNodeCreate = {
-          node_type: node.type as any,
-          name: node.data.name,
-          position_x: node.position.x,
-          position_y: node.position.y,
-          config: node.data.config,
-        }
-        // 如果节点ID是临时ID（以"temp-"开头），添加temp_id字段
-        if (node.id.startsWith('temp-')) {
-          nodeData.temp_id = node.id
-        }
-        return nodeData
-      })
-
-      // 将React Flow边转换为数据库边
-      const workflowEdges: WorkflowEdgeCreate[] = edges.map((edge) => {
-        // 处理source和target：如果是临时ID，直接传递字符串；否则转换为数字
-        let sourceId: string | number = edge.source
-        let targetId: string | number = edge.target
-
-        // 如果不是临时ID，转换为数字
-        if (!sourceId.startsWith('temp-')) {
-          sourceId = sourceId
-        }
-        if (!targetId.startsWith('temp-')) {
-          targetId = targetId
-        }
-
-        return {
-          source_node_id: sourceId,
-          target_node_id: targetId,
-          label: typeof edge.label === 'string' ? edge.label : undefined,
-          condition: edge.data?.condition,
-        }
-      })
-
-      await updateWorkflow(workflowId!, {
-        nodes: workflowNodes,
-        edges: workflowEdges,
-      })
+      await updateWorkflow(workflowId!, buildWorkflowGraphPayload(nodes, edges))
 
       message.success('工作流已保存')
       fetchWorkflow() // 刷新数据
-    } catch (error) {
-      message.error('保存失败')
+    } catch (error: unknown) {
+      message.error(getErrorMessage(error) || '保存失败')
     } finally {
       setSaving(false)
     }
@@ -213,8 +159,8 @@ const WorkflowEditor: React.FC = () => {
       if (result.valid) {
         message.success(`工作流验证通过：${result.node_count}个节点，${result.edge_count}条连线`)
       }
-    } catch (error: any) {
-      message.error(error.response?.data?.message || '验证失败')
+    } catch (error: unknown) {
+      message.error(getErrorMessage(error) || '验证失败')
     }
   }
 
@@ -227,8 +173,8 @@ const WorkflowEditor: React.FC = () => {
           await publishWorkflow(workflowId!)
           message.success('工作流已发布')
           fetchWorkflow()
-        } catch (error: any) {
-          message.error(error.response?.data?.message || '发布失败')
+        } catch (error: unknown) {
+          message.error(getErrorMessage(error) || '发布失败')
         }
       },
     })

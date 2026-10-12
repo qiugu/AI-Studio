@@ -1,0 +1,712 @@
+from typing import Dict, Any, List, Optional, AsyncGenerator
+from datetime import datetime, timezone
+import logging
+import json
+import re
+import uuid
+
+import asyncio
+from sqlalchemy.orm import Session
+from collections import deque
+from app.core.config import config
+
+from app.models.workflow import Workflow
+from app.models.workflow_node import WorkflowNode
+from app.models.workflow_edge import WorkflowEdge
+from app.models.workflow_execution import WorkflowExecution
+from app.models.node_execution import NodeExecution
+from app.services.workflow import WorkflowService
+from app.core.exceptions import ValidationException, NotFoundException
+from app.schemas.workflow import WorkflowExecutionRequest
+
+logger = logging.getLogger(__name__)
+
+
+class WorkflowEngine:
+    """工作流执行引擎"""
+
+    def __init__(self, db: Session, tenant_id: str):
+        self.db = db
+        self.tenant_id = str(tenant_id)
+        self.workflow_service = WorkflowService(db=db, tenant_id=self.tenant_id)
+
+    # ── DAG构建与拓扑排序 ───────────────────────────────────────────────────────
+
+    def build_dag(self, workflow: Workflow) -> Dict[str, List[str]]:
+        """构建DAG邻接表"""
+        graph = {node.id: [] for node in workflow.nodes}
+        for edge in workflow.edges:
+            graph[edge.source_node_id].append(edge.target_node_id)
+        return graph
+
+    def topological_sort(self, graph: Dict[str, List[str]]) -> List[str]:
+        """拓扑排序（Kahn算法）"""
+        in_degree = {node_id: 0 for node_id in graph}
+        for node_id in graph:
+            for neighbor in graph[node_id]:
+                in_degree[neighbor] += 1
+
+        queue = deque([node_id for node_id in in_degree if in_degree[node_id] == 0])
+        result = []
+
+        while queue:
+            node_id = queue.popleft()
+            result.append(node_id)
+
+            for neighbor in graph[node_id]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        if len(result) != len(graph):
+            raise ValidationException("工作流包含循环依赖，无法执行")
+
+        return result
+
+    # ── 执行记录管理 ───────────────────────────────────────────────────────────
+
+    def create_execution(
+        self,
+        workflow_id: str | uuid.UUID,
+        input_data: Optional[Dict[str, Any]],
+        user_id: Optional[str | uuid.UUID],
+    ) -> WorkflowExecution:
+        """创建执行记录"""
+        execution = WorkflowExecution(
+            workflow_id=str(workflow_id),
+            tenant_id=str(self.tenant_id),
+            status="pending",
+            input_data=input_data or {},
+            created_by=str(user_id) if user_id is not None else None,
+        )
+        self.db.add(execution)
+        self.db.flush()
+        return execution
+
+    def update_execution_status(
+        self,
+        execution: WorkflowExecution,
+        status: str,
+        output_data: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """更新执行状态"""
+        execution.status = status
+        if output_data is not None:
+            execution.output_data = output_data
+        if error_message is not None:
+            execution.error_message = error_message
+
+        if status == "running":
+            execution.started_at = datetime.now(timezone.utc)
+        elif status in ["completed", "failed", "cancelled"]:
+            execution.completed_at = datetime.now(timezone.utc)
+
+        self.db.flush()
+
+    # ── 节点执行框架 ───────────────────────────────────────────────────────────
+
+    def create_node_execution(
+        self,
+        execution_id: str | uuid.UUID,
+        node_id: str | uuid.UUID,
+        input_data: Optional[Dict[str, Any]],
+    ) -> NodeExecution:
+        """创建节点执行记录"""
+        node_execution = NodeExecution(
+            execution_id=str(execution_id),
+            node_id=str(node_id),
+            tenant_id=str(self.tenant_id),
+            status="pending",
+            input_data=input_data or {},
+        )
+        self.db.add(node_execution)
+        self.db.flush()
+        return node_execution
+
+    def update_node_execution(
+        self,
+        node_execution: NodeExecution,
+        status: str,
+        output_data: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """更新节点执行状态"""
+        node_execution.status = status
+        if output_data is not None:
+            node_execution.output_data = output_data
+        if error_message is not None:
+            node_execution.error_message = error_message
+
+        if status == "running":
+            node_execution.started_at = datetime.now(timezone.utc)
+        elif status in ["completed", "failed", "skipped"]:
+            node_execution.completed_at = datetime.now(timezone.utc)
+
+        self.db.flush()
+
+    async def execute_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+        execution_id: str | uuid.UUID,
+    ) -> Dict[str, Any]:
+        """执行单个节点"""
+        node_execution = self.create_node_execution(
+            execution_id=execution_id,
+            node_id=node.id,
+            input_data=context,
+        )
+
+        try:
+            self.update_node_execution(node_execution, status="running")
+
+            node_type = node.node_type
+            if node_type == "start":
+                output = await self._execute_start_node(node, context)
+            elif node_type == "end":
+                output = await self._execute_end_node(node, context)
+            elif node_type == "llm":
+                output = await self._execute_llm_node(node, context)
+            elif node_type == "condition":
+                output = await self._execute_condition_node(node, context)
+            elif node_type == "knowledge":
+                output = await self._execute_knowledge_node(node, context)
+            elif node_type == "code":
+                output = await self._execute_code_node(node, context)
+            elif node_type == "tool":
+                output = await self._execute_tool_node(node, context)
+            elif node_type == "loop":
+                output = await self._execute_loop_node(node, context)
+            elif node_type == "variable":
+                output = await self._execute_variable_node(node, context)
+            else:
+                raise ValidationException(f"未知的节点类型: {node_type}")
+
+            self.update_node_execution(node_execution, status="completed", output_data=output)
+            return output
+
+        except Exception as e:
+            error_msg = str(e)[:500]
+            self.update_node_execution(node_execution, status="failed", error_message=error_msg)
+            logger.error(
+                f"Node execution failed: node_id={node.id}, error={e}",
+                exc_info=True,
+            )
+            raise
+
+    # ── 节点执行器实现 ───────────────────────────────────────────────────────────
+
+    async def _execute_start_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行开始节点"""
+        config = node.config or {}
+        output_variables = config.get("output_variables", [])
+
+        output = {}
+        for var in output_variables:
+            var_name = var.get("name")
+            var_source = var.get("source", "input")
+            if var_source == "input":
+                output[var_name] = context.get("input", {}).get(var_name)
+            else:
+                output[var_name] = var.get("value")
+
+        return output
+
+    async def _execute_end_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行结束节点"""
+        config = node.config or {}
+        output_variables = config.get("output_variables", [])
+
+        output = {}
+        for var in output_variables:
+            var_name = var.get("name")
+            var_source = var.get("source")
+            output[var_name] = context.get(var_source)
+
+        return output
+
+    async def _execute_llm_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行LLM节点"""
+        config = node.config or {}
+        model_id = config.get("model_id")
+        prompt_template = config.get("prompt_template", "")
+
+        if not model_id:
+            raise ValidationException("LLM节点必须指定模型ID")
+
+        prompt = self._render_template(prompt_template, context)
+
+        from app.models.ai_model import AIModel
+        from app.models.ai_provider import AIProvider
+        from app.utils import llm as llm_utils
+        from app.utils.encryption import decrypt
+
+        model = self.db.query(AIModel).filter(AIModel.id == model_id).first()
+        if not model:
+            raise NotFoundException("AIModel", model_id)
+        if not model.status:
+            raise ValidationException(f"LLM节点选择的模型已停用: {model.name}")
+        if model.model_type != "chat":
+            raise ValidationException("LLM节点只能使用 Chat 类型模型")
+
+        temperature = config.get("temperature", 0.7)
+        max_tokens = config.get("max_tokens", 2000)
+        if not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 1:
+            raise ValidationException("LLM节点的最大输出 Token 必须是正整数")
+        if model.max_output_tokens and max_tokens > model.max_output_tokens:
+            raise ValidationException(
+                f"LLM节点的最大输出 Token 不能超过模型能力上限 {model.max_output_tokens}"
+            )
+
+        provider = self.db.query(AIProvider).filter(
+            AIProvider.id == model.provider_id,
+            AIProvider.tenant_id == self.tenant_id,
+        ).first()
+        if not provider:
+            raise NotFoundException("AIProvider", model.provider_id)
+        if not provider.status:
+            raise ValidationException("LLM节点选择的模型供应商已停用")
+
+        api_key = decrypt(provider.api_key_encrypted)
+        api_base_url = provider.api_base_url
+
+        llm = llm_utils.build_chat_model(
+            provider_type=provider.provider_type,
+            api_key=api_key,
+            api_base_url=api_base_url,
+            model_name=model.name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        response = await self._invoke_llm_with_retry(llm, prompt)
+
+        output_variable = config.get("output_variable", "output")
+        return {output_variable: response.content}
+
+    async def _invoke_llm_with_retry(self, llm, prompt: str, max_retries: int = 2):
+        """带重试地调用 LLM（A3）。
+
+        单点 LLM 调用已受客户端超时约束（utils/llm.py），此处叠加重试以容忍
+        瞬时网络/限流错误，避免工作流因一次抖动而整体失败。
+        """
+        from langchain_core.messages import HumanMessage
+        last_exc = None
+        for attempt in range(max_retries + 1):
+            try:
+                return await llm.ainvoke([HumanMessage(content=prompt)])
+            except Exception as e:  # noqa: BLE001 - 重试需捕获所有瞬时异常
+                last_exc = e
+                if attempt < max_retries:
+                    logger.warning(
+                        "LLM 调用失败，第 %d/%d 次重试: %s", attempt + 1, max_retries, e
+                    )
+                    await asyncio.sleep(min(2 ** attempt, 10))
+                    continue
+                break
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("LLM 调用失败")
+
+    def _render_template(self, template: str, context: Dict[str, Any]) -> str:
+        """渲染模板（替换变量）"""
+        def replace_var(match):
+            var_name = match.group(1).strip()
+            return str(context.get(var_name, ""))
+
+        return re.sub(r'\{\{(.+?)\}\}', replace_var, template)
+
+    async def _execute_condition_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行条件节点"""
+        config = node.config or {}
+        conditions = config.get("conditions", [])
+
+        if not conditions:
+            raise ValidationException("条件节点必须定义至少一个条件")
+
+        for condition in conditions:
+            expression = condition.get("expression", "")
+            label = condition.get("label", "default")
+
+            result = self._evaluate_expression(expression, context)
+
+            if result:
+                return {
+                    "condition_result": True,
+                    "condition_label": label,
+                    "matched_condition": condition,
+                }
+
+        return {
+            "condition_result": False,
+            "condition_label": "default",
+        }
+
+    def _evaluate_expression(self, expression: str, context: Dict[str, Any]) -> bool:
+        """评估条件表达式"""
+        def replace_var(match):
+            var_name = match.group(1).strip()
+            value = context.get(var_name)
+            if isinstance(value, str):
+                return f'"{value}"'
+            return str(value)
+
+        expr = re.sub(r'\{\{(.+?)\}\}', replace_var, expression)
+
+        try:
+            result = eval(expr, {"__builtins__": {}}, {})
+            return bool(result)
+        except Exception as e:
+            logger.error(f"Expression evaluation failed: {expression}, error={e}")
+            return False
+
+    async def _execute_knowledge_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行知识库节点"""
+        config = node.config or {}
+        kb_id = config.get("knowledge_base_id")
+        query_template = config.get("query_template", "")
+        top_k = config.get("top_k", 5)
+
+        if not kb_id:
+            raise ValidationException("知识库节点必须指定知识库ID")
+
+        query = self._render_template(query_template, context)
+
+        from app.services.knowledge import KnowledgeBaseService
+        kb_service = KnowledgeBaseService(self.db, str(self.tenant_id))
+        results = kb_service.search(kb_id=str(kb_id), query=query, top_k=top_k)
+
+        output_variable = config.get("output_variable", "knowledge_result")
+        return {
+            output_variable: results,
+            "query": query,
+        }
+
+    async def _execute_code_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行代码节点（受限Python沙盒）"""
+        config = node.config or {}
+        code = config.get("code", "")
+        input_variables = config.get("input_variables", [])
+        output_variable = config.get("output_variable", "result")
+
+        if not code:
+            raise ValidationException("代码节点必须包含代码")
+
+        input_data = {}
+        for var_name in input_variables:
+            input_data[var_name] = context.get(var_name)
+
+        try:
+            allowed_builtins = {
+                "abs": abs,
+                "all": all,
+                "any": any,
+                "bool": bool,
+                "dict": dict,
+                "enumerate": enumerate,
+                "filter": filter,
+                "float": float,
+                "int": int,
+                "len": len,
+                "list": list,
+                "map": map,
+                "max": max,
+                "min": min,
+                "range": range,
+                "round": round,
+                "sorted": sorted,
+                "str": str,
+                "sum": sum,
+                "tuple": tuple,
+                "zip": zip,
+            }
+
+            exec_globals = {"__builtins__": allowed_builtins, **input_data}
+            local_vars = {}
+            exec(code, exec_globals, local_vars)
+
+            result = local_vars.get(output_variable)
+            return {output_variable: result}
+
+        except Exception as e:
+            logger.error(f"Code execution failed: {e}", exc_info=True)
+            raise ValidationException(f"代码执行失败: {str(e)[:200]}")
+
+    async def _execute_tool_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行工具节点（调用Agent工具）"""
+        config = node.config or {}
+        tool_type = config.get("tool_type", "function")
+        tool_name = config.get("tool_name", "")
+        tool_config = config.get("tool_config", {})
+        input_variables = config.get("input_variables", [])
+        output_variable = config.get("output_variable", "tool_result")
+
+        if not tool_name:
+            raise ValidationException("工具节点必须指定工具名称")
+
+        input_data = {}
+        for var_name in input_variables:
+            input_data[var_name] = context.get(var_name)
+
+        return {
+            output_variable: f"Tool {tool_name} executed with inputs: {input_data}",
+            "tool_type": tool_type,
+        }
+
+    async def _execute_loop_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行循环节点"""
+        config = node.config or {}
+        loop_type = config.get("loop_type", "for")
+        loop_variable = config.get("loop_variable", "item")
+        loop_source = config.get("loop_source", "")
+        max_iterations = config.get("max_iterations", 100)
+
+        if loop_type == "for":
+            data = context.get(loop_source, [])
+            if not isinstance(data, (list, tuple)):
+                raise ValidationException("For循环的数据源必须是列表")
+
+            return {
+                "loop_type": "for",
+                "loop_variable": loop_variable,
+                "loop_data": data,
+                "max_iterations": min(len(data), max_iterations),
+            }
+        else:
+            condition_template = config.get("condition_template", "")
+            return {
+                "loop_type": "while",
+                "loop_variable": loop_variable,
+                "condition_template": condition_template,
+                "max_iterations": max_iterations,
+            }
+
+    async def _execute_variable_node(
+        self,
+        node: WorkflowNode,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """执行变量节点"""
+        config = node.config or {}
+        variables = config.get("variables", [])
+
+        output = {}
+        for var in variables:
+            var_name = var.get("name")
+            var_type = var.get("type", "static")
+            var_value = var.get("value")
+
+            if var_type == "static":
+                output[var_name] = var_value
+            elif var_type == "context":
+                source = var.get("source", "")
+                output[var_name] = context.get(source)
+            elif var_type == "expression":
+                expression = var.get("expression", "")
+                output[var_name] = self._evaluate_expression(expression, context)
+
+        return output
+
+    # ── 主执行流程 ───────────────────────────────────────────────────────────
+
+    async def execute_workflow(
+        self,
+        workflow_id: str | uuid.UUID,
+        input_data: Optional[Dict[str, Any]],
+        user_id: Optional[str | uuid.UUID],
+    ) -> Dict[str, Any]:
+        """执行工作流（阻塞式）"""
+        workflow_id = str(workflow_id)
+        workflow = self.workflow_service.get_workflow(workflow_id)
+
+        if workflow.status != "published":
+            raise ValidationException("只有已发布的工作流才能执行")
+
+        self.workflow_service.validate_workflow_dag(workflow_id)
+
+        execution = self.create_execution(workflow_id, input_data, user_id)
+
+        try:
+            self.update_execution_status(execution, status="running")
+
+            dag = self.build_dag(workflow)
+            node_order = self.topological_sort(dag)
+
+            nodes = {node.id: node for node in workflow.nodes}
+
+            context = {"input": input_data or {}}
+
+            async def _run_nodes():
+                for node_id in node_order:
+                    node = nodes[node_id]
+
+                    node_input = {}
+                    for edge in workflow.edges:
+                        if edge.target_node_id == node_id:
+                            source_node = nodes[edge.source_node_id]
+                            source_output = context.get(f"node_{source_node.id}", {})
+                            node_input.update(source_output)
+
+                    node_output = await self.execute_node(node, node_input, execution.id)
+
+                    context[f"node_{node.id}"] = node_output
+                    context.update(node_output)
+
+            # A3：整体执行超时保护，避免单个工作流无限挂起占用请求。
+            await asyncio.wait_for(
+                _run_nodes(), timeout=config.workflow_execution_timeout_seconds
+            )
+
+            end_nodes = [n for n in workflow.nodes if n.node_type == "end"]
+            final_output = {}
+            for end_node in end_nodes:
+                end_output = context.get(f"node_{end_node.id}", {})
+                final_output.update(end_output)
+
+            self.update_execution_status(execution, status="completed", output_data=final_output)
+            self.db.commit()
+
+            return {
+                "execution_id": execution.id,
+                "status": "completed",
+                "output": final_output,
+            }
+
+        except Exception as e:
+            error_msg = str(e)[:500]
+            self.update_execution_status(execution, status="failed", error_message=error_msg)
+            self.db.commit()
+            logger.error(f"Workflow execution failed: workflow_id={workflow_id}, error={e}", exc_info=True)
+            raise
+
+    async def execute_workflow_stream(
+        self,
+        workflow_id: str | uuid.UUID,
+        input_data: Optional[Dict[str, Any]],
+        user_id: Optional[str | uuid.UUID],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """执行工作流（SSE流式）"""
+        workflow_id = str(workflow_id)
+        workflow = self.workflow_service.get_workflow(workflow_id)
+
+        if workflow.status != "published":
+            raise ValidationException("只有已发布的工作流才能执行")
+
+        self.workflow_service.validate_workflow_dag(workflow_id)
+
+        execution = self.create_execution(workflow_id, input_data, user_id)
+
+        try:
+            self.update_execution_status(execution, status="running")
+
+            yield {
+                "type": "execution_started",
+                "execution_id": execution.id,
+                "workflow_id": workflow_id,
+            }
+
+            dag = self.build_dag(workflow)
+            node_order = self.topological_sort(dag)
+
+            nodes = {node.id: node for node in workflow.nodes}
+
+            context = {"input": input_data or {}}
+
+            for node_id in node_order:
+                node = nodes[node_id]
+
+                yield {
+                    "type": "node_started",
+                    "node_id": node.id,
+                    "node_name": node.name,
+                    "node_type": node.node_type,
+                }
+
+                node_input = {}
+                for edge in workflow.edges:
+                    if edge.target_node_id == node_id:
+                        source_node = nodes[edge.source_node_id]
+                        source_output = context.get(f"node_{source_node.id}", {})
+                        node_input.update(source_output)
+
+                try:
+                    node_output = await self.execute_node(node, node_input, execution.id)
+
+                    context[f"node_{node.id}"] = node_output
+                    context.update(node_output)
+
+                    yield {
+                        "type": "node_completed",
+                        "node_id": node.id,
+                        "node_name": node.name,
+                        "output": node_output,
+                    }
+
+                except Exception as e:
+                    yield {
+                        "type": "node_failed",
+                        "node_id": node.id,
+                        "node_name": node.name,
+                        "error": str(e)[:200],
+                    }
+                    raise
+
+            end_nodes = [n for n in workflow.nodes if n.node_type == "end"]
+            final_output = {}
+            for end_node in end_nodes:
+                end_output = context.get(f"node_{end_node.id}", {})
+                final_output.update(end_output)
+
+            self.update_execution_status(execution, status="completed", output_data=final_output)
+            self.db.commit()
+
+            yield {
+                "type": "execution_completed",
+                "execution_id": execution.id,
+                "output": final_output,
+            }
+
+        except Exception as e:
+            error_msg = str(e)[:500]
+            self.update_execution_status(execution, status="failed", error_message=error_msg)
+            self.db.commit()
+            logger.error(f"Workflow execution failed: workflow_id={workflow_id}, error={e}", exc_info=True)
+
+            yield {
+                "type": "execution_failed",
+                "execution_id": execution.id,
+                "error": error_msg,
+            }

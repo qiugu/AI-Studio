@@ -7,15 +7,14 @@ import {
   Switch,
   Button,
   Card,
-  Typography,
   Space,
   message,
+  Spin,
 } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { createModel, getModel, updateModel, listProviders } from '@/api/ai-model'
 import type { AIModelCreateRequest, AIProvider } from '@/types/ai-model'
-
-const { Title } = Typography
+import RouteHeader from '@/components/Layout/RouteHeader'
 
 const MODEL_TYPE_OPTIONS = [
   { value: 'chat', label: '对话（Chat）' },
@@ -92,11 +91,28 @@ export default function ModelForm() {
     }
   }
 
-  if (initializing) return null
+  if (initializing) {
+    return (
+      <div style={{ maxWidth: 640, margin: '0 auto' }}>
+        <RouteHeader
+          eyebrow="模型中心 / 模型"
+          title="编辑模型"
+          backTo="/ai-models"
+          backLabel="返回模型列表"
+        />
+        <Card><Spin /></Card>
+      </div>
+    )
+  }
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
-      <Title level={4}>{isEdit ? '编辑模型' : '新增模型'}</Title>
+      <RouteHeader
+        eyebrow="模型中心 / 模型"
+        title={isEdit ? '编辑模型' : '新增模型'}
+        backTo="/ai-models"
+        backLabel="返回模型列表"
+      />
       <Card>
         <Form form={form} layout="vertical" onFinish={handleSubmit} initialValues={{ status: true }}>
           <Form.Item name="provider_id" label="所属供应商" rules={[{ required: true }]}>

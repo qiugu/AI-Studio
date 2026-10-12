@@ -142,7 +142,7 @@ export default function Roles() {
       title: '权限数',
       dataIndex: 'permissions',
       key: 'permissions',
-      render: (ps: Permission[]) => <Badge count={ps.length} showZero color="#1677ff" />,
+      render: (ps: Permission[]) => <Badge count={ps.length} showZero color="var(--app-color-primary)" />,
     },
     {
       title: '状态',

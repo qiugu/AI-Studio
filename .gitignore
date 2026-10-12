@@ -4,28 +4,29 @@ __pycache__/
 .env.bak*
 .workbuddy/
 node_modules/
+.DS_Store
 
 # HuggingFace 模型与数据集缓存（约 3 GB，可由脚本重新下载）
 .hf-cache/
 
 # 测试与评测生成的中间产物（可重新生成，不入库）
-backend/.pytest-tmp/
-backend/.pytest_run/
+.pytest-tmp/
+.pytest_run/
 .pytest_cache/
-backend/data/rag_eval/reports/
+data/rag_eval/reports/
 # 采样子集规模较大（约 10 MB+），由 prepare_rag_eval_dataset.py + 固定 seed 完整可复现；
 # 金标准（golden.jsonl / manifest.json）体积小且是人工审阅对象，故保留入库。
-backend/data/rag_eval/corpus.jsonl
-backend/data/rag_eval/chunks.jsonl
-backend/data/rag_eval/index_manifest.json
+data/rag_eval/corpus.jsonl
+data/rag_eval/chunks.jsonl
+data/rag_eval/index_manifest.json
 # pytest basetemp 变体目录（每次更换 basetemp 防守卫冲突，均可删除再生）
-backend/.pytest-tmp*/
-backend/.pytest-p5*/
+.pytest-tmp*/
+.pytest-p5*/
 
 # Phase 5 评测重建产物（脚本可复现，不入库）
-backend/data/rag_eval/v3_448_64/
-backend/data/rag_eval/smoke_448_64/
-backend/data/rag_eval/reports_smoke/
+data/rag_eval/v3_448_64/
+data/rag_eval/smoke_448_64/
+data/rag_eval/reports_smoke/
 
 # 数据库备份 dump（含业务内容，仅留本机）
-backend/data/backups/
+data/backups/

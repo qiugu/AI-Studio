@@ -13,7 +13,7 @@
   border: none;
   border-radius: 4px;
   background: rgba(22, 119, 255, 0.1);
-  color: #1677ff;
+  color: var(--app-color-primary);
   font-size: 0.75em;
   font-weight: 600;
   line-height: 1;
@@ -32,7 +32,7 @@
 }
 
 .citation-badge-clickable:focus-visible {
-  outline: 2px solid #1677ff;
+  outline: 2px solid var(--app-color-primary);
   outline-offset: 1px;
 }
 
@@ -57,8 +57,8 @@
 }
 
 .citation-item-active {
-  border-color: #91caff;
-  background: #e6f4ff;
+  border-color: var(--app-color-primary-hover);
+  background: var(--app-color-primary-soft);
   box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.08);
 }
 
@@ -70,7 +70,7 @@
 
 .citation-item-marker {
   flex: none;
-  color: #1677ff;
+  color: var(--app-color-primary-strong);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
