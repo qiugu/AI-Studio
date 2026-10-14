@@ -38,7 +38,7 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
-    fetchDashboard()
+    void Promise.resolve().then(() => fetchDashboard())
   }, [fetchDashboard])
 
   return (

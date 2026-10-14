@@ -1,0 +1,48 @@
+from datetime import datetime
+from typing import Optional
+import uuid
+
+from sqlalchemy import String, Text, DateTime, JSON, func, ForeignKey
+from sqlalchemy.orm import mapped_column, Mapped, relationship
+
+from app.core.database import Base
+
+
+class WorkflowEdge(Base):
+    """工作流边（连线）模型"""
+    __tablename__ = "workflow_edges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workflow_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+
+    # 边信息
+    source_node_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    target_node_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    source_handle: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target_handle: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # 条件配置（用于条件分支）
+    condition: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # {"expression": "{{output.value > 10}}", "label": "大于10"}
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # 边的标签（显示在连线上）
+
+    # 时间戳
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    # 关系
+    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="edges")
+    source_node: Mapped["WorkflowNode"] = relationship(
+        "WorkflowNode", foreign_keys=[source_node_id], back_populates="source_edges"
+    )
+    target_node: Mapped["WorkflowNode"] = relationship(
+        "WorkflowNode", foreign_keys=[target_node_id], back_populates="target_edges"
+    )

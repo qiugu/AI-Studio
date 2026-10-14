@@ -47,7 +47,7 @@ export default function TenantSettings() {
   }, [])
 
   useEffect(() => {
-    fetchAll()
+    void Promise.resolve().then(() => fetchAll())
   }, [fetchAll])
 
   const openEdit = () => {

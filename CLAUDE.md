@@ -66,7 +66,7 @@ backend/app/
 2. 在 `app/schemas/` 添加 Pydantic 模型
 3. 在 `app/repositories/` 添加 Repository（继承 `BaseRepository`；当前仅部分模块使用，其他模块在 Service 内手写查询并手工注入 `tenant_id`）
 4. 在 `app/services/` 实现业务逻辑（调用 QuotaService 检查配额）
-5. 在 `app/api/` 添加路由（按模块使用 `require_permission` 守卫；`ai_provider` / `ai_model` / `prompt` / `plugin` 当前仅做登录校验 `CurrentUser`，未做细粒度权限，见 `docs/review` S2）
+5. 在 `app/api/` 添加路由（租户业务路由必须拒绝平台管理员；按模块使用 `require_permission` 或 `require_tenant_admin` 守卫）
 6. 在 `app/main.py` 注册路由
 7. 生成 Alembic 迁移：`alembic revision --autogenerate -m "描述"`
 
@@ -118,9 +118,10 @@ from app.core.dependencies import require_platform_admin
 ```
 
 当前覆盖情况（实际）：
-- 已使用 `require_permission` 的路由：`knowledge` / `agent` / `workflow` / `audit` / `admin` / `role` / `user` / `system`。
-- **仅做登录校验（`CurrentUser`）、未做细粒度 RBAC 的路由**：`ai_provider` / `ai_model` / `prompt` / `plugin`。
-- ⚠️ **已知偏差**：上述四个模块的写操作当前任何已登录用户均可调用，属权限缺口（详见 `docs/review/01-backend.md` S2）。
+- `knowledge` / `agent` / `workflow` 路由要求有效租户成员身份，并按资源权限检查；普通成员仅获知识库读取、已发布 Agent 对话及已发布工作流执行权限。
+- `ai_provider` / `ai_model` / `prompt` / `plugin`、用户/角色管理、租户设置、审计与 Dashboard 要求当前租户管理员。
+- 平台管理员仅可调用平台租户创建接口；不得访问租户业务接口、租户详情/用量、配额、删除或平台模型管理接口。
+- 租户开通由平台管理员执行：同一事务创建租户、内置角色和首位管理员账号，并授予 `tenant_admin`；公开自助注册关闭。
 
 **统一响应格式**
 

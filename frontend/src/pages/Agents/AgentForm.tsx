@@ -35,6 +35,7 @@ import type {
   ToolCatalogPlugin,
 } from '@/types/agent'
 import { type AIModel } from '@/types/ai-model'
+import RouteHeader from '@/components/Layout/RouteHeader'
 import '@/pages/Plugins/PluginExperience.css'
 import {
   isDestructiveMethod,
@@ -335,6 +336,12 @@ export default function AgentForm() {
 
   return (
     <div style={{ padding: '24px' }}>
+      <RouteHeader
+        eyebrow="应用开发 / Agent"
+        title={isEdit ? '编辑 Agent' : '创建 Agent'}
+        backTo="/agents"
+        backLabel="返回 Agent 列表"
+      />
       <Card title={isEdit ? '编辑Agent' : '创建Agent'}>
         <Spin spinning={loading}>
           <Form

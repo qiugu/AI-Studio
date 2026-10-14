@@ -100,7 +100,7 @@ export default function VerifyEmail() {
     <Centered>
       <Card style={{ width: 440, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <SafetyCertificateOutlined style={{ fontSize: 40, color: '#1677ff' }} />
+          <SafetyCertificateOutlined style={{ fontSize: 40, color: 'var(--app-color-primary)' }} />
           <Title level={3} style={{ margin: '12px 0 4px' }}>
             验证你的邮箱
           </Title>
@@ -199,7 +199,7 @@ function Centered({ children }: { children: ReactNode }) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, var(--app-color-primary-strong) 0%, var(--app-color-primary) 100%)',
         padding: 16,
       }}
     >

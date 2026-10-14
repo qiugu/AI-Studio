@@ -1,0 +1,146 @@
+.route-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-height: 58px;
+  margin-bottom: 20px;
+}
+
+.route-header__back.ant-btn {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  padding-inline: 8px;
+  color: var(--app-color-text-secondary);
+}
+
+.route-header__back.ant-btn:hover {
+  color: var(--app-color-primary-strong);
+  background: var(--app-color-primary-soft);
+}
+
+.route-header__content {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+
+.route-header__eyebrow {
+  color: var(--app-color-primary-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.route-header__title.ant-typography {
+  margin: 0;
+  color: var(--app-color-text);
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.route-header__description {
+  color: var(--app-color-text-secondary);
+  font-size: 13px;
+}
+
+.route-header__extra {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+/* Chat workbench variant: keep navigation and identity on one quiet toolbar. */
+.route-header--compact {
+  align-items: center;
+  min-height: 52px;
+  margin-bottom: 12px;
+  padding: 0 2px 10px;
+  border-bottom: 1px solid var(--app-color-border);
+}
+
+.route-header--compact .route-header__back.ant-btn {
+  margin-top: 0;
+  padding-inline: 4px 12px;
+  color: var(--app-color-text-secondary);
+  font-size: 13px;
+}
+
+.route-header--compact .route-header__content {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.route-header--compact .route-header__title.ant-typography {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.route-header--compact .route-header__description {
+  padding-left: 10px;
+  border-left: 1px solid var(--app-color-border);
+  color: var(--app-color-text-muted);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.route-header--compact .route-header__extra {
+  margin-top: 0;
+}
+
+@media (max-width: 640px) {
+  .route-header {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+
+  .route-header__content {
+    flex-basis: calc(100% - 132px);
+  }
+
+  .route-header__extra {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .route-header--compact {
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-height: 48px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+  }
+
+  .route-header--compact .route-header__back.ant-btn {
+    padding-inline: 0 6px;
+  }
+
+  .route-header--compact .route-header__back.ant-btn > span:not(.anticon) {
+    display: none;
+  }
+
+  .route-header--compact .route-header__content {
+    flex-basis: auto;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .route-header--compact .route-header__title.ant-typography {
+    font-size: 17px;
+  }
+
+  .route-header--compact .route-header__description {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-header__back.ant-btn {
+    transition: none;
+  }
+}

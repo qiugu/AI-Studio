@@ -5,6 +5,8 @@ export type NodeType = 'start' | 'end' | 'llm' | 'condition' | 'knowledge' | 'co
 export interface WorkflowNodeConfig {
   // LLM节点配置
   model_id?: string
+  prompt_id?: string
+  prompt_version_id?: string
   prompt_template?: string
   temperature?: number
   max_tokens?: number
@@ -89,6 +91,8 @@ export interface WorkflowEdge {
   tenant_id: string
   source_node_id: string
   target_node_id: string
+  source_handle: string | null
+  target_handle: string | null
   condition: WorkflowEdgeCondition | null
   label: string | null
   created_at: string
@@ -96,8 +100,10 @@ export interface WorkflowEdge {
 }
 
 export interface WorkflowEdgeCreate {
-  source_node_id: string | number // 可以是临时ID字符串或真实ID数字
-  target_node_id: string | number // 可以是临时ID字符串或真实ID数字
+  source_node_id: string // 临时ID或持久化UUID
+  target_node_id: string // 临时ID或持久化UUID
+  source_handle?: string
+  target_handle?: string
   condition?: WorkflowEdgeCondition
   label?: string
 }
@@ -113,10 +119,11 @@ export interface Workflow {
   description: string | null
   status: WorkflowStatus
   is_active: boolean
-  created_by: number | null
+  created_by: string | null
   created_at: string
   updated_at: string
   deleted_at: string | null
+  allowed_actions?: string[]
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
 }
@@ -157,7 +164,7 @@ export interface WorkflowExecution {
   error_message: string | null
   started_at: string | null
   completed_at: string | null
-  created_by: number | null
+  created_by: string | null
   created_at: string
 }
 

@@ -9,6 +9,7 @@ import type {
   PluginEndpointUpdateRequest,
   PluginConfigResponse,
   PluginConfigItem,
+  PluginConfigUpdateRequest,
   PluginTestRequest,
   PluginTestResult,
 } from '@/types/plugin'
@@ -116,10 +117,13 @@ export async function getPluginConfig(
 
 export async function updatePluginConfig(
   pluginId: string,
-  items: PluginConfigItem[]
+  items: PluginConfigItem[],
+  currentPassword: string
 ): Promise<ApiResponse<PluginConfigResponse>> {
-  const response = await apiClient.put(`/plugins/${pluginId}/config`, {
+  const payload: PluginConfigUpdateRequest = {
     items,
-  })
+    current_password: currentPassword,
+  }
+  const response = await apiClient.put(`/plugins/${pluginId}/config`, payload)
   return response as unknown as ApiResponse<PluginConfigResponse>
 }

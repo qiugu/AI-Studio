@@ -4,35 +4,46 @@
 #   2. docker compose up -d --build
 name: ai-studio
 
+# env_file:
+#   - ./backend/.env
 # 后端（API / Celery Worker 共用）环境变量
 x-backend-env: &backend-env
+  PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-}
+  PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
   # MySQL
   DATABASE_HOST: mysql
   DATABASE_PORT: 3306
-  DATABASE_NAME: ${MYSQL_DATABASE}
-  DATABASE_USERNAME: ${MYSQL_USER}
-  DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+  DATABASE_NAME: ${DATABASE_NAME}
+  DATABASE_USERNAME: ${DATABASE_USERNAME}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD}
   # Qdrant
   QDRANT_URL: http://qdrant:6333
   QDRANT_API_KEY: ""
-  # Redis
+  # Redis（仅缓存 / 限流 / Token 黑名单）
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_DB: 0
   REDIS_PASSWORD: ""
+  # RabbitMQ（Celery Broker）
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-ai_studio}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-ai-studio}
   # JWT
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   JWT_ALGORITHM: HS256
   JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
   JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+  # Staged tenant-membership rollout.  Keep the safe legacy defaults unless
+  # the target database has passed the read-only migration verifier.
+  MEMBERSHIP_DUAL_WRITE_ENABLED: ${MEMBERSHIP_DUAL_WRITE_ENABLED:-false}
+  MEMBERSHIP_READ_MODE: ${MEMBERSHIP_READ_MODE:-legacy}
   # Fernet（API Key 加密）
   FERNET_KEY: ${FERNET_KEY}
   # 文件上传
   UPLOAD_DIR: /app/uploads
   MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
-  # Celery
-  CELERY_BROKER_URL: redis://redis:6379/1
-  CELERY_RESULT_BACKEND: redis://redis:6379/2
   # Embedding
   EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-sentence-transformers}
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-zh-v1.5}
@@ -41,6 +52,7 @@ x-backend-env: &backend-env
   EMBEDDING_API_BASE: ${EMBEDDING_API_BASE:-}
   # Ollama 本地模型（macOS/Windows 自动可用；Linux 依赖 extra_hosts）
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  TZ: Asia/Shanghai
 
 services:
   # ── MySQL 主数据库 ────────────────────────────────────────────
@@ -49,10 +61,10 @@ services:
     container_name: ai-studio-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-${DATABASE_PASSWORD}}
+      MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQL_USER: ${DATABASE_USERNAME}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -60,7 +72,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysqladmin ping -h localhost -u\"$$MYSQL_USER\""]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -68,7 +80,7 @@ services:
     networks:
       - ai-studio-net
 
-  # ── Redis（缓存 + 限流 + Celery Broker）──────────────────────
+  # ── Redis（缓存 + 限流 + Token 黑名单）──────────────────────
   redis:
     image: redis:7-alpine
     container_name: ai-studio-redis
@@ -81,6 +93,29 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    networks:
+      - ai-studio-net
+
+  # ── RabbitMQ（Celery 持久 Broker）────────────────────────────
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    container_name: ai-studio-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-ai_studio}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-ai-studio}
+      TZ: Asia/Shanghai
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     networks:
       - ai-studio-net
 
@@ -106,13 +141,18 @@ services:
 
   # ── 后端 API（启动时自动执行数据库迁移）───────────────────────
   backend:
-    build: ./backend
+    build:
+      context: .
+      args:
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-docker.m.daocloud.io/library/python:3.12-slim}
     container_name: ai-studio-backend
     restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       qdrant:
         condition: service_healthy
@@ -127,7 +167,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -135,44 +175,79 @@ services:
     develop:
       watch:
         - action: sync+restart
-          path: ./backend/app
+          path: ./app
           target: /app/app
 
+        - action: sync+restart
+          path: ./alembic
+          target: /app/alembic
+
+        - action: sync+restart
+          path: ./scripts
+          target: /app/scripts
+
         - action: rebuild
-          path: ./backend/requirements.txt
+          path: ./requirements.txt
     networks:
       - ai-studio-net
 
   # ── Celery Worker（文档解析 / 向量化等异步任务）───────────────
   celery-worker:
-    build: ./backend
+    build:
+      context: .
+      args:
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-docker.m.daocloud.io/library/python:3.12-slim}
     container_name: ai-studio-celery-worker
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     # 使用 threads 池而非默认 prefork：避免 fork 子进程加载 torch/sentence-transformers
     # 时 OpenMP 重复初始化导致的 SIGABRT（WorkerLostError: signal 6）。本地手动启动时
     # 亦可加 --pool=threads。celery_app.py 中已设置 KMP_DUPLICATE_LIB_OK 等环境变量作为兜底。
-    command: celery -A app.core.celery_app worker --pool=threads --loglevel=info --concurrency=2
+    command: >-
+      sh -c 'if [ "${MEMBERSHIP_READ_MODE:-legacy}" != "legacy" ]; then
+      python scripts/verify_rbac_migration.py --strict --require-membership-ready;
+      fi && exec celery -A app.core.celery_app worker --pool=threads
+      --loglevel=info --concurrency=2 --queues=default,document.ingest,tenant.cleanup'
+    stop_grace_period: 2m
     environment: *backend-env
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - uploads:/app/uploads
       - hf-cache:/root/.cache/huggingface
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./app
+          target: /app/app
+
+        - action: sync+restart
+          path: ./alembic
+          target: /app/alembic
+
+        - action: rebuild
+          path: ./requirements.txt
     networks:
       - ai-studio-net
 
   # ── 前端（Nginx 静态托管 + API 反向代理 / SSE）───────────────
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NODE_BASE_IMAGE: ${NODE_BASE_IMAGE:-docker.m.daocloud.io/library/node:20-alpine}
+        NGINX_BASE_IMAGE: ${NGINX_BASE_IMAGE:-docker.m.daocloud.io/library/nginx:1.27-alpine}
     container_name: ai-studio-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       # nginx 在容器内监听 80（见 frontend/nginx.conf / Dockerfile EXPOSE 80），
-      # 对外暴露到宿主机 3000：宿主机端口:容器端口 = 3000:80
+      # 开发环境默认暴露到宿主机 3000；上线时可通过 FRONTEND_PORT=80 覆盖
       - "${FRONTEND_PORT:-3000}:80"
     healthcheck:
       # nginx 仅 listen 80（IPv4），容器内 localhost 会解析到 IPv6 ::1 导致误判 unhealthy，改用 127.0.0.1
@@ -180,12 +255,21 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+    develop:
+      watch:
+        # 当前前端服务使用 Nginx 托管构建产物；源码变化时重建镜像即可刷新页面。
+        - action: rebuild
+          path: ./frontend
+          ignore:
+            - node_modules/
+            - dist/
     networks:
       - ai-studio-net
 
 volumes:
   mysql-data:
   redis-data:
+  rabbitmq-data:
   qdrant-data:
   uploads:
   hf-cache:

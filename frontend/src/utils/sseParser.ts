@@ -3,7 +3,9 @@ export interface SSEEvent {
   data: string
 }
 
-const EVENT_BOUNDARY = /(?:\r\n|\r|\n)(?:\r\n|\r|\n)/
+// Keep CRLF atomic. A generic "two line endings" expression can backtrack and
+// treat the CR and LF inside one CRLF as an empty line, dropping the event name.
+const EVENT_BOUNDARY = /(?:\r\n(?:\r\n|\r|\n)|\r(?:\r\n|\r)|\n(?:\r\n|\r|\n))/
 const LINE_ENDING = /\r\n|\r|\n/
 
 /**
@@ -30,6 +32,16 @@ export class SSEParser {
     }
 
     return events
+  }
+
+  /** Parse a final frame when the transport closes without a blank line. */
+  flush(): SSEEvent[] {
+    if (!this.buffer) return []
+
+    const frame = this.buffer
+    this.buffer = ''
+    const event = this.parseFrame(frame)
+    return event ? [event] : []
   }
 
   private parseFrame(frame: string): SSEEvent | null {

@@ -23,6 +23,26 @@ import type { Role, Permission } from '@/types/api'
 
 const { Title } = Typography
 
+function askCurrentPassword(title: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    let password = ''
+    Modal.confirm({
+      title,
+      content: (
+        <Input.Password
+          autoFocus
+          placeholder="请输入当前登录密码"
+          onChange={(event) => { password = event.target.value }}
+        />
+      ),
+      okText: '确认',
+      cancelText: '取消',
+      onOk: () => resolve(password || null),
+      onCancel: () => resolve(null),
+    })
+  })
+}
+
 export default function Roles() {
   const [roles, setRoles] = useState<Role[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
@@ -32,7 +52,6 @@ export default function Roles() {
   const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm()
 
-  // 权限矩阵抽屉
   const [permDrawer, setPermDrawer] = useState<{ open: boolean; role: Role | null }>({
     open: false,
     role: null,
@@ -57,7 +76,7 @@ export default function Roles() {
   }, [])
 
   useEffect(() => {
-    fetchAll()
+    void Promise.resolve().then(() => fetchAll())
   }, [fetchAll])
 
   const openCreate = () => {
@@ -78,11 +97,16 @@ export default function Roles() {
     try {
       const values = await form.validateFields()
       setSubmitting(true)
+      const currentPassword = await askCurrentPassword(
+        editing ? '修改角色需要验证当前密码' : '创建角色需要验证当前密码',
+      )
+      if (!currentPassword) return
+      const payload = { ...values, current_password: currentPassword }
       if (editing) {
-        await updateRole(editing.id, values)
+        await updateRole(editing.id, payload)
         message.success('更新成功')
       } else {
-        await createRole(values)
+        await createRole(payload)
         message.success('创建成功')
       }
       setModalOpen(false)
@@ -99,8 +123,10 @@ export default function Roles() {
       message.error('内置管理员角色不可删除')
       return
     }
+    const currentPassword = await askCurrentPassword('删除角色需要验证当前密码')
+    if (!currentPassword) return
     try {
-      await deleteRole(record.id)
+      await deleteRole(record.id, currentPassword)
       message.success('删除成功')
       fetchAll()
     } catch {
@@ -115,9 +141,14 @@ export default function Roles() {
 
   const handleSavePerms = async () => {
     if (!permDrawer.role) return
+    const currentPassword = await askCurrentPassword('修改角色权限需要验证当前密码')
+    if (!currentPassword) return
     setSavingPerms(true)
     try {
-      await setRolePermissions(permDrawer.role.id, { permission_ids: checkedPerms })
+      await setRolePermissions(permDrawer.role.id, {
+        permission_ids: checkedPerms,
+        current_password: currentPassword,
+      })
       message.success('权限已保存')
       setPermDrawer({ open: false, role: null })
       fetchAll()
@@ -129,10 +160,12 @@ export default function Roles() {
   }
 
   // 按 resource 分组权限
-  const groupedPerms = permissions.reduce<Record<string, Permission[]>>((acc, p) => {
+  const groupedPerms = permissions
+    .filter((p) => p.scope !== 'platform' && p.is_delegable !== false)
+    .reduce<Record<string, Permission[]>>((acc, p) => {
     ;(acc[p.resource] ||= []).push(p)
     return acc
-  }, {})
+    }, {})
 
   const columns: ColumnsType<Role> = [
     { title: '名称', dataIndex: 'name', key: 'name' },
@@ -142,7 +175,7 @@ export default function Roles() {
       title: '权限数',
       dataIndex: 'permissions',
       key: 'permissions',
-      render: (ps: Permission[]) => <Badge count={ps.length} showZero color="#1677ff" />,
+      render: (ps: Permission[]) => <Badge count={ps.length} showZero color="var(--app-color-primary)" />,
     },
     {
       title: '状态',

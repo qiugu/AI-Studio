@@ -260,7 +260,11 @@ args_schema : ['q', 'sort', 'order', 'per_page']
 
 ### 8.1 🔴 端点路径中的查询串会被静默丢弃
 
-`plugin_executor.py:125-128` 对 GET 一律设置 `request_kwargs["params"] = params`（**即便是空字典**），而 httpx 在 `params is not None` 时会**整体替换** URL 自带的查询串。实测：
+> **2026-10-12 已修复**：执行器现在显式合并端点路径自带的查询参数与动态参数，
+> 不再通过 `httpx params=` 覆盖原查询串；同时保留查询参数值中的字面逗号，
+> 例如 `orign=123,1234` 不会再变成 `orign=123%2C1234`。
+
+修复前，`plugin_executor.py` 对 GET 一律设置 `request_kwargs["params"] = params`（**即便是空字典**），而 httpx 在 `params is not None` 时会**整体替换** URL 自带的查询串。历史实测：
 
 ```
 路径 URL : .../search/repositories?sort=stars&order=desc&per_page=2
@@ -269,9 +273,9 @@ params={'q':'llm'}       → 实际 URL : .../search/repositories?q=llm    ← �
 params=None              → 实际 URL : .../search/repositories?sort=stars&order=desc&per_page=2
 ```
 
-后果：那些**必须带固定查询参数**的 API（MediaWiki 的 `action=query&format=json`、带 `api-version=` 的服务）无法被正确表达。叠加 §8.2 的「导入器不读 `parameters`」，固定查询参数既放不进规范、也写不进路径——**当前无任何合法位置可放**。
+修复前的后果：那些**必须带固定查询参数**的 API（MediaWiki 的 `action=query&format=json`、带 `api-version=` 的服务）无法被正确表达。叠加 §8.2 的「导入器不读 `parameters`」，固定查询参数既放不进规范、也写不进路径。
 
-修复方向（小改动，建议单独一轮）：在 `execute_plugin_call` 里把「路径自带查询串 + 动态 params」显式合并，而非让 httpx 覆盖；或至少在 `params` 为空时不传该键。
+修复方式：`execute_plugin_call` 现在把「路径自带查询串 + 动态参数」显式合并后直接写入最终 URL，不再向 httpx 传递 `params=`。
 
 ### 8.2 🟡 导入器不读 `parameters`，也不读端点级请求头
 

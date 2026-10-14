@@ -1,18 +1,25 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Table, Button, Space, Tag, message, Popconfirm, Card } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, CheckOutlined, InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { listWorkflows, deleteWorkflow, publishWorkflow, archiveWorkflow } from '../../api/workflow'
-import type { Workflow, WorkflowStatus } from '../../types/workflow'
+import type { Workflow, WorkflowNode, WorkflowStatus } from '../../types/workflow'
 import { usePagination } from '../../hooks/usePagination'
+import { usePermission } from '@/hooks/usePermission'
 
 const WorkflowList: React.FC = () => {
   const navigate = useNavigate()
+  const { check } = usePermission()
+  const canCreate = check('workflow', 'create')
+  const canUpdate = check('workflow', 'update')
+  const canDelete = check('workflow', 'delete')
+  const canPublish = check('workflow', 'publish')
+  const canExecute = check('workflow', 'execute')
   const [statusFilter, setStatusFilter] = useState<WorkflowStatus | undefined>()
   const { data, loading, setData, setLoading, onChange, total, current, pageSize } = usePagination<Workflow>()
 
-  const fetchWorkflows = async () => {
+  const fetchWorkflows = useCallback(async () => {
     setLoading(true)
     try {
       const result = await listWorkflows({
@@ -21,23 +28,23 @@ const WorkflowList: React.FC = () => {
         status: statusFilter,
       })
       setData(result.data)
-    } catch (error) {
+    } catch {
       message.error('获取工作流列表失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [current, pageSize, setData, setLoading, statusFilter])
 
   useEffect(() => {
-    fetchWorkflows()
-  }, [current, pageSize, statusFilter])
+    void fetchWorkflows()
+  }, [fetchWorkflows])
 
   const handleDelete = async (workflowId: string) => {
     try {
       await deleteWorkflow(workflowId)
       message.success('工作流已删除')
       fetchWorkflows()
-    } catch (error) {
+    } catch {
       message.error('删除失败')
     }
   }
@@ -47,7 +54,7 @@ const WorkflowList: React.FC = () => {
       await publishWorkflow(workflowId)
       message.success('工作流已发布')
       fetchWorkflows()
-    } catch (error) {
+    } catch {
       message.error('发布失败')
     }
   }
@@ -57,7 +64,7 @@ const WorkflowList: React.FC = () => {
       await archiveWorkflow(workflowId)
       message.success('工作流已归档')
       fetchWorkflows()
-    } catch (error) {
+    } catch {
       message.error('归档失败')
     }
   }
@@ -71,6 +78,9 @@ const WorkflowList: React.FC = () => {
     const config = statusConfig[status]
     return <Tag color={config.color}>{config.text}</Tag>
   }
+
+  const canAct = (workflow: Workflow, action: string, fallback: boolean) =>
+    workflow.allowed_actions ? workflow.allowed_actions.includes(action) : fallback
 
   const columns: ColumnsType<Workflow> = [
     {
@@ -91,7 +101,7 @@ const WorkflowList: React.FC = () => {
       dataIndex: 'nodes',
       key: 'nodes',
       width: 100,
-      render: (nodes: any[]) => nodes?.length || 0,
+      render: (nodes: WorkflowNode[]) => nodes?.length || 0,
     },
     {
       title: '状态',
@@ -114,15 +124,15 @@ const WorkflowList: React.FC = () => {
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
-          <Button
+          {canAct(record, 'update', canUpdate) && <Button
             type="link"
             size="small"
             icon={<EditOutlined />}
             onClick={() => navigate(`/workflows/${record.id}/edit`)}
           >
             编辑
-          </Button>
-          {record.status === 'draft' && (
+          </Button>}
+          {canAct(record, 'publish', canPublish) && record.status === 'draft' && (
             <Button
               type="link"
               size="small"
@@ -132,7 +142,7 @@ const WorkflowList: React.FC = () => {
               发布
             </Button>
           )}
-          {record.status === 'published' && (
+          {record.status === 'published' && canAct(record, 'execute', canExecute) && (
             <>
               <Button
                 type="link"
@@ -142,17 +152,17 @@ const WorkflowList: React.FC = () => {
               >
                 执行
               </Button>
-              <Button
+              {canAct(record, 'update', canUpdate) && <Button
                 type="link"
                 size="small"
                 icon={<InboxOutlined />}
                 onClick={() => handleArchive(record.id)}
               >
                 归档
-              </Button>
+              </Button>}
             </>
           )}
-          <Popconfirm
+          {canAct(record, 'delete', canDelete) && <Popconfirm
             title="确定删除此工作流吗？"
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
@@ -166,7 +176,7 @@ const WorkflowList: React.FC = () => {
             >
               删除
             </Button>
-          </Popconfirm>
+          </Popconfirm>}
         </Space>
       ),
     },
@@ -175,7 +185,7 @@ const WorkflowList: React.FC = () => {
   return (
     <Card
       title="工作流列表"
-      extra={
+      extra={canCreate && (
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -183,9 +193,9 @@ const WorkflowList: React.FC = () => {
         >
           创建工作流
         </Button>
-      }
+      )}
     >
-      <Space style={{ marginBottom: 16 }}>
+      {canUpdate && <Space style={{ marginBottom: 16 }}>
         <span>状态筛选：</span>
         <Button
           type={statusFilter === undefined ? 'primary' : 'default'}
@@ -211,7 +221,7 @@ const WorkflowList: React.FC = () => {
         >
           已归档
         </Button>
-      </Space>
+      </Space>}
 
       <Table
         columns={columns}

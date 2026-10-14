@@ -15,16 +15,25 @@ data:
   REDIS_PORT: "6379"
   REDIS_DB: "0"
   REDIS_PASSWORD: ""
-  CELERY_BROKER_URL: redis://redis:6379/1
-  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
   JWT_ALGORITHM: HS256
   JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
   JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  # Staged tenant-membership rollout; change only after the migration verifier
+  # passes in this cluster.  deploy.sh validates the combination and patches
+  # these values from MEMBERSHIP_* environment variables when requested.
+  MEMBERSHIP_DUAL_WRITE_ENABLED: "false"
+  MEMBERSHIP_READ_MODE: legacy
   UPLOAD_DIR: /app/uploads
   MAX_UPLOAD_SIZE_MB: "50"
   EMBEDDING_PROVIDER: sentence-transformers
   EMBEDDING_MODEL: BAAI/bge-base-zh-v1.5
   EMBEDDING_DEVICE: cpu
+  # 单节点部署按离线模式运行：模型权重由 hf-cache 持久卷提供，禁止 Hugging Face
+  # 客户端在每次进程启动时先做不可达的 Hub 元数据探测并等待多轮 DNS 重试。
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
   EMBEDDING_API_KEY: ""
   EMBEDDING_API_BASE: ""
   OLLAMA_BASE_URL: http://192.168.99.131:11434

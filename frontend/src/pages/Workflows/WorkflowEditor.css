@@ -7,24 +7,25 @@
 
 :root {
   /* Colors - Neutral palette with purposeful accents */
-  --wf-bg-canvas: #f8f9fa;
-  --wf-bg-panel: #ffffff;
-  --wf-border-subtle: #e5e7eb;
-  --wf-border-default: #d1d5db;
-  --wf-text-primary: #111827;
-  --wf-text-secondary: #6b7280;
-  --wf-text-tertiary: #9ca3af;
+  --wf-bg-canvas: var(--app-color-surface);
+  --wf-bg-panel: var(--app-color-surface-strong);
+  --wf-border-subtle: var(--app-color-border);
+  --wf-border-default: #abc0c8;
+  --wf-edge: #98aeb8;
+  --wf-text-primary: var(--app-color-text);
+  --wf-text-secondary: var(--app-color-text-secondary);
+  --wf-text-tertiary: var(--app-color-text-muted);
 
   /* Node accent colors - Muted and sophisticated */
-  --wf-node-start: #10b981;
-  --wf-node-end: #ef4444;
-  --wf-node-llm: #3b82f6;
-  --wf-node-condition: #f59e0b;
-  --wf-node-knowledge: #8b5cf6;
-  --wf-node-code: #06b6d4;
-  --wf-node-tool: #ec4899;
-  --wf-node-loop: #f97316;
-  --wf-node-variable: #84cc16;
+  --wf-node-start: #3d9b78;
+  --wf-node-end: #c85a61;
+  --wf-node-llm: #4c86c6;
+  --wf-node-condition: #b87d2c;
+  --wf-node-knowledge: #7a6ab0;
+  --wf-node-code: #3c9aa9;
+  --wf-node-tool: #b56a95;
+  --wf-node-loop: #b9793d;
+  --wf-node-variable: #759c46;
 
   /* Spacing scale - 4px base unit */
   --wf-space-1: 4px;
@@ -89,39 +90,45 @@
    ============================================================================ */
 
 .react-flow__handle {
-  width: 12px !important;
-  height: 12px !important;
+  width: 8px !important;
+  height: 8px !important;
   border-radius: 50% !important;
-  border: 2px solid white !important;
-  transition: transform var(--wf-transition-fast), box-shadow var(--wf-transition-fast) !important;
+  border: 1px solid var(--wf-bg-panel) !important;
+  box-shadow: 0 0 0 1px rgba(23, 43, 58, 0.16) !important;
+  opacity: 0.65;
+  transition: transform var(--wf-transition-fast), box-shadow var(--wf-transition-fast), opacity var(--wf-transition-fast) !important;
   z-index: 10 !important;
 }
 
-.react-flow__handle:hover {
-  transform: scale(1.4);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+.react-flow__node:hover .react-flow__handle,
+.react-flow__handle.connecting,
+.react-flow__handle.valid {
+  opacity: 1;
 }
 
-/* Primary handles (left/right) - Larger and more prominent */
+.react-flow__handle:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 3px rgba(27, 127, 140, 0.18) !important;
+}
+
+/* Primary handles (left/right) stay slightly easier to target. */
 .handle-left,
 .handle-right {
-  width: 14px !important;
-  height: 14px !important;
-  border-width: 2.5px !important;
+  width: 9px !important;
+  height: 9px !important;
 }
 
 .handle-left:hover,
 .handle-right:hover {
-  transform: scale(1.5);
-  box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.4);
+  transform: scale(1.25);
 }
 
 /* Secondary handles (top/bottom) - Smaller for vertical connections */
 .handle-top,
 .handle-bottom {
-  width: 10px !important;
-  height: 10px !important;
-  opacity: 0.8;
+  width: 7px !important;
+  height: 7px !important;
+  opacity: 0.45;
 }
 
 .handle-top:hover,
@@ -135,14 +142,15 @@
    ============================================================================ */
 
 .react-flow__edge-path {
-  stroke-width: 2.5;
-  stroke: #94a3b8;
+  stroke-width: 1.5;
+  stroke: var(--wf-edge);
   fill: none;
+  stroke-linecap: round;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #3b82f6;
-  stroke-width: 3;
+  stroke: var(--app-color-primary);
+  stroke-width: 2;
 }
 
 /* Animated edge on connection */
@@ -160,19 +168,19 @@
 
 /* Edge hover effect */
 .react-flow__edge:hover .react-flow__edge-path {
-  stroke: #64748b;
-  stroke-width: 3;
+  stroke: var(--app-color-primary-hover);
+  stroke-width: 2;
 }
 
 .react-flow__controls {
   box-shadow: var(--wf-shadow-base) !important;
-  border-radius: 8px !important;
+  border-radius: 6px !important;
   border: 1px solid var(--wf-border-subtle) !important;
 }
 
 .react-flow__minimap {
   box-shadow: var(--wf-shadow-base) !important;
-  border-radius: 8px !important;
+  border-radius: 6px !important;
   border: 1px solid var(--wf-border-subtle) !important;
 }
 
@@ -182,33 +190,33 @@
 
 .workflow-node {
   background: var(--wf-bg-panel);
-  border-radius: 8px;
-  box-shadow: var(--wf-shadow-base);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(23, 43, 58, 0.08);
   border: 1px solid var(--wf-border-subtle);
-  min-width: 160px;
-  max-width: 200px;
+  min-width: 184px;
+  max-width: 228px;
   transition: all var(--wf-transition-base);
   position: relative;
 }
 
 .workflow-node:hover {
-  box-shadow: var(--wf-shadow-md);
+  box-shadow: 0 4px 14px rgba(23, 43, 58, 0.12);
   border-color: var(--wf-border-default);
 }
 
 .workflow-node.selected {
-  box-shadow: 0 0 0 2px #3b82f6, var(--wf-shadow-md);
+  box-shadow: 0 0 0 1px var(--app-color-primary), 0 4px 14px rgba(27, 127, 140, 0.16);
 }
 
-/* Node accent bar - top colored line */
+/* A narrow type rail keeps the canvas scannable without adding a heavy frame. */
 .workflow-node::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  border-radius: 8px 8px 0 0;
+  top: 8px;
+  bottom: 8px;
+  left: -1px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
   transition: background-color var(--wf-transition-fast);
 }
 
@@ -228,12 +236,12 @@
   display: flex;
   align-items: center;
   gap: var(--wf-space-2);
-  padding: var(--wf-space-2) var(--wf-space-3);
+  padding: 9px var(--wf-space-3);
   border-bottom: 1px solid var(--wf-border-subtle);
 }
 
 .workflow-node-icon {
-  font-size: var(--wf-text-base);
+  font-size: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -253,7 +261,7 @@
 
 .workflow-node-label {
   font-size: var(--wf-text-sm);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--wf-text-primary);
   flex: 1;
   white-space: nowrap;
@@ -273,12 +281,16 @@
   opacity: 1;
 }
 
+.workflow-node.selected .workflow-node-actions {
+  opacity: 1;
+}
+
 .workflow-node-action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 4px;
   border: none;
   background: transparent;
@@ -294,18 +306,48 @@
 }
 
 .workflow-node-action-btn.danger:hover {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--app-color-danger-soft);
+  color: var(--app-color-danger);
 }
 
 /* Node content */
 .workflow-node-content {
-  padding: var(--wf-space-2) var(--wf-space-3);
+  padding: 8px var(--wf-space-3) 10px;
   font-size: var(--wf-text-xs);
   color: var(--wf-text-secondary);
   line-height: 1.5;
-  max-height: 60px;
+  min-height: 34px;
+  max-height: 72px;
   overflow: hidden;
+}
+
+.workflow-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.workflow-node-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid #dfe9ec;
+  border-radius: 4px;
+  background: #f7fafb;
+  color: var(--wf-text-secondary);
+  white-space: nowrap;
+}
+
+.workflow-node-chip-label {
+  color: var(--wf-text-tertiary);
+}
+
+.workflow-node-chip--prompt {
+  border-color: rgba(122, 106, 176, 0.24);
+  background: rgba(122, 106, 176, 0.08);
+  color: #675695;
 }
 
 .workflow-node-content pre {
@@ -321,7 +363,7 @@
 
 .node-palette {
   background: var(--wf-bg-panel);
-  border-radius: 8px;
+  border-radius: 6px;
   box-shadow: var(--wf-shadow-base);
   border: 1px solid var(--wf-border-subtle);
   overflow: hidden;
@@ -349,7 +391,7 @@
   align-items: center;
   gap: var(--wf-space-2);
   padding: var(--wf-space-2) var(--wf-space-3);
-  border-radius: 6px;
+  border-radius: 4px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -413,7 +455,7 @@
 
 .workflow-node:focus,
 .node-palette-item:focus {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--app-color-primary);
   outline-offset: 2px;
 }
 

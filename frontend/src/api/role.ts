@@ -35,8 +35,10 @@ export async function updateRole(
   return response as unknown as ApiResponse<Role>
 }
 
-export async function deleteRole(id: string): Promise<ApiResponse<null>> {
-  const response = await apiClient.delete(`/roles/${id}`)
+export async function deleteRole(id: string, currentPassword: string): Promise<ApiResponse<null>> {
+  const response = await apiClient.delete(`/roles/${id}`, {
+    data: { current_password: currentPassword },
+  })
   return response as unknown as ApiResponse<null>
 }
 

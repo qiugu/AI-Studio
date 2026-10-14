@@ -1,18 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  ensureActiveGroupOpen,
   getNavigationItems,
-  keepActiveGroupOpen,
   resolveNavigationState,
+  type NavigationGroup,
   type NavigationItem,
 } from './navigation'
 
-function leafKeys(items: NavigationItem[]): string[] {
+function leafKeys(items: Array<NavigationItem | NavigationGroup>): string[] {
   return items.flatMap((item) => ('children' in item ? item.children.map((child) => child.key) : [item.key]))
 }
 
 describe('sidebar navigation structure', () => {
-  it('keeps stable resources in groups and leaves contextual actions out of the menu', () => {
+  it('keeps stable modules grouped while leaving contextual routes out of the menu', () => {
     const items = getNavigationItems('tenant-admin')
 
     expect(leafKeys(items)).toEqual([
@@ -29,6 +30,10 @@ describe('sidebar navigation structure', () => {
       '/system/audit-logs',
       '/system/tenant',
     ])
+
+    expect(items.map((item) => item.key)).toEqual(['/', 'model-center', 'app-studio', 'governance'])
+    expect(items.filter((item) => 'children' in item)).toHaveLength(3)
+    expect(leafKeys(items)).not.toContain('/agents/create')
     expect(leafKeys(items)).not.toContain('/workflows/create')
   })
 
@@ -38,7 +43,9 @@ describe('sidebar navigation structure', () => {
       '/agents',
       '/workflows',
     ])
-    expect(leafKeys(getNavigationItems('platform-admin'))).toEqual(['/admin/tenants'])
+    const platformItems = getNavigationItems('platform-admin')
+    expect(leafKeys(platformItems)).toEqual(['/admin/tenants'])
+    expect(platformItems.every((item) => !('children' in item))).toBe(true)
   })
 })
 
@@ -46,15 +53,19 @@ describe('resolveNavigationState', () => {
   const items = getNavigationItems('tenant-admin')
 
   it.each([
-    ['/providers/new', '/providers', 'resources-group'],
-    ['/ai-models/model-1/edit', '/ai-models', 'resources-group'],
-    ['/prompts/prompt-1', '/prompts', 'resources-group'],
-    ['/knowledge/kb-1', '/knowledge', 'resources-group'],
-    ['/agents/create', '/agents', 'apps-group'],
-    ['/agents/agent-1/chat', '/agents', 'apps-group'],
-    ['/workflows/workflow-1/execute', '/workflows', 'apps-group'],
-    ['/plugins/plugin-1/config', '/plugins', 'apps-group'],
-  ])('maps %s to the stable %s entry', (pathname, selectedKey, activeGroupKey) => {
+    ['/providers/new', '/providers', 'model-center'],
+    ['/providers/provider-1/edit', '/providers', 'model-center'],
+    ['/ai-models/new', '/ai-models', 'model-center'],
+    ['/ai-models/model-1/edit', '/ai-models', 'model-center'],
+    ['/prompts/new', '/prompts', 'app-studio'],
+    ['/prompts/prompt-1', '/prompts', 'app-studio'],
+    ['/knowledge/kb-1', '/knowledge', 'app-studio'],
+    ['/agents/create', '/agents', 'app-studio'],
+    ['/agents/agent-1/chat', '/agents', 'app-studio'],
+    ['/workflows/create', '/workflows', 'app-studio'],
+    ['/workflows/workflow-1/execute', '/workflows', 'app-studio'],
+    ['/plugins/plugin-1/config', '/plugins', 'app-studio'],
+  ])('maps %s to its owning module entry', (pathname, selectedKey, activeGroupKey) => {
     expect(resolveNavigationState(pathname, items)).toEqual({ selectedKey, activeGroupKey })
   })
 
@@ -66,24 +77,21 @@ describe('resolveNavigationState', () => {
   it('normalizes trailing slashes', () => {
     expect(resolveNavigationState('/system/users/', items)).toEqual({
       selectedKey: '/system/users',
-      activeGroupKey: 'system-group',
+      activeGroupKey: 'governance',
     })
   })
 })
 
-describe('keepActiveGroupOpen', () => {
-  it('opens the active group without discarding other expanded groups', () => {
-    expect(keepActiveGroupOpen(['system-group'], 'apps-group')).toEqual([
-      'system-group',
-      'apps-group',
-    ])
+describe('ensureActiveGroupOpen', () => {
+  it('adds the active group without discarding groups the user already opened', () => {
+    expect(ensureActiveGroupOpen(['governance'], 'app-studio')).toEqual(['governance', 'app-studio'])
   })
 
-  it('does not duplicate an already expanded active group', () => {
-    expect(keepActiveGroupOpen(['apps-group'], 'apps-group')).toEqual(['apps-group'])
+  it('does not duplicate an already open group', () => {
+    expect(ensureActiveGroupOpen(['app-studio'], 'app-studio')).toEqual(['app-studio'])
   })
 
-  it('keeps the current expansion when a route has no menu entry', () => {
-    expect(keepActiveGroupOpen(['resources-group'], undefined)).toEqual(['resources-group'])
+  it('keeps user expansion state when the route has no visible match', () => {
+    expect(ensureActiveGroupOpen(['model-center'], undefined)).toEqual(['model-center'])
   })
 })

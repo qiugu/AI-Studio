@@ -44,19 +44,23 @@ describe('canManageSystem', () => {
     expect(canManageSystem(undefined)).toBe(false)
   })
 
-  it('租户管理员（is_admin 角色）可见系统管理', () => {
-    expect(canManageSystem(makeUser({ roles: [role('tenant_admin', true)] }))).toBe(true)
+  it('后端 capability 快照包含治理权限时可见系统管理', () => {
+    expect(canManageSystem(makeUser({ capabilities: ['tenant.roles_manage'] }))).toBe(true)
+  })
+
+  it('旧 is_admin 角色字段不能单独放行系统管理', () => {
+    expect(canManageSystem(makeUser({ roles: [role('tenant_admin', true)] }))).toBe(false)
   })
 
   it('角色 code 含 admin 但 is_admin=false 时不可见（不再按 code 子串判断）', () => {
     expect(canManageSystem(makeUser({ roles: [role('tenant_admin', false)] }))).toBe(false)
   })
 
-  it('平台超级管理员（is_platform_admin）可见系统管理', () => {
-    expect(canManageSystem(makeUser({ is_platform_admin: true, roles: [] }))).toBe(true)
+  it('平台超级管理员不能进入租户系统管理', () => {
+    expect(canManageSystem(makeUser({ is_platform_admin: true, roles: [] }))).toBe(false)
   })
 
-  it('租户所有者（is_tenant_owner）可见系统管理', () => {
-    expect(canManageSystem(makeUser({ is_tenant_owner: true, roles: [] }))).toBe(true)
+  it('租户所有者标记本身不能替代管理员角色', () => {
+    expect(canManageSystem(makeUser({ is_tenant_owner: true, roles: [] }))).toBe(false)
   })
 })

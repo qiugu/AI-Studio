@@ -5,20 +5,21 @@ import {
   Select,
   Button,
   Space,
-  Typography,
   Card,
   Tag,
   message,
   Row,
   Col,
+  Typography,
 } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import CodeEditor from '@/components/CodeEditor'
+import RouteHeader from '@/components/Layout/RouteHeader'
 import { createPrompt, getPrompt, updatePrompt, createVersion, activateVersion } from '@/api/prompt'
 import { executePromptSave } from './promptSave'
 import type { Prompt } from '@/types/prompt'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 /** Extract {{variable}} names from content */
 function extractVars(content: string): string[] {
@@ -104,17 +105,20 @@ export default function PromptEditor() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          {isEdit ? '编辑 Prompt' : '新建 Prompt'}
-        </Title>
-        <Space>
-          <Button onClick={() => navigate(-1)}>取消</Button>
-          <Button type="primary" loading={loading} onClick={handleSubmit}>
-            {isEdit ? '保存' : '创建'}
-          </Button>
-        </Space>
-      </div>
+      <RouteHeader
+        eyebrow="应用开发 / Prompt"
+        title={isEdit ? '编辑 Prompt' : '新建 Prompt'}
+        backTo="/prompts"
+        backLabel="返回 Prompt 列表"
+        extra={(
+          <Space>
+            <Button onClick={() => navigate('/prompts')}>取消</Button>
+            <Button type="primary" loading={loading} onClick={handleSubmit}>
+              {isEdit ? '保存' : '创建'}
+            </Button>
+          </Space>
+        )}
+      />
 
       {isEdit && prompt && (
         <Card size="small" style={{ marginBottom: 16 }}>

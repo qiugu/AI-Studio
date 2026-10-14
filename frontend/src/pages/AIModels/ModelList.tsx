@@ -56,7 +56,7 @@ export default function ModelList() {
   }, [filters])
 
   useEffect(() => {
-    fetchAll()
+    void Promise.resolve().then(() => fetchAll())
   }, [fetchAll])
 
   const handleDelete = async (id: string) => {

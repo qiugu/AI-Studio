@@ -8,6 +8,10 @@ const WIDTH = 640
 const HEIGHT = 220
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 }
 
+function readDatum(datum: object, key: string): unknown {
+  return (datum as Record<string, unknown>)[key]
+}
+
 function makeScale(values: number[], maxOverride?: number) {
   const max = maxOverride ?? (values.length ? Math.max(...values) : 0)
   const min = 0
@@ -26,13 +30,16 @@ function makeScale(values: number[], maxOverride?: number) {
 export function LineChart({
   data,
   valueKey = 'total_tokens',
-  color = '#1677ff',
+  color = 'var(--app-color-primary)',
 }: {
-  data: Array<Record<string, any>>
+  data: object[]
   valueKey?: string
   color?: string
 }) {
-  const points = useMemo(() => data.map((d) => Number(d[valueKey] ?? 0)), [data, valueKey])
+  const points = useMemo(
+    () => data.map((d) => Number(readDatum(d, valueKey) ?? 0)),
+    [data, valueKey]
+  )
   const scale = makeScale(points)
 
   if (!data.length) {
@@ -75,7 +82,7 @@ export function LineChart({
       {data.map((d, i) => {
         const step = Math.ceil(data.length / 6)
         if (i % step !== 0 && i !== data.length - 1) return null
-        const label = String(d.date ?? '').slice(5)
+        const label = String(readDatum(d, 'date') ?? '').slice(5)
         return (
           <text
             key={i}
@@ -99,13 +106,16 @@ export function BarChart({
   labelKey = 'key',
   color = '#52c41a',
 }: {
-  data: Array<Record<string, any>>
+  data: object[]
   valueKey?: string
   labelKey?: string
   color?: string
 }) {
   const items = useMemo(
-    () => data.map((d) => ({ label: String(d[labelKey] ?? '-'), value: Number(d[valueKey] ?? 0) })),
+    () => data.map((d) => ({
+      label: String(readDatum(d, labelKey) ?? '-'),
+      value: Number(readDatum(d, valueKey) ?? 0),
+    })),
     [data, valueKey, labelKey]
   )
   const scale = makeScale(items.map((d) => d.value))

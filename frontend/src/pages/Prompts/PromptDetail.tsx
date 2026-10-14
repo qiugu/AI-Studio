@@ -16,7 +16,7 @@ import {
   Col,
   Badge,
 } from 'antd'
-import { ArrowLeftOutlined, EditOutlined, PlayCircleOutlined, CheckOutlined } from '@ant-design/icons'
+import { EditOutlined, PlayCircleOutlined, CheckOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import CodeEditor from '@/components/CodeEditor'
@@ -24,8 +24,9 @@ import { getPrompt, listVersions, activateVersion, testPrompt } from '@/api/prom
 import { listModels } from '@/api/ai-model'
 import type { Prompt, PromptVersion, PromptTestResult } from '@/types/prompt'
 import type { AIModel } from '@/types/ai-model'
+import RouteHeader from '@/components/Layout/RouteHeader'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 export default function PromptDetail() {
   const { id } = useParams<{ id: string }>()
@@ -57,7 +58,7 @@ export default function PromptDetail() {
   }, [promptId])
 
   useEffect(() => {
-    load()
+    void Promise.resolve().then(() => load())
   }, [load])
 
   const handleActivate = async (versionId: string) => {
@@ -152,33 +153,41 @@ export default function PromptDetail() {
     })
   }
 
-  if (!prompt) return <Spin />
+  if (!prompt) {
+    return (
+      <div>
+        <RouteHeader
+          eyebrow="应用开发 / Prompt"
+          title="Prompt 详情"
+          backTo="/prompts"
+          backLabel="返回 Prompt 列表"
+        />
+        <Spin />
+      </div>
+    )
+  }
 
   const varNames = selectedVersion?.variables ?? []
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Space>
-          <Title level={4} style={{ margin: 0 }}>{prompt.name}</Title>
-          <Badge
-            status={prompt.status === 'published' ? 'success' : prompt.status === 'archived' ? 'warning' : 'default'}
-            text={prompt.status === 'published' ? '已发布' : prompt.status === 'archived' ? '已归档' : '草稿'}
-          />
-        </Space>
-        <Space>
-          {/* 显式回列表：不依赖浏览器历史，避免从编辑页保存后无法回到列表 */}
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/prompts')}>
-            返回列表
-          </Button>
-          <Button
-            icon={<EditOutlined />}
-            onClick={() => navigate(`/prompts/${promptId}/edit`)}
-          >
-            编辑
-          </Button>
-        </Space>
-      </div>
+      <RouteHeader
+        eyebrow="应用开发 / Prompt"
+        title={prompt.name}
+        backTo="/prompts"
+        backLabel="返回 Prompt 列表"
+        extra={(
+          <Space>
+            <Badge
+              status={prompt.status === 'published' ? 'success' : prompt.status === 'archived' ? 'warning' : 'default'}
+              text={prompt.status === 'published' ? '已发布' : prompt.status === 'archived' ? '已归档' : '草稿'}
+            />
+            <Button icon={<EditOutlined />} onClick={() => navigate(`/prompts/${promptId}/edit`)}>
+              编辑
+            </Button>
+          </Space>
+        )}
+      />
 
       <Row gutter={16}>
         <Col span={14}>

@@ -55,20 +55,14 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | /auth/login | 登录，返回JWT |
-| POST | /auth/register | 注册（同时创建租户 + 初始 admin 用户，返回 JWT） |
+| POST | /auth/register | 已关闭自助注册（返回 403）；租户由平台管理员开通 |
 | POST | /auth/refresh | 刷新Token |
+| POST | /auth/change-password | 当前登录用户修改自己的密码；成功后旧会话失效 |
+| POST | /auth/password-reset | 使用一次性令牌完成密码重置；成功后旧认证会话失效 |
 | POST | /auth/logout | 登出 |
 | GET | /auth/me | 获取当前用户信息 |
 
-**注册流程说明**:
-- 请求体: `{ tenant_name, email, password, plan? }`
-- 服务端原子操作:
-  1. 创建 `tenants` 记录（plan 默认 `free`，max_users=10，max_models=5）
-  2. 创建 `users` 记录，绑定 tenant_id，密码 bcrypt 哈希
-  3. 为该租户初始化内置角色: `tenant_admin`（全部权限）、`tenant_member`（只读权限）
-  4. 将新用户分配 `tenant_admin` 角色
-  5. 返回 `{ access_token, refresh_token, user_info, tenant_info }`
-- 以上步骤在同一数据库事务中完成，任一失败全部回滚
+租户管理员账号由平台管理员在创建租户时指定邮箱和初始密码。成员账号由租户管理员在用户管理中创建，默认绑定当前租户的 `tenant_member` 角色。
 
 ---
 
@@ -79,13 +73,17 @@
 | GET | /users | 用户列表(分页) | user:read |
 | GET | /users/me | 当前用户详情 | - |
 | PUT | /users/me | 更新当前用户信息 | - |
-| PUT | /users/me/password | 修改密码 | - |
 | PUT | /users/me/avatar | 上传头像 | - |
 | GET | /users/{id} | 用户详情 | user:read |
 | PUT | /users/{id} | 更新用户 | user:update |
+| POST | /users/{id}/password-reset | 发起密码重置邮件（不接收管理员指定的新密码） | user:update + 当前密码再认证 |
 | DELETE | /users/{id} | 删除用户(软删除) | user:delete |
 | PUT | /users/{id}/status | 启用/禁用用户 | user:update |
 | PUT | /users/{id}/roles | 设置用户角色 | user:update |
+
+用户管理安全边界：租户管理员不提供成员密码修改入口；用户密码只能由本人从右上角账号菜单修改。
+修改密码要求当前密码再认证，成功后旧访问令牌和刷新令牌失效。忘记密码时仍可使用一次性重置链接流程，
+但该流程不属于用户管理编辑操作。昵称不是身份标识，审计应始终使用不可变用户 ID 和邮箱快照追踪用户。
 
 ---
 
@@ -255,6 +253,7 @@ Content-Type: application/json
 | GET | /workflows | 工作流列表 | workflow:read |
 | POST | /workflows | 创建工作流 | workflow:create |
 | GET | /workflows/{id} | 工作流详情(含节点和边) | workflow:read |
+| GET | /workflows/{id}/export | 导出工作流定义 | workflow:export |
 | PUT | /workflows/{id} | 更新工作流(含节点和边) | workflow:update |
 | DELETE | /workflows/{id} | 删除工作流 | workflow:delete |
 | POST | /workflows/{id}/publish | 发布工作流 | workflow:update |
@@ -359,32 +358,20 @@ Content-Type: application/json
 
 ---
 
-## 14. 平台管理 `/api/admin`（仅平台超级管理员）
+## 14. 平台租户开通 `/api/admin`（仅平台管理员）
 
-> 所有接口均需 `users.is_platform_admin = true`，通过 `require_platform_admin` 依赖守卫鉴权，**不走普通 RBAC 权限表**。
+> 平台接口使用 `require_platform_permission(...)`：`is_platform_admin` 只证明平台身份，
+> 具体能力仍需明确的 platform permission；通过平台守卫后才允许显式跨租户查询上下文。
 
-### 租户管理 `/api/admin/tenants`
+平台管理员只负责创建租户并开通首位租户管理员；不提供租户列表/详情、配额、删除或平台公共模型管理接口。
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /admin/tenants | 租户列表 |
-| POST | /admin/tenants | 创建租户 |
-| GET | /admin/tenants/{tenant_id} | 租户详情 |
-| PUT | /admin/tenants/{tenant_id} | 更新租户（含状态/套餐字段） |
-| PUT | /admin/tenants/{tenant_id}/quota | 设置租户配额 |
-| DELETE | /admin/tenants/{tenant_id} | 删除租户 |
-| GET | /admin/tenants/{id}/stats | 租户用量统计 | ❌ 未实现（无独立端点） |
-
-### 平台公共模型管理 `/api/admin/models`
-
-> 实际前缀为 `/admin/models`（而非 `/admin/ai-models`）。
+### 租户创建 `/api/admin/tenants`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /admin/models | 平台公共模型列表（`tenant_id IS NULL`） |
-| POST | /admin/models | 创建平台公共模型（所有租户只读可用） |
-| PUT | /admin/models/{model_id} | 更新平台公共模型 |
-| DELETE | /admin/models/{model_id} | 删除平台公共模型 |
+| POST | /admin/tenants | 原子创建租户、内置角色和指定的首位管理员账号 |
+
+请求字段包括租户名称、描述、管理员邮箱和初始密码。新账号被绑定为租户 owner，并获得该租户的 `tenant_admin` 角色。
 
 **Dashboard响应示例**:
 ```json

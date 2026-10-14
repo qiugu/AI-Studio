@@ -1,13 +1,33 @@
 @import 'tailwindcss';
 
 :root {
+  --app-color-primary: #1b7f8c;
+  --app-color-primary-hover: #2a97a4;
+  --app-color-primary-strong: #126b78;
+  --app-color-primary-soft: #e3f5f5;
+  --app-color-info-soft: #e8f2f4;
+  --app-color-success: #18815a;
+  --app-color-success-soft: #e8f6ef;
+  --app-color-warning: #c27a17;
+  --app-color-warning-soft: #fff4de;
+  --app-color-danger: #c53d4b;
+  --app-color-danger-soft: #fdecee;
+  --app-color-text: #172b3a;
+  --app-color-text-secondary: #617487;
+  --app-color-text-muted: #8fa1af;
+  --app-color-surface: #f4f7f9;
+  --app-color-surface-strong: #ffffff;
+  --app-color-border: #d8e3e8;
+  --app-color-nav: #0b1826;
+  --app-color-nav-text: #9bb0c0;
+  --app-color-nav-active: #73e0df;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
     'Noto Color Emoji';
   font-size: 14px;
   line-height: 1.5;
-  color: rgba(0, 0, 0, 0.88);
-  background-color: #f5f5f5;
+  color: var(--app-color-text);
+  background-color: var(--app-color-surface);
 }
 
 * {
@@ -26,12 +46,17 @@ body {
 }
 
 a {
-  color: #1677ff;
+  color: var(--app-color-primary-strong);
   text-decoration: none;
 }
 
 a:hover {
-  color: #4096ff;
+  color: var(--app-color-primary-hover);
+}
+
+:where(.ant-btn, .ant-input, .ant-select-selector):focus-visible {
+  outline: 2px solid var(--app-color-primary);
+  outline-offset: 2px;
 }
 
 /*

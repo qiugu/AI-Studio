@@ -55,6 +55,7 @@ beforeEach(() => {
       last_login_at: null,
       created_at: null,
       updated_at: null,
+      capabilities: ['tenant.roles_manage', 'plugin.read'],
       roles: [],
     },
   })

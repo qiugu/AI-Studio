@@ -2,7 +2,7 @@
  * Agent列表页面
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, Button, Space, Popconfirm, Spin, Empty, Tag, Select, Tooltip, message } from 'antd'
 import { DeleteOutlined, EditOutlined, RobotOutlined, MessageOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -10,9 +10,15 @@ import * as agentApi from '@/api/agent'
 import { type Agent, type AgentStatus } from '@/types/agent'
 import Pagination from '@/components/Pagination'
 import { summarizeBoundTools } from './agentToolBinding'
+import { usePermission } from '@/hooks/usePermission'
 
 export default function AgentList() {
   const navigate = useNavigate()
+  const { check } = usePermission()
+  const canCreate = check('agent', 'create')
+  const canUpdate = check('agent', 'update')
+  const canDelete = check('agent', 'delete')
+  const canChat = check('agent', 'chat')
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -20,11 +26,7 @@ export default function AgentList() {
   const [total, setTotal] = useState(0)
   const [statusFilter, setStatusFilter] = useState<AgentStatus | undefined>()
 
-  useEffect(() => {
-    loadAgents()
-  }, [page, pageSize, statusFilter])
-
-  const loadAgents = async () => {
+  const loadAgents = useCallback(async () => {
     setLoading(true)
     try {
       const { data } = await agentApi.listAgents(page, pageSize, statusFilter)
@@ -36,7 +38,13 @@ export default function AgentList() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, pageSize, statusFilter])
+
+  useEffect(() => {
+    // 首屏列表加载属于与远端 API 的同步；状态更新发生在请求完成后。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadAgents()
+  }, [loadAgents])
 
   const handleDeleteAgent = async (agentId: string) => {
     try {
@@ -67,12 +75,15 @@ export default function AgentList() {
     }
   }
 
+  const canAct = (agent: Agent, action: string, fallback: boolean) =>
+    agent.allowed_actions ? agent.allowed_actions.includes(action) : fallback
+
   return (
     <>
       <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between' }}>
         <h2>Agent管理</h2>
         <Space>
-          <Select
+          {canUpdate && <Select
             placeholder="状态筛选"
             allowClear
             style={{ width: 120 }}
@@ -82,10 +93,12 @@ export default function AgentList() {
             <Select.Option value="draft">草稿</Select.Option>
             <Select.Option value="published">已发布</Select.Option>
             <Select.Option value="archived">已归档</Select.Option>
-          </Select>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/agents/create')}>
-            创建Agent
-          </Button>
+          </Select>}
+          {canCreate && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/agents/create')}>
+              创建Agent
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -99,21 +112,33 @@ export default function AgentList() {
                 key={agent.id}
                 hoverable
                 actions={[
-                  <MessageOutlined key="chat" onClick={() => navigate(`/agents/${agent.id}/chat`)} />,
-                  <EditOutlined key="edit" onClick={() => navigate(`/agents/${agent.id}/edit`)} />,
-                  <Popconfirm
-                    key="delete"
-                    title="确定删除该Agent吗？"
-                    onConfirm={() => handleDeleteAgent(agent.id)}
-                    okText="确定"
-                    cancelText="取消"
-                  >
-                    <DeleteOutlined />
-                  </Popconfirm>,
+                  ...(canAct(agent, 'chat', canChat)
+                    ? [<MessageOutlined key="chat" onClick={() => navigate(`/agents/${agent.id}/chat`)} />]
+                    : []),
+                  ...((canAct(agent, 'update', canUpdate) || canAct(agent, 'delete', canDelete))
+                    ? [
+                        ...(canAct(agent, 'update', canUpdate)
+                          ? [<EditOutlined key="edit" onClick={() => navigate(`/agents/${agent.id}/edit`)} />]
+                          : []),
+                        ...(canAct(agent, 'delete', canDelete)
+                          ? [
+                              <Popconfirm
+                                key="delete"
+                                title="确定删除该Agent吗？"
+                                onConfirm={() => handleDeleteAgent(agent.id)}
+                                okText="确定"
+                                cancelText="取消"
+                              >
+                                <DeleteOutlined />
+                              </Popconfirm>,
+                            ]
+                          : []),
+                      ]
+                    : []),
                 ]}
               >
                 <Card.Meta
-                  avatar={<RobotOutlined style={{ fontSize: '32px', color: '#1890ff' }} />}
+                  avatar={<RobotOutlined style={{ fontSize: '32px', color: 'var(--app-color-primary)' }} />}
                   title={agent.name}
                   description={
                     <div>

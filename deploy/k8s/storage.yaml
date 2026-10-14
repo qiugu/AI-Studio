@@ -55,6 +55,29 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  name: ai-studio-rabbitmq
+  labels:
+    app.kubernetes.io/name: ai-studio
+    app.kubernetes.io/component: rabbitmq
+spec:
+  capacity:
+    storage: 4Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ai-studio-local
+  local:
+    path: /var/lib/ai-studio/rabbitmq
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [k8s-master]
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
   name: ai-studio-qdrant
   labels:
     app.kubernetes.io/name: ai-studio
@@ -150,6 +173,21 @@ spec:
   resources:
     requests:
       storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-data
+  namespace: ai-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ai-studio-local
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: rabbitmq
+  resources:
+    requests:
+      storage: 4Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

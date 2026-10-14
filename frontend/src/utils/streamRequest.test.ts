@@ -1,0 +1,66 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { createStreamRequest } from './streamRequest'
+
+function streamResponse(...chunks: string[]): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+        controller.close()
+      },
+    }),
+    { status: 200 }
+  )
+}
+
+describe('createStreamRequest', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reports an incomplete stream instead of completing with an empty reply', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse(': ping\r\n\r\n')))
+
+    await new Promise<void>((resolve, reject) => {
+      createStreamRequest('/chat', { message: '你好' }, {
+        onComplete: () => reject(new Error('不应把缺少 done 事件的空响应当作成功')),
+        onError: (error, errorCode) => {
+          try {
+            expect(errorCode).toBe('STREAM_INCOMPLETE')
+            expect(error).toContain('意外中断')
+            resolve()
+          } catch (assertionError) {
+            reject(assertionError)
+          }
+        },
+      })
+    })
+  })
+
+  it('completes when EOF follows a valid done frame without a trailing blank line', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        streamResponse('event: done\r\ndata: {"conversation_id":"c1"}')
+      )
+    )
+
+    await new Promise<void>((resolve, reject) => {
+      createStreamRequest('/chat', { message: '你好' }, {
+        onComplete: (content, conversationId) => {
+          try {
+            expect(content).toBe('')
+            expect(conversationId).toBe('c1')
+            resolve()
+          } catch (assertionError) {
+            reject(assertionError)
+          }
+        },
+        onError: (error) => reject(new Error(`不应报告流中断：${error}`)),
+      })
+    })
+  })
+})

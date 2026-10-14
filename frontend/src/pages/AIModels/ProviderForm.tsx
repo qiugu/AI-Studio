@@ -6,15 +6,15 @@ import {
   Switch,
   Button,
   Card,
-  Typography,
   Space,
   message,
+  Spin,
 } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { createProvider, getProvider, updateProvider } from '@/api/ai-model'
 import type { AIProviderCreateRequest } from '@/types/ai-model'
+import RouteHeader from '@/components/Layout/RouteHeader'
 
-const { Title } = Typography
 const { Password } = Input
 
 const PROVIDER_TYPES = [
@@ -63,6 +63,7 @@ export default function ProviderForm() {
         api_base_url: values.api_base_url as string | undefined,
         api_key: values.api_key as string | undefined,
         status: values.status as boolean,
+        current_password: (values.current_password as string) || undefined,
       }
       if (values.config) {
         try {
@@ -88,11 +89,28 @@ export default function ProviderForm() {
     }
   }
 
-  if (initializing) return null
+  if (initializing) {
+    return (
+      <div style={{ maxWidth: 640, margin: '0 auto' }}>
+        <RouteHeader
+          eyebrow="模型中心 / 供应商"
+          title="编辑供应商"
+          backTo="/providers"
+          backLabel="返回供应商列表"
+        />
+        <Card><Spin /></Card>
+      </div>
+    )
+  }
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
-      <Title level={4}>{isEdit ? '编辑供应商' : '新增供应商'}</Title>
+      <RouteHeader
+        eyebrow="模型中心 / 供应商"
+        title={isEdit ? '编辑供应商' : '新增供应商'}
+        backTo="/providers"
+        backLabel="返回供应商列表"
+      />
       <Card>
         <Form form={form} layout="vertical" onFinish={handleSubmit} initialValues={{ status: true }}>
           <Form.Item name="name" label="供应商名称" rules={[{ required: true }]}>
@@ -118,6 +136,13 @@ export default function ProviderForm() {
 
           <Form.Item name="config" label="额外配置（JSON 格式，可选）">
             <Input.TextArea rows={3} placeholder='{"timeout": 30}' />
+          </Form.Item>
+
+          <Form.Item
+            name="current_password"
+            label="当前密码（修改凭据或配置时必填）"
+          >
+            <Password placeholder="请输入当前登录密码" />
           </Form.Item>
 
           <Form.Item name="status" label="启用状态" valuePropName="checked">

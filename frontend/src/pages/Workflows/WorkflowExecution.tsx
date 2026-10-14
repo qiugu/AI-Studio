@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Button, Form, Input, Space, Timeline, Alert, Spin, message, Result, Descriptions } from 'antd'
 import { PlayCircleOutlined, StopOutlined, CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined } from '@ant-design/icons'
@@ -6,6 +6,8 @@ import { getWorkflow, validateWorkflow, executeWorkflowStreamUrl } from '../../a
 import { createWorkflowStreamRequest } from '../../utils/streamRequest'
 import type { SSEWorkflowEvent } from '../../utils/streamRequest'
 import type { Workflow } from '../../types/workflow'
+import { getErrorMessage } from '../../utils/request'
+import RouteHeader from '@/components/Layout/RouteHeader'
 
 const WorkflowExecution: React.FC = () => {
   const { workflowId } = useParams<{ workflowId: string }>()
@@ -14,44 +16,49 @@ const WorkflowExecution: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
   const [executionEvents, setExecutionEvents] = useState<SSEWorkflowEvent[]>([])
-  const [_, setExecutionId] = useState<string | null>(null)
   const [finalOutput, setFinalOutput] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form] = Form.useForm()
+  const executionControllerRef = useRef<AbortController | null>(null)
+  const cancelRequestedRef = useRef(false)
 
-  useEffect(() => {
-    if (workflowId) {
-      fetchWorkflow()
-    }
-  }, [workflowId])
-
-  const fetchWorkflow = async () => {
+  const fetchWorkflow = useCallback(async () => {
     setLoading(true)
     try {
       const response = await getWorkflow(workflowId!)
       setWorkflow(response.data)
-    } catch (error) {
+    } catch {
       message.error('获取工作流失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [workflowId])
 
-  const handleExecute = async (values: any) => {
+  useEffect(() => {
+    if (workflowId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 路由参数变化后加载远端资源
+      void fetchWorkflow()
+    }
+    return () => executionControllerRef.current?.abort()
+  }, [workflowId, fetchWorkflow])
+
+  const handleExecute = async (values: { input_data?: string }) => {
     setExecuting(true)
     setExecutionEvents([])
     setFinalOutput(null)
     setError(null)
+    cancelRequestedRef.current = false
 
     try {
       // 验证工作流
       await validateWorkflow(workflowId!)
+      if (cancelRequestedRef.current) return
 
       // 使用 SSE 流式执行
       const streamUrl = executeWorkflowStreamUrl(workflowId!)
       const input_data = values.input_data ? JSON.parse(values.input_data) : {}
 
-      createWorkflowStreamRequest(
+      executionControllerRef.current = createWorkflowStreamRequest(
         streamUrl,
         {
           method: 'POST',
@@ -62,26 +69,35 @@ const WorkflowExecution: React.FC = () => {
           onEvent: (event: SSEWorkflowEvent) => {
             setExecutionEvents((prev) => [...prev, event])
 
-            if (event.type === 'execution_started') {
-              setExecutionId(event.execution_id)
-            } else if (event.type === 'execution_completed') {
+            if (event.type === 'execution_completed') {
+              executionControllerRef.current = null
               setFinalOutput(event.output)
               setExecuting(false)
             } else if (event.type === 'execution_failed') {
+              executionControllerRef.current = null
               setError(event.error)
               setExecuting(false)
             }
           },
           onError: (error: string) => {
+            executionControllerRef.current = null
             setError(error)
             setExecuting(false)
           },
         }
       )
-    } catch (error: any) {
-      setError(error.message || '执行失败')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error) || '执行失败')
       setExecuting(false)
     }
+  }
+
+  const handleCancel = () => {
+    cancelRequestedRef.current = true
+    executionControllerRef.current?.abort()
+    executionControllerRef.current = null
+    setExecuting(false)
+    message.info('执行已取消')
   }
 
   const renderTimelineItem = (event: SSEWorkflowEvent) => {
@@ -118,7 +134,7 @@ const WorkflowExecution: React.FC = () => {
           children: (
             <div>
               <div>节点失败: {event.node_name}</div>
-              <div style={{ fontSize: 12, color: '#ff4d4f' }}>{event.error}</div>
+              <div style={{ fontSize: 12, color: 'var(--app-color-danger)' }}>{event.error}</div>
             </div>
           ),
         }
@@ -144,20 +160,47 @@ const WorkflowExecution: React.FC = () => {
 
   if (loading) {
     return (
-      <Card>
-        <Spin size="large" />
-      </Card>
+      <div>
+        <RouteHeader
+          eyebrow="应用开发 / 工作流"
+          title="执行工作流"
+          backTo="/workflows"
+          backLabel="返回工作流列表"
+        />
+        <Card><Spin size="large" /></Card>
+      </div>
     )
   }
 
   if (!workflow) {
-    return <Result status="404" title="工作流不存在" />
+    return (
+      <div>
+        <RouteHeader
+          eyebrow="应用开发 / 工作流"
+          title="工作流不存在"
+          backTo="/workflows"
+          backLabel="返回工作流列表"
+        />
+        <Result status="404" title="工作流不存在" />
+      </div>
+    )
   }
 
   return (
     <div style={{ padding: 24 }}>
-      <Card title={`执行工作流: ${workflow.name}`}>
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+      <RouteHeader
+        eyebrow="应用开发 / 工作流"
+        title={`执行工作流：${workflow.name}`}
+        backTo="/workflows"
+        backLabel="返回工作流列表"
+        extra={(
+          <Button onClick={() => navigate(`/workflows/${workflowId}/edit`)}>
+            返回编辑
+          </Button>
+        )}
+      />
+      <Card>
+        <Space orientation="vertical" style={{ width: '100%' }} size="large">
           {/* 输入参数 */}
           <Card size="small" title="输入参数">
             <Form form={form} layout="vertical" onFinish={handleExecute}>
@@ -185,17 +228,11 @@ const WorkflowExecution: React.FC = () => {
                   <Button
                     style={{ marginLeft: 8 }}
                     icon={<StopOutlined />}
-                    onClick={() => {
-                      // TODO: 实现取消执行功能
-                      message.info('取消功能待实现')
-                    }}
+                    onClick={handleCancel}
                   >
                     取消
                   </Button>
                 )}
-                <Button style={{ marginLeft: 8 }} onClick={() => navigate(`/workflows/${workflowId}/edit`)}>
-                  返回编辑
-                </Button>
               </Form.Item>
             </Form>
           </Card>

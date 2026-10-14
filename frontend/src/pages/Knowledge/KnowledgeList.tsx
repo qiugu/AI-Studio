@@ -2,15 +2,18 @@
  * 知识库列表页面
  */
 
-import { useState, useEffect } from "react";
-import { Card, Button, Space, Popconfirm, Spin, Empty, Input, Modal, Form, Select } from "antd";
+import { useState, useEffect, useCallback } from "react";
+import { Card, Button, Space, Popconfirm, Spin, Empty, Input, Modal, Form } from "antd";
 import { DeleteOutlined, EditOutlined, FolderOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import * as kbApi from "@/api/knowledge";
 import { type KnowledgeBase } from "@/types/knowledge";
+import { useAuthStore } from "@/stores/auth";
+import { canManageSystem } from "@/utils/permission";
 
 export default function KnowledgeList() {
   const navigate = useNavigate();
+  const canManage = canManageSystem(useAuthStore((s) => s.user));
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
@@ -18,12 +21,7 @@ export default function KnowledgeList() {
   const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
   const [form] = Form.useForm();
 
-  // 加载知识库列表
-  useEffect(() => {
-    loadKnowledgeBases();
-  }, []);
-
-  const loadKnowledgeBases = async () => {
+  const loadKnowledgeBases = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await kbApi.listKnowledgeBases();
@@ -33,15 +31,21 @@ export default function KnowledgeList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleCreateKb = async (values: any) => {
+  // 加载知识库列表
+  useEffect(() => {
+    void Promise.resolve().then(() => loadKnowledgeBases());
+  }, [loadKnowledgeBases]);
+
+  type KnowledgeBaseFormValues = { name: string; description?: string };
+
+  const handleCreateKb = async (values: KnowledgeBaseFormValues) => {
     setConfirmLoading(true)
     try {
       await kbApi.createKnowledgeBase({
         name: values.name,
         description: values.description,
-        embedding_model: values.embedding_model || "text-embedding-3-small",
       });
       setCreateModalVisible(false);
       form.resetFields();
@@ -53,7 +57,7 @@ export default function KnowledgeList() {
     }
   };
 
-  const handleEditKb = async (values: any) => {
+  const handleEditKb = async (values: KnowledgeBaseFormValues) => {
     if (!editingKb) return;
     try {
       await kbApi.updateKnowledgeBase(editingKb.id, {
@@ -98,9 +102,7 @@ export default function KnowledgeList() {
       <div style={{ marginBottom: "24px" }}>
         <Space>
           <h2>知识库管理</h2>
-          <Button type="primary" onClick={handleOpenCreateModal}>
-            创建知识库
-          </Button>
+          {canManage && <Button type="primary" onClick={handleOpenCreateModal}>创建知识库</Button>}
         </Space>
       </div>
 
@@ -119,7 +121,8 @@ export default function KnowledgeList() {
                   <div
                     style={{
                       height: "120px",
-                      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                      background:
+                        'linear-gradient(135deg, var(--app-color-primary-strong) 0%, var(--app-color-primary) 100%)',
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -140,21 +143,25 @@ export default function KnowledgeList() {
                   <div>🤖 模型: {kb.embedding_model}</div>
                 </div>
                 <Space style={{ width: "100%" }} onClick={(e) => e.stopPropagation()}>
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<EditOutlined />}
-                    onClick={() => handleOpenEditModal(kb)}
-                  />
-                  <Popconfirm
-                    title="删除知识库"
-                    description="删除知识库会同时删除所有文档和向量数据，是否确认？"
-                    onConfirm={() => handleDeleteKb(kb)}
-                    okText="是"
-                    cancelText="否"
-                  >
-                    <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
+                  {canManage && (
+                    <>
+                      <Button
+                        size="small"
+                        type="text"
+                        icon={<EditOutlined />}
+                        onClick={() => handleOpenEditModal(kb)}
+                      />
+                      <Popconfirm
+                        title="删除知识库"
+                        description="删除知识库会同时删除所有文档和向量数据，是否确认？"
+                        onConfirm={() => handleDeleteKb(kb)}
+                        okText="是"
+                        cancelText="否"
+                      >
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </>
+                  )}
                 </Space>
               </Card>
             ))}
@@ -196,20 +203,6 @@ export default function KnowledgeList() {
             <Input.TextArea rows={3} placeholder="简要描述知识库的用途" />
           </Form.Item>
 
-          {!editingKb && (
-            <Form.Item
-              label="Embedding 模型"
-              name="embedding_model"
-              initialValue="BAAI/bge-large-zh-v1.5"
-            >
-              <Select
-                options={[
-                  { label: "BAAI/bge-large-zh-v1.5", value: "BAAI/bge-large-zh-v1.5" },
-                  { label: "BAAI/bge-m3", value: "BAAI/bge-m3" },
-                ]}
-              />
-            </Form.Item>
-          )}
         </Form>
       </Modal>
     </>
