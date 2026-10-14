@@ -29,6 +29,68 @@ AI-Studio 把这些能力收敛到一个平台：
 | **插件能力中心** | 通过“添加插件 → 连接服务 → 添加能力 → 试用 → Agent 授权”接入第三方服务 | 无需理解协议细节，也能让 Agent 安全使用已有业务系统 |
 | **监控审计与配额** | 全量审计日志、Token 用量统计、调用监控、资源配额 | 用量可控、行为可追溯、合规可证明 |
 
+## 整体架构
+
+AI-Studio 采用前后端分离架构：前端通过 HTTP / SSE 访问 FastAPI API 网关，业务服务统一处理认证、租户隔离、权限、审计与配额；MySQL 保存业务状态，Qdrant 提供向量检索，Redis 负责缓存与限流，RabbitMQ + Celery Worker 承担文档解析、向量化等异步任务。
+
+```mermaid
+flowchart TB
+    User([用户 / 管理员])
+
+    subgraph Frontend[前端控制台]
+        UI[React + TypeScript + Vite<br/>Ant Design · Zustand · React Flow]
+        Stream[SSE 流式对话与工作流执行]
+    end
+
+    subgraph Backend[后端 API 网关 · FastAPI]
+        Middleware[认证 · 租户隔离 · RBAC 权限<br/>审计 · 限流]
+        API[API 路由层]
+
+        subgraph Services[业务服务层]
+            Core[用户 / 租户 / 角色<br/>模型 / Prompt / 配额]
+            AI[Agent / 工作流 / 插件]
+            Knowledge[知识库 / 文档处理编排]
+        end
+    end
+
+    subgraph Data[数据与基础设施]
+        MySQL[(MySQL<br/>业务状态)]
+        Qdrant[(Qdrant<br/>向量检索)]
+        Redis[(Redis<br/>缓存 · 限流 · Token 黑名单)]
+        RabbitMQ[(RabbitMQ<br/>Celery Broker)]
+        Worker[Celery Worker<br/>解析 · 分块 · 向量化]
+    end
+
+    subgraph External[外部 AI 能力]
+        Providers[OpenAI · Anthropic · Azure · Ollama<br/>LLM / Embedding]
+        Business[企业业务系统 / 第三方服务]
+    end
+
+    User --> UI
+    UI -->|HTTP / SSE| Middleware
+    Stream --> UI
+    Middleware --> API
+    API --> Core
+    API --> AI
+    API --> Knowledge
+
+    Core --> MySQL
+    AI --> MySQL
+    Knowledge --> MySQL
+    Knowledge --> Qdrant
+    Backend --> Redis
+    Knowledge -->|异步任务| RabbitMQ
+    RabbitMQ --> Worker
+    Worker --> MySQL
+    Worker --> Qdrant
+    AI --> Providers
+    Knowledge --> Providers
+    AI --> Business
+    AI -.->|SSE 流式输出| Stream
+```
+
+架构细节与关键技术决策见 [系统架构设计](docs/architecture.md)。
+
 ---
 
 ## 新版工作台
