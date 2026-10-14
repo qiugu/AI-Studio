@@ -17,6 +17,27 @@ command -v kubectl >/dev/null || { echo "kubectl is required" >&2; exit 1; }
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
 command -v base64 >/dev/null || { echo "base64 is required" >&2; exit 1; }
 
+membership_dual_write_enabled="${MEMBERSHIP_DUAL_WRITE_ENABLED:-false}"
+membership_read_mode="${MEMBERSHIP_READ_MODE:-legacy}"
+case "${membership_dual_write_enabled,,}" in
+  true|false) ;;
+  *)
+    echo "MEMBERSHIP_DUAL_WRITE_ENABLED must be true or false." >&2
+    exit 1
+    ;;
+esac
+case "${membership_read_mode,,}" in
+  legacy|shadow|membership) ;;
+  *)
+    echo "MEMBERSHIP_READ_MODE must be legacy, shadow, or membership." >&2
+    exit 1
+    ;;
+esac
+if [[ "${membership_read_mode,,}" != "legacy" && "${membership_dual_write_enabled,,}" != "true" ]]; then
+  echo "MEMBERSHIP_READ_MODE=${membership_read_mode} requires MEMBERSHIP_DUAL_WRITE_ENABLED=true." >&2
+  exit 1
+fi
+
 patch_secret_key_if_missing() {
   local key="$1"
   local value="$2"
@@ -89,6 +110,13 @@ else
 fi
 
 kubectl apply -k "${SCRIPT_DIR}"
+
+# Keep the rollout switch in the ConfigMap so API and Celery consume the same
+# decision.  The backend is restarted below after the patch; legacy remains the
+# safe default when no rollout variables are supplied.
+kubectl --namespace "${NAMESPACE}" patch configmap ai-studio-config \
+  --type merge \
+  -p "{\"data\":{\"MEMBERSHIP_DUAL_WRITE_ENABLED\":\"${membership_dual_write_enabled,,}\",\"MEMBERSHIP_READ_MODE\":\"${membership_read_mode,,}\"}}"
 
 kubectl --namespace "${NAMESPACE}" rollout restart deployment/backend
 

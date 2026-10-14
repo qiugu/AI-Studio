@@ -13,6 +13,9 @@ from app.models.ai_model import AIModel
 from app.models.ai_provider import AIProvider
 from app.repositories.agent import AgentRepository, AgentToolRepository
 from app.core.exceptions import NotFoundException, ValidationException
+from app.core.authorization import AuthorizationService
+from app.models.user import User
+from app.services.resource_authorization import ResourceAuthorizationService
 from app.core.tenant_scope import public_or_tenant_filter
 from app.core.plugin_policy import (
     binding_rejection_reason,
@@ -206,13 +209,15 @@ def _extract_openai_error_message(error: Exception, default_msg: str) -> str:
 class AgentService:
     """Agent服务"""
 
-    def __init__(self, db: Session, tenant_id: str):
+    def __init__(self, db: Session, tenant_id: str, actor: User | None = None):
         self.db = db
         self.tenant_id = tenant_id
+        self.actor = actor
+        self.resource_authorization = ResourceAuthorizationService(db)
         self.agent_repo = AgentRepository(db=db, tenant_id=tenant_id)
         self.tool_repo = AgentToolRepository(db=db, tenant_id=tenant_id)
         self.token_usage_service = TokenUsageService(db=db, tenant_id=tenant_id)
-        self.conv_service = ConversationService(db=db, tenant_id=tenant_id)
+        self.conv_service = ConversationService(db=db, tenant_id=tenant_id, actor=actor)
 
     def _record_model_call(
         self,
@@ -259,6 +264,10 @@ class AgentService:
         user_id: str,
     ) -> Agent:
         """创建Agent"""
+        if getattr(self, "actor", None) is not None:
+            AuthorizationService(self.db).require_permission(
+                self.actor, self.tenant_id, "agent", "create"
+            )
         # 验证AI模型存在
         model = self.db.query(AIModel).filter(
             AIModel.id == data.model_id,
@@ -296,13 +305,17 @@ class AgentService:
             )
 
         self.db.commit()
-        return self.get_agent(agent.id)
+        return self.get_agent(agent.id, authorize=False)
 
-    def get_agent(self, agent_id: str) -> Agent:
+    def get_agent(self, agent_id: str, *, authorize: bool = True) -> Agent:
         """获取Agent详情"""
         agent = self.agent_repo.get_with_tools(agent_id)
         if not agent:
             raise NotFoundException("Agent", agent_id)
+        if authorize and getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "agent", "read", agent
+            )
         return agent
 
     def list_agents(
@@ -312,6 +325,10 @@ class AgentService:
         status: Optional[str] = None,
     ) -> tuple[List[Agent], int]:
         """列出Agents"""
+        if getattr(self, "actor", None) is not None:
+            AuthorizationService(self.db).require_permission(
+                self.actor, self.tenant_id, "agent", "read"
+            )
         agents = self.agent_repo.list_by_status(status=status, page=page, page_size=page_size)
         total = self.agent_repo.count_by_status(status=status)
         return agents, total
@@ -322,7 +339,16 @@ class AgentService:
         data: AgentUpdate,
     ) -> Agent:
         """更新Agent"""
-        agent = self.get_agent(agent_id)
+        agent = self.get_agent(agent_id, authorize=False)
+        if getattr(self, "actor", None) is not None:
+            action = (
+                "publish"
+                if data.status == "published" and agent.status != "published"
+                else "update"
+            )
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "agent", action, agent
+            )
 
         # 验证AI模型存在（如果更新了模型）
         if data.model_id is not None:
@@ -364,11 +390,15 @@ class AgentService:
                 )
 
         self.db.commit()
-        return self.get_agent(agent_id)
+        return self.get_agent(agent_id, authorize=False)
 
     def delete_agent(self, agent_id: str) -> None:
         """删除Agent"""
-        agent = self.get_agent(agent_id)
+        agent = self.get_agent(agent_id, authorize=False)
+        if getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "agent", "delete", agent
+            )
         self.agent_repo.delete(agent)
         self.db.commit()
 
@@ -671,7 +701,11 @@ class AgentService:
                         input_data = {"query": query}
 
                     try:
-                        engine = WorkflowEngine(db=self.db, tenant_id=self.tenant_id)
+                        engine = WorkflowEngine(
+                            db=self.db,
+                            tenant_id=self.tenant_id,
+                            actor=getattr(self, "actor", None),
+                        )
                         result = asyncio.run(
                             engine.execute_workflow(
                                 workflow_id=uuid.UUID(str(_workflow_id)),
@@ -1079,7 +1113,11 @@ class AgentService:
         )
         from app.core.exceptions import LLMException
 
-        agent = self.get_agent(agent_id)
+        agent = self.get_agent(agent_id, authorize=False)
+        if getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "agent", "chat", agent
+            )
 
         # 构建LLM和工具
         llm = self._build_llm_client(agent)
@@ -1359,7 +1397,11 @@ class AgentService:
         # try 之前，API Key 解密、模型配置或工具装配失败会直接冒泡到 API 层，
         # 最终被 SSE 外层统一改写成「系统内部错误」，丢失真实原因和业务错误码。
         try:
-            agent = self.get_agent(agent_id)
+            agent = self.get_agent(agent_id, authorize=False)
+            if getattr(self, "actor", None) is not None:
+                self.resource_authorization.require(
+                    self.actor, self.tenant_id, "agent", "chat", agent
+                )
 
             # 构建LLM
             llm = self._build_llm_client(agent)

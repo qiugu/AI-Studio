@@ -2,7 +2,7 @@ from typing import Optional
 from datetime import datetime
 
 from sqlalchemy.orm import mapped_column, Mapped
-from sqlalchemy import String, DateTime, Integer, func
+from sqlalchemy import String, DateTime, Integer, JSON, func
 
 from app.core.database import Base
 
@@ -30,6 +30,16 @@ class AuditLog(Base):
     path: Mapped[str] = mapped_column(String(500), nullable=False)
     status_code: Mapped[int] = mapped_column(Integer, nullable=False)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    request_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # 授权决策上下文；普通 HTTP 审计记录可为空。
+    decision: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    permission_key: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    target_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    target_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

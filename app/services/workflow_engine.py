@@ -16,6 +16,8 @@ from app.models.workflow_edge import WorkflowEdge
 from app.models.workflow_execution import WorkflowExecution
 from app.models.node_execution import NodeExecution
 from app.services.workflow import WorkflowService
+from app.services.resource_authorization import ResourceAuthorizationService
+from app.models.user import User
 from app.core.exceptions import ValidationException, NotFoundException
 from app.schemas.workflow import WorkflowExecutionRequest
 
@@ -25,10 +27,21 @@ logger = logging.getLogger(__name__)
 class WorkflowEngine:
     """工作流执行引擎"""
 
-    def __init__(self, db: Session, tenant_id: str):
+    def __init__(
+        self,
+        db: Session,
+        tenant_id: str,
+        actor: User | None = None,
+    ):
         self.db = db
         self.tenant_id = str(tenant_id)
-        self.workflow_service = WorkflowService(db=db, tenant_id=self.tenant_id)
+        self.actor = actor
+        self.resource_authorization = ResourceAuthorizationService(db)
+        self.workflow_service = WorkflowService(
+            db=db,
+            tenant_id=self.tenant_id,
+            actor=actor,
+        )
 
     # ── DAG构建与拓扑排序 ───────────────────────────────────────────────────────
 
@@ -550,12 +563,20 @@ class WorkflowEngine:
     ) -> Dict[str, Any]:
         """执行工作流（阻塞式）"""
         workflow_id = str(workflow_id)
-        workflow = self.workflow_service.get_workflow(workflow_id)
+        workflow = self.workflow_service.get_workflow(workflow_id, authorize=False)
+        if self.actor is not None:
+            self.resource_authorization.require(
+                self.actor,
+                self.tenant_id,
+                "workflow",
+                "execute",
+                workflow,
+            )
 
         if workflow.status != "published":
             raise ValidationException("只有已发布的工作流才能执行")
 
-        self.workflow_service.validate_workflow_dag(workflow_id)
+        self.workflow_service.validate_workflow_dag(workflow_id, authorize=False)
 
         execution = self.create_execution(workflow_id, input_data, user_id)
 
@@ -620,12 +641,20 @@ class WorkflowEngine:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """执行工作流（SSE流式）"""
         workflow_id = str(workflow_id)
-        workflow = self.workflow_service.get_workflow(workflow_id)
+        workflow = self.workflow_service.get_workflow(workflow_id, authorize=False)
+        if self.actor is not None:
+            self.resource_authorization.require(
+                self.actor,
+                self.tenant_id,
+                "workflow",
+                "execute",
+                workflow,
+            )
 
         if workflow.status != "published":
             raise ValidationException("只有已发布的工作流才能执行")
 
-        self.workflow_service.validate_workflow_dag(workflow_id)
+        self.workflow_service.validate_workflow_dag(workflow_id, authorize=False)
 
         execution = self.create_execution(workflow_id, input_data, user_id)
 

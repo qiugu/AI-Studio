@@ -2,7 +2,7 @@
  * 知识库列表页面
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, Button, Space, Popconfirm, Spin, Empty, Input, Modal, Form } from "antd";
 import { DeleteOutlined, EditOutlined, FolderOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
@@ -21,12 +21,7 @@ export default function KnowledgeList() {
   const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
   const [form] = Form.useForm();
 
-  // 加载知识库列表
-  useEffect(() => {
-    loadKnowledgeBases();
-  }, []);
-
-  const loadKnowledgeBases = async () => {
+  const loadKnowledgeBases = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await kbApi.listKnowledgeBases();
@@ -36,9 +31,16 @@ export default function KnowledgeList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleCreateKb = async (values: any) => {
+  // 加载知识库列表
+  useEffect(() => {
+    void Promise.resolve().then(() => loadKnowledgeBases());
+  }, [loadKnowledgeBases]);
+
+  type KnowledgeBaseFormValues = { name: string; description?: string };
+
+  const handleCreateKb = async (values: KnowledgeBaseFormValues) => {
     setConfirmLoading(true)
     try {
       await kbApi.createKnowledgeBase({
@@ -55,7 +57,7 @@ export default function KnowledgeList() {
     }
   };
 
-  const handleEditKb = async (values: any) => {
+  const handleEditKb = async (values: KnowledgeBaseFormValues) => {
     if (!editingKb) return;
     try {
       await kbApi.updateKnowledgeBase(editingKb.id, {

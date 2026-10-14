@@ -24,11 +24,17 @@ export function buildWorkflowGraphPayload(nodes: Node[], edges: Edge[]): Workflo
       position_y: node.position.y,
       config: (node.data.config ?? {}) as WorkflowNodeConfig,
     })),
-    edges: edges.map((edge) => ({
-      source_node_id: edge.source,
-      target_node_id: edge.target,
-      label: typeof edge.label === 'string' ? edge.label : undefined,
-      condition: edge.data?.condition as WorkflowEdgeCondition | undefined,
-    })),
+    edges: edges.map((edge) => {
+      const sourceHandle = edge.sourceHandle ?? undefined
+      const targetHandle = edge.targetHandle ?? undefined
+      return {
+        source_node_id: edge.source,
+        target_node_id: edge.target,
+        ...(sourceHandle ? { source_handle: sourceHandle } : {}),
+        ...(targetHandle ? { target_handle: targetHandle } : {}),
+        label: typeof edge.label === 'string' ? edge.label : undefined,
+        condition: edge.data?.condition as WorkflowEdgeCondition | undefined,
+      }
+    }),
   }
 }

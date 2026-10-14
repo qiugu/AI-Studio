@@ -92,7 +92,7 @@ def test_kubernetes_workers_wait_for_and_consume_rabbitmq_queues():
     worker_wait = pod_spec["initContainers"][0]["args"][0]
     assert "('rabbitmq', 5672)" in worker_wait
     args = pod_spec["containers"][0]["args"]
-    assert "--queues=default,document.ingest,tenant.cleanup" in args
+    assert any("--queues=default,document.ingest,tenant.cleanup" in arg for arg in args)
 
 
 def test_deploy_script_migrates_existing_secrets_without_replacing_them():

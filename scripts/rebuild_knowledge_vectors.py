@@ -397,20 +397,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.device:
         config.embedding_device = args.device
 
+    from app.core.tenant_scope import (
+        reset_tenant_scope,
+        set_tenant_scope,
+        tenant_scope_context,
+    )
+
     session = sessionLocal()
+    tenant_scope_token = None
     try:
-        kb = (
-            session.query(KnowledgeBase)
-            .filter(
-                and_(
-                    KnowledgeBase.id == args.kb_id,
-                    KnowledgeBase.deleted_at.is_(None),
+        with tenant_scope_context(
+            "vector-rebuild-resolver",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            kb = (
+                session.query(KnowledgeBase)
+                .filter(
+                    and_(
+                        KnowledgeBase.id == args.kb_id,
+                        KnowledgeBase.deleted_at.is_(None),
+                    )
                 )
+                .first()
             )
-            .first()
-        )
         if kb is None:
             raise SystemExit(f"知识库不存在或已删除: {args.kb_id}")
+
+        # All subsequent reads/writes are constrained to the resolved
+        # knowledge-base tenant.  The resolver above is the only explicit
+        # platform cross-tenant lookup in this CLI.
+        tenant_scope_token = set_tenant_scope(
+            kb.tenant_id,
+            is_platform_admin=False,
+        )
 
         epoch = config.chunk_epoch
         target = target_collection_name(kb.id, args.target_collection)
@@ -500,6 +520,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("\n未切读：检索仍走旧集合。抽验新集合内容无误后，执行 --cutover 切读。")
         return 0
     finally:
+        if tenant_scope_token is not None:
+            reset_tenant_scope(tenant_scope_token)
         session.close()
 
 

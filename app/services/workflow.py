@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from app.models.workflow import Workflow
 from app.repositories.workflow import WorkflowRepository, WorkflowNodeRepository, WorkflowEdgeRepository
 from app.core.exceptions import NotFoundException, ValidationException
+from app.core.authorization import AuthorizationService
+from app.models.user import User
+from app.services.resource_authorization import ResourceAuthorizationService
 from app.schemas.workflow import WorkflowCreate, WorkflowUpdate
 
 logger = logging.getLogger(__name__)
@@ -15,9 +18,11 @@ logger = logging.getLogger(__name__)
 class WorkflowService:
     """工作流服务"""
 
-    def __init__(self, db: Session, tenant_id: str):
+    def __init__(self, db: Session, tenant_id: str, actor: User | None = None):
         self.db = db
         self.tenant_id = str(tenant_id)
+        self.actor = actor
+        self.resource_authorization = ResourceAuthorizationService(db)
         self.workflow_repo = WorkflowRepository(db=db, tenant_id=self.tenant_id)
         self.node_repo = WorkflowNodeRepository(db=db, tenant_id=self.tenant_id)
         self.edge_repo = WorkflowEdgeRepository(db=db, tenant_id=self.tenant_id)
@@ -30,6 +35,10 @@ class WorkflowService:
         user_id: str,
     ) -> Workflow:
         """创建工作流"""
+        if getattr(self, "actor", None) is not None:
+            AuthorizationService(self.db).require_permission(
+                self.actor, self.tenant_id, "workflow", "create"
+            )
         try:
             workflow = self.workflow_repo.create(
                 name=data.name,
@@ -41,17 +50,30 @@ class WorkflowService:
                 self._replace_graph(workflow, data.nodes or [], data.edges or [])
             self.db.commit()
             self._expire_graph(workflow)
-            return self.get_workflow(workflow.id)
+            return self.get_workflow(workflow.id, authorize=False)
         except Exception:
             self.db.rollback()
             raise
 
-    def get_workflow(self, workflow_id: str | uuid.UUID) -> Workflow:
+    def get_workflow(
+        self,
+        workflow_id: str | uuid.UUID,
+        *,
+        authorize: bool = True,
+    ) -> Workflow:
         """获取工作流详情"""
         workflow_id = str(workflow_id)
         workflow = self.workflow_repo.get_with_nodes_and_edges(workflow_id)
         if not workflow:
             raise NotFoundException("Workflow", workflow_id)
+        if authorize and getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor,
+                self.tenant_id,
+                "workflow",
+                "read",
+                workflow,
+            )
         return workflow
 
     def list_workflows(
@@ -61,6 +83,10 @@ class WorkflowService:
         status: Optional[str] = None,
     ) -> tuple[List[Workflow], int]:
         """列出工作流"""
+        if getattr(self, "actor", None) is not None:
+            AuthorizationService(self.db).require_permission(
+                self.actor, self.tenant_id, "workflow", "read"
+            )
         workflows = self.workflow_repo.list_by_status(status=status, page=page, page_size=page_size)
         total = self.workflow_repo.count_by_status(status=status)
         return workflows, total
@@ -72,7 +98,11 @@ class WorkflowService:
     ) -> Workflow:
         """更新工作流"""
         workflow_id = str(workflow_id)
-        workflow = self.get_workflow(workflow_id)
+        workflow = self.get_workflow(workflow_id, authorize=False)
+        if getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "workflow", "update", workflow
+            )
 
         try:
             updates = data.model_dump(exclude={"nodes", "edges"}, exclude_unset=True)
@@ -86,7 +116,7 @@ class WorkflowService:
 
             self.db.commit()
             self._expire_graph(workflow)
-            return self.get_workflow(workflow_id)
+            return self.get_workflow(workflow_id, authorize=False)
         except Exception:
             self.db.rollback()
             raise
@@ -143,6 +173,8 @@ class WorkflowService:
                 workflow_id=workflow_id,
                 source_node_id=source_id,
                 target_node_id=target_id,
+                source_handle=edge_data.source_handle,
+                target_handle=edge_data.target_handle,
                 condition=edge_data.condition,
                 label=edge_data.label,
             )
@@ -153,7 +185,11 @@ class WorkflowService:
 
     def delete_workflow(self, workflow_id: str | uuid.UUID) -> None:
         """删除工作流"""
-        workflow = self.get_workflow(workflow_id)
+        workflow = self.get_workflow(workflow_id, authorize=False)
+        if getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "workflow", "delete", workflow
+            )
         self.workflow_repo.delete(workflow)
         self.db.commit()
 
@@ -161,25 +197,38 @@ class WorkflowService:
 
     def publish_workflow(self, workflow_id: str | uuid.UUID) -> Workflow:
         """发布工作流"""
-        workflow = self.get_workflow(workflow_id)
+        workflow = self.get_workflow(workflow_id, authorize=False)
+        if getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "workflow", "publish", workflow
+            )
         if workflow.status != "draft":
             raise ValidationException("只有草稿状态的工作流才能发布")
         self.workflow_repo.update(workflow, status="published")
         self.db.commit()
-        return self.get_workflow(workflow_id)
+        return self.get_workflow(workflow_id, authorize=False)
 
     def archive_workflow(self, workflow_id: str | uuid.UUID) -> Workflow:
         """归档工作流"""
-        workflow = self.get_workflow(workflow_id)
+        workflow = self.get_workflow(workflow_id, authorize=False)
+        if getattr(self, "actor", None) is not None:
+            self.resource_authorization.require(
+                self.actor, self.tenant_id, "workflow", "update", workflow
+            )
         self.workflow_repo.update(workflow, status="archived")
         self.db.commit()
-        return self.get_workflow(workflow_id)
+        return self.get_workflow(workflow_id, authorize=False)
 
     # ── Workflow验证 ───────────────────────────────────────────────────────────
 
-    def validate_workflow_dag(self, workflow_id: str | uuid.UUID) -> Dict[str, Any]:
+    def validate_workflow_dag(
+        self,
+        workflow_id: str | uuid.UUID,
+        *,
+        authorize: bool = True,
+    ) -> Dict[str, Any]:
         """验证工作流DAG结构"""
-        workflow = self.get_workflow(workflow_id)
+        workflow = self.get_workflow(workflow_id, authorize=authorize)
 
         nodes = {node.id: node for node in workflow.nodes}
         edges = workflow.edges

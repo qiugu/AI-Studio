@@ -75,7 +75,7 @@ export default function AuditLogs() {
   }, [page, filters])
 
   useEffect(() => {
-    fetchLogs()
+    void Promise.resolve().then(() => fetchLogs())
   }, [fetchLogs])
 
   const handleExport = () => {
@@ -123,6 +123,26 @@ export default function AuditLogs() {
       },
       { title: '资源', dataIndex: 'resource', key: 'resource' },
       { title: '资源ID', dataIndex: 'resource_id', key: 'resource_id', render: (v) => v || '—' },
+      {
+        title: '目标身份快照',
+        key: 'target_identity',
+        render: (_, log) => {
+          const metadata = log.metadata_json ?? {}
+          const targetId = log.target_id ?? log.resource_id
+          const email = typeof metadata.target_email === 'string' ? metadata.target_email : null
+          const before = typeof metadata.nickname_before === 'string' ? metadata.nickname_before : null
+          const after = typeof metadata.nickname_after === 'string' ? metadata.nickname_after : null
+          return (
+            <Space direction="vertical" size={0}>
+              <Text code>{targetId || '—'}</Text>
+              {email && <Text type="secondary">{email}</Text>}
+              {before !== null && after !== null && (
+                <Text type="secondary">昵称：{before || '（空）'} → {after || '（空）'}</Text>
+              )}
+            </Space>
+          )
+        },
+      },
       { title: '路径', dataIndex: 'path', key: 'path', ellipsis: true },
       {
         title: '状态',

@@ -30,3 +30,8 @@ class TenantCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=500)
     admin_email: str = Field(..., max_length=255)
     admin_password: str = Field(..., min_length=6, max_length=128)
+
+
+class OwnerTransferRequest(BaseModel):
+    target_user_id: str = Field(..., min_length=1)
+    current_password: str = Field(..., min_length=1, max_length=128)

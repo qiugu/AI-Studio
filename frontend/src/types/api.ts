@@ -32,6 +32,7 @@ export interface User {
   created_at: string | null
   updated_at: string | null
   roles: Role[]
+  capabilities?: string[]
 }
 
 export interface Role {
@@ -47,9 +48,13 @@ export interface Role {
 
 export interface Permission {
   id: string
+  key?: string
   resource: string
   action: string
   description?: string | null
+  scope?: 'tenant' | 'platform' | 'unknown'
+  sensitivity?: 'normal' | 'high' | 'critical'
+  is_delegable?: boolean
 }
 
 export interface LoginRequest {
@@ -90,6 +95,11 @@ export interface ResendVerificationResponse {
   message: string
 }
 
+export interface PasswordResetResponse {
+  email_sent: boolean
+  message: string
+}
+
 export interface RefreshRequest {
   refresh_token: string
 }
@@ -106,6 +116,10 @@ export interface AuditLog {
   action: string
   resource: string
   resource_id: string | null
+  target_type?: string | null
+  target_id?: string | null
+  reason?: string | null
+  metadata_json?: Record<string, unknown> | null
   method: string
   path: string
   status_code: number
@@ -172,13 +186,14 @@ export interface UserCreateRequest {
 
 export interface UserUpdateRequest {
   nickname?: string
-  password?: string
   status?: boolean
   role_ids?: string[]
+  current_password?: string
 }
 
 export interface UserRoleAssign {
   role_ids: string[]
+  current_password?: string
 }
 
 // ── 角色权限 ────────────────────────────────────────────────────────────────
@@ -186,16 +201,19 @@ export interface RoleCreateRequest {
   name: string
   description?: string
   permission_ids?: string[]
+  current_password?: string
 }
 
 export interface RoleUpdateRequest {
   name?: string
   description?: string
   status?: boolean
+  current_password?: string
 }
 
 export interface RolePermissionAssign {
   permission_ids: string[]
+  current_password?: string
 }
 
 // ── 租户设置 / 平台管理 ───────────────────────────────────────────────────────

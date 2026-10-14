@@ -35,11 +35,14 @@ async def create_knowledge_base(
 ):
     """创建知识库"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         kb = service.create_knowledge_base(
             name=name,
             description=description,
             embedding_model=embedding_model,
+            user_id=current_user.id,
         )
         return ResponseBase.ok(
             data=KnowledgeBaseResponse.model_validate(kb).model_dump()
@@ -61,7 +64,9 @@ async def list_knowledge_bases(
 ):
     """列出知识库"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         kbs, total = service.list_knowledge_bases(page=page, page_size=page_size)
         return {
             "code": 0,
@@ -101,7 +106,9 @@ async def get_knowledge_base(
 ):
     """获取知识库详情"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         kb = service.get_knowledge_base(kb_id)
         return ResponseBase.ok(
             data=KnowledgeBaseResponse.model_validate(kb).model_dump()
@@ -124,7 +131,9 @@ async def update_knowledge_base(
 ):
     """更新知识库"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         kb = service.update_knowledge_base(kb_id=kb_id, name=name, description=description)
         return ResponseBase.ok(
             data=KnowledgeBaseResponse.model_validate(kb).model_dump()
@@ -144,7 +153,9 @@ async def delete_knowledge_base(
 ):
     """删除知识库"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         service.delete_knowledge_base(kb_id)
         return {"code": 0, "message": "success", "data": None}
     except AppException as e:
@@ -202,7 +213,9 @@ async def upload_document(
         tmp_path = tmp.name
 
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         doc = service.upload_document(
             kb_id=kb_id,
             file_path=tmp_path,
@@ -242,7 +255,9 @@ async def list_documents(
             except ValueError:
                 raise BadRequestException(f"Invalid status: {status}")
 
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         docs, total = service.list_documents(
             kb_id=kb_id,
             status=doc_status,
@@ -287,7 +302,9 @@ async def get_document(
 ):
     """获取文档详情"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         doc = service.get_document(doc_id)
         return ResponseBase.ok(
             data=KnowledgeDocumentResponse.model_validate(doc).model_dump()
@@ -307,7 +324,9 @@ async def delete_document(
 ):
     """删除文档"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         service.delete_document(doc_id)
         return ResponseBase.ok()
     except AppException as e:
@@ -330,7 +349,9 @@ async def get_document_chunks(
 ):
     """获取文档的分块列表"""
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         chunks, total = service.get_chunks(doc_id=doc_id, page=page, page_size=page_size)
         return ResponseBase.ok(
             data={
@@ -369,7 +390,7 @@ async def get_document_chunks(
 
 @router.post(
     "/knowledge-bases/{kb_id}/search",
-    dependencies=[Depends(require_permission("knowledge", "read"))],
+    dependencies=[Depends(require_permission("knowledge", "search"))],
 )
 async def search_knowledge_base(
     response: Response,
@@ -396,7 +417,9 @@ async def search_knowledge_base(
     ``{results, degraded}`` 属破坏性变更，而该诊断信息的价值不足以抵偿联调成本。
     """
     try:
-        service = KnowledgeBaseService(db=db, tenant_id=current_user.tenant_id)
+        service = KnowledgeBaseService(
+            db=db, tenant_id=current_user.tenant_id, actor=current_user
+        )
         outcome = service.search_with_diagnostics(
             kb_id=kb_id,
             query=query,

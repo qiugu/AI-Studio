@@ -3,6 +3,7 @@
  */
 
 import client from './client'
+import type { AxiosRequestConfig } from 'axios'
 import type { ApiResponse, PaginatedData } from '@/types/api'
 import type {
   Agent,
@@ -103,7 +104,10 @@ export async function chat(
   data: ChatRequest,
   config?: { _suppressErrorMessage?: boolean }
 ): Promise<ApiResponse<ChatResponse>> {
-  return client.post(`/agent/agents/${agentId}/chat`, data, config as any) as Promise<ApiResponse<ChatResponse>>
+  const requestConfig = config as (AxiosRequestConfig & {
+    _suppressErrorMessage?: boolean
+  }) | undefined
+  return client.post(`/agent/agents/${agentId}/chat`, data, requestConfig) as Promise<ApiResponse<ChatResponse>>
 }
 
 // Agent对话（SSE流式）- 返回 EventSource URL

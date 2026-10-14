@@ -27,16 +27,32 @@
 ### 1.2 RBAC权限模型
 
 ```
-User ──多对多──► Role ──多对多──► Permission
+User ──membership──► TenantMembership ──多对多──► Role ──多对多──► Permission
+  │                         （兼容窗口仍双写 user_roles）
                       │
                       │ 资源+操作组合
                       │
                       ▼
-              resource:action
-              如: model:create
-                  prompt:read
-                  workflow:execute
+              resource.action
+              如: ai_model.create
+                  prompt.read
+                  workflow.execute
 ```
+
+授权请求统一经过 `AuthorizationService`：先验证身份与租户状态，再判断角色权限，
+最后判断资源归属、owner、共享 grant 和发布状态。`membership_read_mode=shadow` 只
+记录 legacy 与 membership 的 allow/deny 差异，不改变线上强制结果；默认模式为
+`legacy`。切换到 `membership` 前必须通过
+`scripts/verify_rbac_migration.py --strict --require-membership-ready` 的
+`membership_readiness.ready` 门禁。发布顺序固定为 `dual-write + legacy` →
+`shadow` 观察结构化 mismatch → `membership`；发生异常时把读取模式回退为
+`shadow` 或 `legacy`，不删除已回填数据。
+
+登录与 `/me` 返回的角色摘要、capability snapshot 使用同一授权读取源；在
+`membership` 模式下从 `membership_roles` 计算，避免前端仍展示已被 staged PDP 拒绝的旧角色能力。
+
+角色权限替换也受最后管理路径约束：唯一的启用管理角色不能一次性清空
+`tenant.members_manage` / `tenant.roles_manage`；只有在另一个启用角色仍保留明确成员或角色治理能力时才允许替换。该检查与角色停用/删除共享租户行锁，在支持行锁的数据库上按租户串行化。
 
 **权限矩阵**:
 
@@ -48,7 +64,7 @@ User ──多对多──► Role ──多对多──► Permission
 | model | create, read, update, delete, execute | 模型管理 |
 | prompt | create, read, update, delete, execute | Prompt管理 |
 | kb | create, read, update, delete, execute | 知识库管理 |
-| workflow | create, read, update, delete, execute | 工作流管理 |
+| workflow | create, read, update, delete, publish, export, execute | 工作流管理 |
 | agent | create, read, update, delete, execute | Agent管理 |
 | plugin | create, read, update, delete, execute | 插件管理 |
 | audit | read, export | 审计日志 |
@@ -238,23 +254,20 @@ def get_repo(repo_class: Type[BaseRepository]):
     return _dep
 ```
 
-### 1.6 超级管理员依赖守卫
+### 1.6 平台权限与跨租户查询守卫
 
 ```python
 # app/core/dependencies.py 补充
 
-async def require_platform_admin(
-    current_user: User = Depends(get_current_user)
-) -> User:
-    """
-    仅平台超级管理员（is_platform_admin=True）可访问的接口守卫。
-    不走普通 RBAC 权限表，直接检查 users.is_platform_admin 字段。
-    用于 /api/admin/* 所有接口。
-    """
-    if not current_user.is_platform_admin:
-        raise ForbiddenException()
-    return current_user
+def require_platform_permission(action: str):
+    """平台身份 + 明确 platform permission；通过后才打开跨租户查询上下文。"""
+    # 例如 require_platform_permission("public_model_manage")。
+    # is_platform_admin 只是身份条件，不是租户业务的全局 bypass。
+    ...
 ```
+
+普通租户接口拒绝平台身份进入租户业务路径；平台管理员只有在显式平台守卫通过后，
+才能执行对应平台写操作并启用 `PlatformQueryContext`。
 
 ### 1.7 QuotaService — 配额检查
 

@@ -17,11 +17,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_hash.verify(plain_password, hashed_password)
 
 
-def create_access_token(user_id: str, tenant_id: str) -> str:
+def create_access_token(user_id: str, tenant_id: str, authz_version: int = 1) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=config.jwt_access_token_expire_minutes)
     to_encode: dict[str, Any] = {
         "sub": str(user_id),
         "tid": tenant_id,
+        "authz_version": int(authz_version),
         "exp": expire,
         "type": "access",
     }
@@ -32,10 +33,11 @@ def create_access_token(user_id: str, tenant_id: str) -> str:
     )
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(user_id: str, credentials_version: int = 1) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=config.jwt_refresh_token_expire_days)
     to_encode: dict[str, Any] = {
         "sub": str(user_id),
+        "credentials_version": int(credentials_version),
         "exp": expire,
         "type": "refresh",
     }

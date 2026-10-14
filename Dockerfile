@@ -20,4 +20,4 @@ COPY . .
 EXPOSE 8000
 
 # 启动前自动执行数据库迁移，随后启动 API 服务
-CMD ["sh", "-c", "alembic upgrade head && python -m scripts.bootstrap_platform_admin && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && python -m scripts.bootstrap_platform_admin && if [ \"${MEMBERSHIP_READ_MODE:-legacy}\" != \"legacy\" ]; then python scripts/verify_rbac_migration.py --strict --require-membership-ready; fi && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

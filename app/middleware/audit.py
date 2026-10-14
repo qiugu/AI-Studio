@@ -6,6 +6,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.database import sessionLocal
+from app.core.authorization import get_authorization_decision
 from app.models.audit_log import AuditLog
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
             user_id = getattr(request.state, "user_id", None)
             resource, resource_id = _parse_resource(path)
             ip_address = request.client.host if request.client else None
+            authorization = get_authorization_decision()
+            request_id = request.headers.get("X-Request-ID")
 
             log = AuditLog(
                 tenant_id=tenant_id,
@@ -73,7 +76,20 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 path=path,
                 status_code=response.status_code,
                 ip_address=ip_address,
+                user_agent=request.headers.get("User-Agent"),
+                request_id=request_id,
                 duration_ms=duration_ms,
+                decision=(
+                    "allow"
+                    if authorization.allowed
+                    else "deny"
+                ) if authorization is not None else (
+                    "allow" if response.status_code < 400 else "deny"
+                ),
+                permission_key=authorization.permission_key if authorization else None,
+                target_type=authorization.target_type if authorization else None,
+                target_id=authorization.target_id if authorization else resource_id,
+                reason=authorization.reason if authorization else None,
             )
             db = sessionLocal()
             try:

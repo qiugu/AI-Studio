@@ -45,12 +45,26 @@ def test_permitted_non_admin_can_read_draft_workflow(monkeypatch):
         def get_workflow(self, _workflow_id):
             return workflow
 
+    class _Authorization:
+        def __init__(self, _db):
+            pass
+
+        def require(self, *_args):
+            return None
+
+        def allowed_actions(self, *_args):
+            return ["read"]
+
+    current_user = SimpleNamespace(id=workflow.created_by, tenant_id=workflow.tenant_id)
+
     monkeypatch.setattr(workflow_api, "WorkflowService", _Service)
+    monkeypatch.setattr(workflow_api, "ResourceAuthorizationService", _Authorization)
     response = asyncio.run(
         workflow_api.get_workflow(
             workflow_id=uuid.UUID(workflow.id),
             db=object(),
             tenant_id=workflow.tenant_id,
+            current_user=current_user,
         )
     )
 
@@ -76,6 +90,25 @@ def test_workflow_update_accepts_temporary_and_uuid_edge_references():
     assert update.edges is not None
     assert update.edges[0].source_node_id == "temp-start"
     assert update.edges[0].target_node_id == persisted_id
+
+
+def test_workflow_update_preserves_react_flow_handle_direction():
+    update = WorkflowUpdate.model_validate(
+        {
+            "edges": [
+                {
+                    "source_node_id": "temp-start",
+                    "target_node_id": str(uuid.uuid4()),
+                    "source_handle": "source-bottom",
+                    "target_handle": "target-top",
+                }
+            ],
+        }
+    )
+
+    assert update.edges is not None
+    assert update.edges[0].source_handle == "source-bottom"
+    assert update.edges[0].target_handle == "target-top"
 
 
 @pytest.mark.parametrize("reference", ["", "   ", "node-1", "not-a-uuid"])
@@ -184,6 +217,8 @@ def test_update_workflow_resolves_mixed_node_references_before_creating_edges():
                 {
                     "source_node_id": existing_id,
                     "target_node_id": "temp-end",
+                    "source_handle": "source-bottom",
+                    "target_handle": "target-top",
                 }
             ],
         }
@@ -196,6 +231,8 @@ def test_update_workflow_resolves_mixed_node_references_before_creating_edges():
     assert service.edge_repo.deleted == [workflow.id]
     assert service.edge_repo.created[0].source_node_id == service.node_repo.created[0].id
     assert service.edge_repo.created[0].target_node_id == service.node_repo.created[1].id
+    assert service.edge_repo.created[0].source_handle == "source-bottom"
+    assert service.edge_repo.created[0].target_handle == "target-top"
     assert service.db.expired == [(workflow, ["nodes", "edges"])]
 
 

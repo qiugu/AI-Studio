@@ -27,8 +27,11 @@ class UnauthorizedException(AppException):
 
 class ForbiddenException(AppException):
     def __init__(self, resource: str = "", action: str = ""):
-        msg = f"Permission denied: {action} on {resource}" if resource else "Permission denied"
-        super().__init__(403, "FORBIDDEN", msg)
+        # resource/action 仅供服务端调用方和审计使用，不回显给请求方，避免
+        # 通过错误文案探测租户内的资源类型、权限动作或对象存在性。
+        self.resource = resource
+        self.action = action
+        super().__init__(403, "FORBIDDEN", "Permission denied")
 
 
 class ValidationException(AppException):

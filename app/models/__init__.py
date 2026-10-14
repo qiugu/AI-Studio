@@ -26,6 +26,11 @@ from app.models.workflow_execution import WorkflowExecution
 from app.models.node_execution import NodeExecution
 from app.models.plugin import Plugin, PluginConfig, PluginEndpoint
 from app.models.email_verification import EmailVerification
+from app.models.password_reset import PasswordResetToken
+from app.models.resource_grant import ResourceGrant
+from app.models.authorization_outbox import AuthorizationOutbox
+from app.models.membership_role import membership_role
+from app.models.tenant_membership import TenantMembership
 
 __all__ = [
     "Tenant",
@@ -59,4 +64,9 @@ __all__ = [
     "PluginConfig",
     "PluginEndpoint",
     "EmailVerification",
+    "PasswordResetToken",
+    "ResourceGrant",
+    "AuthorizationOutbox",
+    "membership_role",
+    "TenantMembership",
 ]

@@ -29,6 +29,7 @@ export interface AIProviderCreateRequest {
   api_key?: string
   config?: Record<string, unknown>
   status?: boolean
+  current_password?: string
 }
 
 export interface AIProviderUpdateRequest {
@@ -38,6 +39,7 @@ export interface AIProviderUpdateRequest {
   api_key?: string
   config?: Record<string, unknown>
   status?: boolean
+  current_password?: string
 }
 
 export interface ConnectivityTestRequest {

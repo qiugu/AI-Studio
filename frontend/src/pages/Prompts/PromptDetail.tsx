@@ -58,7 +58,7 @@ export default function PromptDetail() {
   }, [promptId])
 
   useEffect(() => {
-    load()
+    void Promise.resolve().then(() => load())
   }, [load])
 
   const handleActivate = async (versionId: string) => {

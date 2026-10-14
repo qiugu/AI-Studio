@@ -2,9 +2,11 @@ import { useCallback } from 'react'
 import { useAuthStore } from '@/stores/auth'
 import { hasPermission, hasAnyPermission, hasAllPermissions } from '@/utils/permission'
 
+const EMPTY_CAPABILITIES: string[] = []
+
 export function usePermission() {
   const user = useAuthStore((s) => s.user)
-  const permissions = user?.roles?.flatMap((r) => r.permissions) || []
+  const permissions = user?.capabilities ?? EMPTY_CAPABILITIES
 
   const check = useCallback(
     (resource: string, action: string) => hasPermission(permissions, resource, action),

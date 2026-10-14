@@ -20,6 +20,11 @@ data:
   JWT_ALGORITHM: HS256
   JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
   JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  # Staged tenant-membership rollout; change only after the migration verifier
+  # passes in this cluster.  deploy.sh validates the combination and patches
+  # these values from MEMBERSHIP_* environment variables when requested.
+  MEMBERSHIP_DUAL_WRITE_ENABLED: "false"
+  MEMBERSHIP_READ_MODE: legacy
   UPLOAD_DIR: /app/uploads
   MAX_UPLOAD_SIZE_MB: "50"
   EMBEDDING_PROVIDER: sentence-transformers

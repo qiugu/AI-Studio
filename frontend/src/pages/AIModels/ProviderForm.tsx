@@ -63,6 +63,7 @@ export default function ProviderForm() {
         api_base_url: values.api_base_url as string | undefined,
         api_key: values.api_key as string | undefined,
         status: values.status as boolean,
+        current_password: (values.current_password as string) || undefined,
       }
       if (values.config) {
         try {
@@ -135,6 +136,13 @@ export default function ProviderForm() {
 
           <Form.Item name="config" label="额外配置（JSON 格式，可选）">
             <Input.TextArea rows={3} placeholder='{"timeout": 30}' />
+          </Form.Item>
+
+          <Form.Item
+            name="current_password"
+            label="当前密码（修改凭据或配置时必填）"
+          >
+            <Password placeholder="请输入当前登录密码" />
           </Form.Item>
 
           <Form.Item name="status" label="启用状态" valuePropName="checked">

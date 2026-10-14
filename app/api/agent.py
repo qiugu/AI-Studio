@@ -6,6 +6,11 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
+from app.core.authorization import AuthorizationService
+from app.services.resource_authorization import (
+    ResourceAuthorizationService,
+    ResourceGrantService,
+)
 from app.core.dependencies import get_current_user, require_permission, require_tenant_user, CurrentUser, SessionDep
 from app.models.user import User
 from app.services.agent import AgentService
@@ -13,6 +18,7 @@ from app.services.conversation import ConversationService
 from app.services.plugin import MAX_BINDABLE_PLUGINS, PluginService
 from app.core.plugin_policy import DESTRUCTIVE_HTTP_METHODS
 from app.schemas.common import ResponseBase, PaginatedResponse
+from app.schemas.authorization import ResourceGrantCreate, ResourceGrantOut
 from app.schemas.agent import (
     AgentCreate,
     AgentUpdate,
@@ -28,9 +34,35 @@ from app.schemas.conversation import (
     ChatResponse,
 )
 from app.utils.sse import create_sse_response, json_sse_event
-from app.core.exceptions import AppException, NotFoundException
+from app.core.exceptions import AppException
 
 router = APIRouter(dependencies=[Depends(require_tenant_user)])
+
+
+def _authorize_agent(
+    db: Session,
+    current_user: User,
+    agent,
+    action: str,
+) -> None:
+    ResourceAuthorizationService(db).require(
+        current_user,
+        current_user.tenant_id,
+        "agent",
+        action,
+        agent,
+    )
+
+
+def _agent_payload(db: Session, current_user: User, agent) -> dict:
+    payload = AgentResponse.model_validate(agent).model_dump()
+    payload["allowed_actions"] = ResourceAuthorizationService(db).allowed_actions(
+        current_user,
+        current_user.tenant_id,
+        "agent",
+        agent,
+    )
+    return payload
 
 
 # ============ Agent CRUD ============
@@ -48,10 +80,10 @@ async def create_agent(
 ):
     """创建Agent"""
     try:
-        service = AgentService(db=db, tenant_id=current_user.tenant_id)
+        service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         agent = service.create_agent(data=data, user_id=current_user.id)
         return ResponseBase.ok(
-            data=AgentResponse.model_validate(agent).model_dump()
+            data=_agent_payload(db, current_user, agent)
         )
     except AppException as e:
         raise e
@@ -71,14 +103,20 @@ async def list_agents(
 ):
     """列出Agents"""
     try:
-        service = AgentService(db=db, tenant_id=current_user.tenant_id)
-        if not any(role.is_admin and role.status for role in current_user.roles):
+        service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
+        can_manage_drafts = AuthorizationService(db).check_permission(
+            current_user,
+            current_user.tenant_id,
+            "agent",
+            "update",
+        ).allowed
+        if not can_manage_drafts:
             status = "published"
         agents, total = service.list_agents(page=page, page_size=page_size, status=status)
         
         items = []
         for agent in agents:
-            agent_dict = AgentResponse.model_validate(agent).model_dump()
+            agent_dict = _agent_payload(db, current_user, agent)
             items.append(agent_dict)
         
         return {
@@ -161,15 +199,11 @@ async def get_agent(
 ):
     """获取Agent详情"""
     try:
-        service = AgentService(db=db, tenant_id=current_user.tenant_id)
+        service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         agent = service.get_agent(agent_id)
-        if (
-            agent.status != "published"
-            and not any(role.is_admin and role.status for role in current_user.roles)
-        ):
-            raise NotFoundException("Agent", agent_id)
+        _authorize_agent(db, current_user, agent, "read")
         return ResponseBase.ok(
-            data=AgentResponse.model_validate(agent).model_dump()
+            data=_agent_payload(db, current_user, agent)
         )
     except AppException as e:
         raise e
@@ -188,10 +222,17 @@ async def update_agent(
 ):
     """更新Agent"""
     try:
-        service = AgentService(db=db, tenant_id=current_user.tenant_id)
+        service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
+        existing_agent = service.get_agent(agent_id)
+        authorization_action = (
+            "publish"
+            if data.status == "published" and existing_agent.status != "published"
+            else "update"
+        )
+        _authorize_agent(db, current_user, existing_agent, authorization_action)
         agent = service.update_agent(agent_id=agent_id, data=data)
         return ResponseBase.ok(
-            data=AgentResponse.model_validate(agent).model_dump()
+            data=_agent_payload(db, current_user, agent)
         )
     except AppException as e:
         raise e
@@ -209,9 +250,60 @@ async def delete_agent(
 ):
     """删除Agent"""
     try:
-        service = AgentService(db=db, tenant_id=current_user.tenant_id)
+        service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
+        _authorize_agent(db, current_user, service.get_agent(agent_id), "delete")
         service.delete_agent(agent_id)
         return ResponseBase.ok(message="Agent deleted successfully")
+    except AppException as e:
+        raise e
+
+
+@router.post("/agents/{agent_id}/grants", response_model=ResponseBase)
+async def create_agent_grant(
+    agent_id: str,
+    data: ResourceGrantCreate,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
+        agent = service.get_agent(agent_id)
+        grant = ResourceGrantService(db).create_grant(
+            current_user,
+            current_user.tenant_id,
+            "agent",
+            agent,
+            subject_role_id=data.subject_role_id,
+            actions=data.actions,
+            expires_at=data.expires_at,
+        )
+        db.commit()
+        db.refresh(grant)
+        return ResponseBase.ok(data=ResourceGrantOut.model_validate(grant).model_dump())
+    except AppException as e:
+        raise e
+
+
+@router.delete("/agents/{agent_id}/grants/{grant_id}", response_model=ResponseBase)
+async def revoke_agent_grant(
+    agent_id: str,
+    grant_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
+        service.get_agent(agent_id)
+        grant = ResourceGrantService(db).revoke_grant(
+            current_user,
+            current_user.tenant_id,
+            grant_id,
+            resource="agent",
+            resource_id=agent_id,
+        )
+        db.commit()
+        db.refresh(grant)
+        return ResponseBase.ok(data=ResourceGrantOut.model_validate(grant).model_dump())
     except AppException as e:
         raise e
 
@@ -231,7 +323,7 @@ async def create_conversation(
 ):
     """创建对话"""
     try:
-        service = ConversationService(db=db, tenant_id=current_user.tenant_id)
+        service = ConversationService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         conv = service.create_conversation(data=data, user_id=current_user.id)
         return ResponseBase.ok(
             data=ConversationResponse.model_validate(conv).model_dump()
@@ -254,7 +346,7 @@ async def list_conversations(
 ):
     """列出对话"""
     try:
-        service = ConversationService(db=db, tenant_id=current_user.tenant_id)
+        service = ConversationService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         convs, total = service.list_conversations(
             agent_id=agent_id, page=page, page_size=page_size
         )
@@ -290,7 +382,7 @@ async def get_conversation(
 ):
     """获取对话详情"""
     try:
-        service = ConversationService(db=db, tenant_id=current_user.tenant_id)
+        service = ConversationService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         conv = service.get_conversation(conversation_id)
         return ResponseBase.ok(
             data=ConversationResponse.model_validate(conv).model_dump()
@@ -312,7 +404,7 @@ async def update_conversation(
 ):
     """更新对话"""
     try:
-        service = ConversationService(db=db, tenant_id=current_user.tenant_id)
+        service = ConversationService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         conv = service.update_conversation(conversation_id=conversation_id, data=data)
         return ResponseBase.ok(
             data=ConversationResponse.model_validate(conv).model_dump()
@@ -333,7 +425,7 @@ async def delete_conversation(
 ):
     """删除对话"""
     try:
-        service = ConversationService(db=db, tenant_id=current_user.tenant_id)
+        service = ConversationService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         service.delete_conversation(conversation_id)
         return ResponseBase.ok(message="Conversation deleted successfully")
     except AppException as e:
@@ -356,14 +448,10 @@ async def chat(
 ):
     """Agent对话（阻塞式）"""
     try:
-        agent_service = AgentService(db=db, tenant_id=current_user.tenant_id)
+        agent_service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         agent = agent_service.get_agent(agent_id)
-        if (
-            agent.status != "published"
-            and not any(role.is_admin and role.status for role in current_user.roles)
-        ):
-            raise NotFoundException("Agent", agent_id)
-        conv_service = ConversationService(db=db, tenant_id=current_user.tenant_id)
+        _authorize_agent(db, current_user, agent, "chat")
+        conv_service = ConversationService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
 
         # 如果没有提供conversation_id，创建新对话
         conversation_id = data.conversation_id
@@ -420,14 +508,10 @@ async def chat_stream(
 ):
     """Agent对话（SSE流式）"""
     try:
-        agent_service = AgentService(db=db, tenant_id=current_user.tenant_id)
+        agent_service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
         agent = agent_service.get_agent(agent_id)
-        if (
-            agent.status != "published"
-            and not any(role.is_admin and role.status for role in current_user.roles)
-        ):
-            raise NotFoundException("Agent", agent_id)
-        conv_service = ConversationService(db=db, tenant_id=current_user.tenant_id)
+        _authorize_agent(db, current_user, agent, "chat")
+        conv_service = ConversationService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
 
         # 如果没有提供conversation_id，创建新对话
         conversation_id = data.conversation_id

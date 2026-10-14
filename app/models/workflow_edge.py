@@ -25,6 +25,8 @@ class WorkflowEdge(Base):
     target_node_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("workflow_nodes.id", ondelete="CASCADE"), nullable=False
     )
+    source_handle: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target_handle: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # 条件配置（用于条件分支）
     condition: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # {"expression": "{{output.value > 10}}", "label": "大于10"}

@@ -87,10 +87,16 @@ def init_knowledge_permissions(db_session):
 
 if __name__ == "__main__":
     from app.core.database import SessionLocal
+    from app.core.tenant_scope import tenant_scope_context
 
     db = SessionLocal()
     try:
-        init_knowledge_permissions(db)
+        with tenant_scope_context(
+            "permission-catalog-maintenance",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            init_knowledge_permissions(db)
         print("Knowledge base permissions initialized successfully")
     finally:
         db.close()

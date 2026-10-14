@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.dependencies import CurrentTenantId, TenantAdmin
+from app.core.dependencies import CurrentTenantId, require_permission
 from app.schemas.audit import AuditLogOut, ModelCallLogOut, TokenStatsOut, DashboardOut
 from app.schemas.common import ResponseBase, PaginatedData
 from app.services.audit import AuditService
@@ -14,9 +14,12 @@ from app.services.audit import AuditService
 router = APIRouter()
 
 
-@router.get("/logs", response_model=ResponseBase)
+@router.get(
+    "/logs",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("audit", "read"))],
+)
 def list_audit_logs(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
@@ -49,9 +52,12 @@ def list_audit_logs(
     )
 
 
-@router.get("/model-calls", response_model=ResponseBase)
+@router.get(
+    "/model-calls",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("audit", "read"))],
+)
 def list_model_calls(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
@@ -84,9 +90,12 @@ def list_model_calls(
     )
 
 
-@router.get("/token-stats", response_model=ResponseBase)
+@router.get(
+    "/token-stats",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("tenant", "usage_read"))],
+)
 def token_stats(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     days: int = Query(30, ge=1, le=365),
     agent_id: Optional[str] = Query(None),
@@ -98,9 +107,12 @@ def token_stats(
     return ResponseBase.ok(data=TokenStatsOut(**svc.token_stats(days=days, agent_id=agent_id, user_id=user_id, model_id=model_id)).model_dump())
 
 
-@router.get("/dashboard", response_model=ResponseBase)
+@router.get(
+    "/dashboard",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("dashboard", "read"))],
+)
 def dashboard(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     db: Session = Depends(get_session),
 ):

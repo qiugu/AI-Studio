@@ -25,6 +25,8 @@ describe('buildWorkflowGraphPayload', () => {
         id: 'edge-1',
         source: persistedId,
         target: 'temp-123',
+        sourceHandle: 'source-bottom',
+        targetHandle: 'target-top',
         label: 'next',
         data: { condition: { expression: 'true', label: '通过' } },
       },
@@ -53,6 +55,8 @@ describe('buildWorkflowGraphPayload', () => {
         {
           source_node_id: persistedId,
           target_node_id: 'temp-123',
+          source_handle: 'source-bottom',
+          target_handle: 'target-top',
           label: 'next',
           condition: { expression: 'true', label: '通过' },
         },

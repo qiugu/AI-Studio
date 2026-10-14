@@ -33,15 +33,19 @@
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
 | deleted_at | DateTime | 软删除时间 |
-| is_platform_admin | Boolean | 是否为平台超级管理员（不受租户 RBAC 约束，可跨租户操作） |
+| is_platform_admin | Boolean | 是否为平台身份标记；不自动绕过租户 RBAC 或租户过滤 |
+| authz_version | Integer | 授权状态版本；成员/角色权限变化后递增，使旧 token 失效 |
 
-**关系**: users ↔ roles (多对多, 通过 user_roles)
+**兼容关系**: users ↔ roles (多对多, 通过 `user_roles`)。战略多租户模式下以
+`tenant_memberships` / `membership_roles` 作为授权主体，旧关系在双写窗口内保留。
 
 ### 平台管理员首次引导
 
 平台管理员仍作为 `users` 记录保存，`is_platform_admin=true` 作为平台级授权标记，不通过租户 RBAC 角色提权。由于 `users.tenant_id` 是必填外键，初始化器会在首次运行时创建或复用 `is_system_init=true` 的系统归属租户，并将引导管理员关联到该租户、设为 owner。该账号邮箱需全局唯一。
 
 部署时由 `PLATFORM_ADMIN_EMAIL` 与 `PLATFORM_ADMIN_PASSWORD` 显式提供首次凭据；两者必须同时设置，密码至少 12 位。密码仅以项目密码哈希函数生成的哈希写入数据库。初始化器可重复运行：已有同邮箱平台管理员保持原状，不会重置密码；邮箱已归属普通用户时中止初始化，不会将其静默提升。凭据未设置则跳过创建，不存在内置默认账号/密码。详细部署步骤见 [Kubernetes 部署说明](../deploy/k8s/README.md) 与根目录 `AGENTS.md`。
+
+管理员不得在用户管理中修改成员密码；密码修改由当前用户本人发起，并递增 `authz_version` 与 `credentials_version` 使既有会话失效。密码重置令牌存放在 `password_reset_tokens` 表中时只保存 SHA-256 哈希，包含租户、目标用户、发起人、过期时间和消费时间；密码和令牌明文不进入审计日志。
 
 ### roles 角色表
 
@@ -53,6 +57,7 @@
 | code | String(100) UNIQUE | 角色编码 |
 | description | String(500) | 角色描述 |
 | status | Boolean | 状态 |
+| is_admin | Boolean | 兼容期管理员角色标记；授权判断以 permission 集合为准 |
 | created_at | DateTime | 创建时间 |
 
 **关系**: roles ↔ permissions (多对多, 通过 role_permissions)
@@ -65,6 +70,9 @@
 | resource | String(100) | 资源标识(user/model/prompt/kb/workflow/agent/plugin/audit) |
 | action | String(100) | 操作标识(create/read/update/delete/execute/export) |
 | description | String(255) | 权限描述 |
+| scope | String(20) | `tenant` 或 `platform` |
+| sensitivity | String(20) | `normal` / `high` / `critical` |
+| is_delegable | Boolean | 是否允许绑定到租户角色 |
 | created_at | DateTime | 创建时间 |
 
 ### user_roles 用户角色关联表
@@ -73,6 +81,49 @@
 |------|------|------|
 | user_id | String(36) FK PK | 用户ID |
 | role_id | String(36) FK PK | 角色ID |
+
+### tenant_memberships / membership_roles（战略多租户授权主体）
+
+`tenant_memberships` 表达用户与租户的关系，不能仅依赖 JWT 的 `tid` 或
+`users.tenant_id` 作为授权证明；`membership_roles` 将角色绑定到该关系，而不是
+直接绑定全局用户。迁移 `p1_tenant_memberships` 会从现有 users/user_roles 回填，
+并通过 `MEMBERSHIP_DUAL_WRITE_ENABLED` 控制双写。
+
+| 表 | 字段 | 说明 |
+|---|---|---|
+| tenant_memberships | id, tenant_id, user_id | 用户-租户唯一关系 |
+| tenant_memberships | status, is_owner | membership 是否有效、是否为 owner |
+| tenant_memberships | authz_version, joined_at, removed_at | 授权版本与生命周期 |
+| membership_roles | membership_id, role_id | membership 到租户角色的复合主键关联 |
+
+授权读取发布开关为 `MEMBERSHIP_READ_MODE=legacy|shadow|membership`：`legacy` 保持
+旧路径，`shadow` 只记录差异，`membership` 才切换新读取来源。
+应用运行时还会拒绝 `MEMBERSHIP_READ_MODE=shadow|membership` 与
+`MEMBERSHIP_DUAL_WRITE_ENABLED=false` 的组合，避免在 staged 表尚未双写时
+进入比较或强制读取阶段。
+
+切换前必须在脱敏副本和目标环境执行
+`python scripts/verify_rbac_migration.py --strict --require-membership-ready`；输出中的
+`membership_readiness.ready` 必须为 `true`，且不得存在 role drift、缺失
+membership、无角色 membership 或跨租户 membership-role 绑定。校验失败时保持
+`MEMBERSHIP_READ_MODE=legacy`，回滚只切换读取开关，不删除已回填数据。
+门禁还会检查 `tenant.owner_id` 是否对应唯一启用且标记为 owner 的 membership，
+以及 membership 与 user 的 `tenant_id` 是否一致。
+
+建议按以下发布顺序操作：先开启 `MEMBERSHIP_DUAL_WRITE_ENABLED=true` 并保持
+`MEMBERSHIP_READ_MODE=legacy`；在脱敏副本和目标环境分别通过上述门禁后切到
+`MEMBERSHIP_READ_MODE=shadow`，观察结构化 `authorization membership shadow`
+日志中的 mismatch；确认持续一致后再切到 `membership`。任何异常都可以先回到
+`shadow`（保留差异日志）或 `legacy`（立即恢复旧读取路径），不需要删除
+`tenant_memberships` / `membership_roles` 数据。
+
+Docker Compose 的 API 与 Celery 服务会同时接收这两个环境变量；当读取模式为
+`shadow` 或 `membership` 时，后端启动命令会先执行
+`python scripts/verify_rbac_migration.py --strict --require-membership-ready`，门禁失败
+则不启动 API。Kubernetes 部署通过 `MEMBERSHIP_DUAL_WRITE_ENABLED` /
+`MEMBERSHIP_READ_MODE` 环境变量校验并写入 `ai-studio-config`，默认仍为
+`false` / `legacy`。因此回滚只需要把读取模式改为 `shadow` 或 `legacy` 后滚动重启，
+不会删除 staged membership 数据。
 
 ### role_permissions 角色权限关联表
 
@@ -516,6 +567,9 @@ Point结构:
 ## 8. 审计与监控（新增）
 
 ### audit_logs 审计日志表
+
+用户资料变更的审计元数据必须包含 `target_user_id`、`target_email`、`nickname_before` 和 `nickname_after`。
+用户 ID 与邮箱快照用于跨昵称变更追踪，昵称只作为展示字段，不能作为关联或审计主键。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|

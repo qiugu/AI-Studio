@@ -13,6 +13,7 @@
 
 import os
 import sys
+from contextvars import copy_context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -119,10 +120,13 @@ def test_tenant_user_sees_only_own_rows():
         tenant_scope.reset_tenant_scope(token)
 
 
-def test_platform_admin_bypasses_filter():
+def test_platform_admin_requires_explicit_query_context():
     s = _seeded_session()
     token = tenant_scope.set_tenant_scope("tenant-A", is_platform_admin=True)
     try:
+        rows = s.query(TenantDoc).all()
+        assert {r.tenant_id for r in rows} == {"tenant-A"}
+        tenant_scope.enable_platform_query_context()
         rows = s.query(TenantDoc).all()
         assert {r.tenant_id for r in rows} == {"tenant-A", "tenant-B"}
     finally:
@@ -184,6 +188,7 @@ def test_admin_sees_all_via_select():
     s = _seeded_session()
     token = tenant_scope.set_tenant_scope("tenant-A", is_platform_admin=True)
     try:
+        tenant_scope.enable_platform_query_context()
         rows = s.execute(select(TenantDoc)).scalars().all()
         assert {r.tenant_id for r in rows} == {"tenant-A", "tenant-B"}
     finally:
@@ -235,5 +240,16 @@ def test_clause_not_shared_across_models_with_same_function():
         assert {r.name for r in s.query(PublicDoc).all()} == {"pa", "platform-preset"}
         assert {r.name for r in s.query(PublicDocAlt).all()} == {"alt-public"}
         assert {r.name for r in s.query(PublicDoc).all()} == {"pa", "platform-preset"}
+    finally:
+        tenant_scope.reset_tenant_scope(token)
+
+
+def test_scope_cleanup_is_safe_when_token_crosses_async_context():
+    """BaseHTTPMiddleware may return a request token to a different Context."""
+    token = tenant_scope.set_tenant_scope("tenant-A", is_platform_admin=False)
+    try:
+        child_context = copy_context()
+        child_context.run(tenant_scope.reset_tenant_scope, token)
+        assert tenant_scope.tenant_scope_ctx.get()["tenant_id"] == "tenant-A"
     finally:
         tenant_scope.reset_tenant_scope(token)

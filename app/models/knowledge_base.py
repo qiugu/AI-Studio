@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, func, BigInteger
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 from datetime import datetime
+from typing import Optional
 import uuid
 
 from app.core.database import Base
@@ -12,6 +13,8 @@ class KnowledgeBase(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # 创建者用于资源级授权和审计；存量数据允许为空，租户范围权限仍可继续管理。
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     
     # 基本信息
     name = Column(String(255), nullable=False)

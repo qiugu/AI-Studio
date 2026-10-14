@@ -2,7 +2,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from sqlalchemy.orm import mapped_column, Mapped, relationship
-from sqlalchemy import String, DateTime, Boolean, ForeignKey, func
+from sqlalchemy import String, DateTime, Boolean, ForeignKey, Integer, func
 
 from app.core.database import Base
 from app.models.user_role import user_role
@@ -25,9 +25,16 @@ class User(Base):
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     # 邮箱是否已验证；未验证用户不能登录 / 不能行使租户管理员能力
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 授权状态版本；角色/成员状态变更后递增，使旧 access token 失效
+    authz_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # 密码重置后递增，使既有 refresh token 失效；与权限状态版本分离。
+    credentials_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     roles: Mapped[List["Role"]] = relationship('Role', secondary=user_role, back_populates="users")
+    memberships: Mapped[List["TenantMembership"]] = relationship(
+        "TenantMembership", back_populates="user"
+    )

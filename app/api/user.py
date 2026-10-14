@@ -5,9 +5,15 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.dependencies import CurrentTenantId, TenantAdmin
-from app.schemas.user import UserOut, UserCreate, UserUpdate, UserRoleAssign
-from app.schemas.common import ResponseBase, PaginatedData
+from app.core.dependencies import CurrentTenantId, require_permission
+from app.schemas.user import (
+    UserOut,
+    UserCreate,
+    UserUpdate,
+    UserRoleAssign,
+    PasswordResetRequest,
+)
+from app.schemas.common import ResponseBase, PaginatedData, ReauthRequest
 from app.services.user import (
     create_user,
     list_users,
@@ -15,14 +21,19 @@ from app.services.user import (
     update_user,
     delete_user,
     assign_roles,
+    request_password_reset,
 )
+from app.utils.email import send_password_reset_email
 
 router = APIRouter()
 
 
-@router.get("", response_model=ResponseBase)
+@router.get(
+    "",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("user", "read"))],
+)
 def list_users_api(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
@@ -43,11 +54,15 @@ def list_users_api(
     )
 
 
-@router.post("", response_model=ResponseBase)
+@router.post(
+    "",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("user", "create"))],
+)
 def create_user_api(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     data: UserCreate,
+    _admin=Depends(require_permission("user", "create")),
     db: Session = Depends(get_session),
 ):
     user = create_user(
@@ -57,15 +72,19 @@ def create_user_api(
         db=db,
         nickname=data.nickname,
         role_ids=data.role_ids,
+        actor=_admin,
     )
     db.commit()
     db.refresh(user)
     return ResponseBase.ok(data=UserOut.model_validate(user).model_dump())
 
 
-@router.get("/{user_id}", response_model=ResponseBase)
+@router.get(
+    "/{user_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("user", "read"))],
+)
 def get_user_api(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     user_id: str,
     db: Session = Depends(get_session),
@@ -74,41 +93,93 @@ def get_user_api(
     return ResponseBase.ok(data=UserOut.model_validate(user).model_dump())
 
 
-@router.put("/{user_id}", response_model=ResponseBase)
+@router.put(
+    "/{user_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("user", "update"))],
+)
 def update_user_api(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     user_id: str,
     data: UserUpdate,
+    _admin=Depends(require_permission("user", "update")),
     db: Session = Depends(get_session),
 ):
-    user = update_user(user_id, data, tenant_id, db)
+    user = update_user(user_id, data, tenant_id, db, actor=_admin)
     db.commit()
     db.refresh(user)
     return ResponseBase.ok(data=UserOut.model_validate(user).model_dump())
 
 
-@router.delete("/{user_id}", response_model=ResponseBase)
-def delete_user_api(
-    _admin: TenantAdmin,
+@router.post(
+    "/{user_id}/password-reset",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("user", "update"))],
+)
+def request_password_reset_api(
     tenant_id: CurrentTenantId,
     user_id: str,
+    data: PasswordResetRequest,
+    _admin=Depends(require_permission("user", "update")),
     db: Session = Depends(get_session),
 ):
-    delete_user(user_id, tenant_id, db)
+    user, token = request_password_reset(
+        user_id,
+        tenant_id,
+        db,
+        actor=_admin,
+        current_password=data.current_password,
+    )
+    emailed = send_password_reset_email(user.email, token)
+    db.commit()
+    return ResponseBase.ok(
+        data={
+            "email_sent": emailed,
+            "message": (
+                "密码重置邮件已发送，请让用户通过邮件设置新密码"
+                if emailed
+                else "密码重置请求已创建，但邮件服务未配置，暂时无法发送重置链接"
+            ),
+        }
+    )
+
+
+@router.delete(
+    "/{user_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("user", "delete"))],
+)
+def delete_user_api(
+    tenant_id: CurrentTenantId,
+    user_id: str,
+    data: ReauthRequest,
+    _admin=Depends(require_permission("user", "delete")),
+    db: Session = Depends(get_session),
+):
+    delete_user(
+        user_id,
+        tenant_id,
+        db,
+        actor=_admin,
+        current_password=data.current_password,
+    )
     db.commit()
     return ResponseBase.ok()
 
 
-@router.post("/{user_id}/roles", response_model=ResponseBase)
+@router.post(
+    "/{user_id}/roles",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("user", "roles_manage"))],
+)
 def assign_roles_api(
-    _admin: TenantAdmin,
     tenant_id: CurrentTenantId,
     user_id: str,
     data: UserRoleAssign,
+    _admin=Depends(require_permission("user", "roles_manage")),
     db: Session = Depends(get_session),
 ):
-    user = assign_roles(user_id, data, tenant_id, db)
+    user = assign_roles(user_id, data, tenant_id, db, actor=_admin)
     db.commit()
     db.refresh(user)
     return ResponseBase.ok(data=UserOut.model_validate(user).model_dump())

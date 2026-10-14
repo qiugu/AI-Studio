@@ -347,7 +347,14 @@ function isSecretName(name: string): boolean {
           return
         }
       }
-      await updatePluginConfig(id, items)
+      const currentPassword = (hasSchema ? form : connectionForm).getFieldValue(
+        'current_password'
+      ) as string | undefined
+      if (!currentPassword) {
+        message.error('保存连接信息需要输入当前密码')
+        return
+      }
+      await updatePluginConfig(id, items, currentPassword)
       const serverConfigured = items.some((item) => item.name === 'base_url' && item.value)
       const servers = (plugin?.api_spec?.servers as Array<{ url?: string }> | undefined) || []
       setHasConnection(serverConfigured || servers.some((server) => Boolean(server.url)))
@@ -602,6 +609,9 @@ function isSecretName(name: string): boolean {
         {hasSchema ? (
           <Form form={form} layout="vertical" className="plugin-connection-form">
             {Object.entries(schemaProperties).map(([name, prop]) => renderSchemaField(name, prop))}
+            <Form.Item name="current_password" label="当前密码（修改连接凭据时必填）">
+              <Password placeholder="请输入当前登录密码" />
+            </Form.Item>
           </Form>
         ) : (
           <Form form={connectionForm} layout="vertical" className="plugin-connection-form">
@@ -647,6 +657,9 @@ function isSecretName(name: string): boolean {
                 ),
               }]}
             />
+            <Form.Item name="current_password" label="当前密码（修改连接凭据时必填）">
+              <Password placeholder="请输入当前登录密码" />
+            </Form.Item>
           </Form>
         )}
       </Card>

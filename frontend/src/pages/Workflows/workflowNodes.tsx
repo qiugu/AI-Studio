@@ -36,6 +36,18 @@ const nodeStyleConfig: Record<NodeType, { color: string; icon: React.ReactNode }
   variable: { color: 'var(--wf-node-variable)', icon: <ControlOutlined /> },
 }
 
+const nodeTypeLabels: Record<NodeType, string> = {
+  start: '开始',
+  end: '结束',
+  llm: '模型',
+  condition: '条件',
+  knowledge: '知识',
+  code: '代码',
+  tool: '工具',
+  loop: '循环',
+  variable: '变量',
+}
+
 /**
  * 智能连接桩配置系统
  * 根据节点类型提供合适的连接桩布局，支持多方向工作流设计
@@ -76,8 +88,9 @@ const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> =
 
     return (
       <div
-        className={`workflow-node ${selected ? 'selected' : ''}`}
+        className={`workflow-node workflow-node--compact ${selected ? 'selected' : ''}`}
         data-type={nodeType}
+        aria-label={`${nodeTypeLabels[nodeType]}节点：${data.name}`}
       >
         {/* Node header */}
         <div className="workflow-node-header">
@@ -107,8 +120,20 @@ const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> =
 
         {/* Node content preview */}
         <div className="workflow-node-content">
-          {nodeType === 'llm' && data.config?.model_id && (
-            <div>模型：已选择</div>
+          {nodeType === 'llm' && (data.config?.model_id || data.config?.prompt_id) && (
+            <div className="workflow-node-meta">
+              {data.config?.model_id && (
+                <span className="workflow-node-chip">
+                  <span className="workflow-node-chip-label">模型</span>
+                  已配置
+                </span>
+              )}
+              {data.config?.prompt_id && (
+                <span className="workflow-node-chip workflow-node-chip--prompt">
+                  Prompt · 已关联
+                </span>
+              )}
+            </div>
           )}
           {nodeType === 'knowledge' && data.config?.knowledge_base_id && (
             <div>知识库：已选择</div>

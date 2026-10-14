@@ -11,6 +11,7 @@ from app.models.prompt_version import PromptVersion
 from app.models.prompt_test_log import PromptTestLog
 from app.models.ai_model import AIModel
 from app.models.ai_provider import AIProvider
+from app.models.user import User
 from app.schemas.prompt import (
     PromptCreate,
     PromptUpdate,
@@ -22,14 +23,22 @@ from app.core.exceptions import NotFoundException, ValidationException
 from app.core.tenant_scope import public_or_tenant_filter
 from app.utils import llm as llm_utils
 from app.utils.encryption import decrypt
+from app.services.resource_authorization import ResourceAuthorizationService
 
 _VAR_RE = re.compile(r"\{\{(\w+)\}\}")
 
 
 class PromptService:
-    def __init__(self, db: Session, tenant_id: str):
+    def __init__(
+        self,
+        db: Session,
+        tenant_id: str,
+        actor: User | None = None,
+    ):
         self.db = db
         self.tenant_id = tenant_id
+        self.actor = actor
+        self.resource_authorization = ResourceAuthorizationService(db)
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -54,12 +63,29 @@ class PromptService:
             .filter(
                 PromptVersion.prompt_id == prompt_id,
                 PromptVersion.id == version_id,
+                PromptVersion.tenant_id == self.tenant_id,
             )
             .first()
         )
         if not v:
             raise NotFoundException("PromptVersion", version_id)
         return v
+
+    def _authorize(self, prompt: Prompt, action: str) -> None:
+        """在服务层重复执行资源授权，避免仅依赖路由依赖。
+
+        ``actor`` 保持可选是为了兼容离线脚本和已有内部调用方；所有 HTTP
+        入口都必须传入当前用户，才能启用 owner/发布状态/共享 grant 判断。
+        """
+        if self.actor is None:
+            return
+        self.resource_authorization.require(
+            self.actor,
+            self.tenant_id,
+            "prompt",
+            action,
+            prompt,
+        )
 
     @staticmethod
     def _extract_variables(content: str) -> list[str]:
@@ -82,6 +108,7 @@ class PromptService:
             self.db.query(PromptVersion)
             .filter(
                 PromptVersion.prompt_id == prompt_id,
+                PromptVersion.tenant_id == self.tenant_id,
                 PromptVersion.is_current.is_(True),
             )
             .first()
@@ -97,6 +124,21 @@ class PromptService:
         status: str | None = None,
     ) -> tuple[list[Prompt], int]:
         q = self._base_query()
+        if self.actor is not None:
+            self.resource_authorization.authorization.require_permission(
+                self.actor,
+                self.tenant_id,
+                "prompt",
+                "read",
+            )
+            can_manage_drafts = self.resource_authorization.authorization.check_permission(
+                self.actor,
+                self.tenant_id,
+                "prompt",
+                "update",
+            ).allowed
+            if not can_manage_drafts:
+                status = "published"
         if category:
             q = q.filter(Prompt.category == category)
         if status:
@@ -110,10 +152,19 @@ class PromptService:
 
     def get(self, prompt_id: str) -> Prompt:
         p = self._get_or_404(prompt_id)
+        self._authorize(p, "read")
         p.current_version = self._current_version(prompt_id)
         return p
 
     def create(self, data: PromptCreate, user_id: str | None = None) -> Prompt:
+        if self.actor is not None:
+            self.resource_authorization.authorization.require_permission(
+                self.actor,
+                self.tenant_id,
+                "prompt",
+                "create",
+            )
+            user_id = self.actor.id
         prompt = Prompt(
             tenant_id=self.tenant_id,
             name=data.name,
@@ -143,6 +194,7 @@ class PromptService:
 
     def update(self, prompt_id: str, data: PromptUpdate) -> Prompt:
         p = self._get_or_404(prompt_id)
+        self._authorize(p, "update")
         update_fields = data.model_dump(exclude_none=True)
         for k, v in update_fields.items():
             setattr(p, k, v)
@@ -152,13 +204,15 @@ class PromptService:
 
     def delete(self, prompt_id: str) -> None:
         p = self._get_or_404(prompt_id)
+        self._authorize(p, "delete")
         p.deleted_at = datetime.now(timezone.utc)
         self.db.flush()
 
     # ── versioning ────────────────────────────────────────────────────────────
 
     def list_versions(self, prompt_id: str) -> list[PromptVersion]:
-        self._get_or_404(prompt_id)
+        prompt = self._get_or_404(prompt_id)
+        self._authorize(prompt, "read")
         return (
             self.db.query(PromptVersion)
             .filter(PromptVersion.prompt_id == prompt_id)
@@ -192,7 +246,8 @@ class PromptService:
         data: PromptVersionCreate,
         user_id: str | None = None,
     ) -> PromptVersion:
-        self._get_or_404(prompt_id)
+        prompt = self._get_or_404(prompt_id)
+        self._authorize(prompt, "update")
         next_num = self._next_version_number(prompt_id)
         variables = self._extract_variables(data.content)
         version = PromptVersion(
@@ -209,7 +264,8 @@ class PromptService:
         return version
 
     def activate_version(self, prompt_id: str, version_id: str) -> PromptVersion:
-        self._get_or_404(prompt_id)
+        prompt = self._get_or_404(prompt_id)
+        self._authorize(prompt, "publish")
         target = self._get_version_or_404(prompt_id, version_id)
         # deactivate all versions for this prompt
         self.db.query(PromptVersion).filter(
@@ -223,7 +279,8 @@ class PromptService:
     # ── test run ──────────────────────────────────────────────────────────────
 
     def test_run(self, prompt_id: str, data: PromptTestRequest) -> PromptTestResult:
-        self._get_or_404(prompt_id)
+        prompt = self._get_or_404(prompt_id)
+        self._authorize(prompt, "test")
         if data.version_id:
             version = self._get_version_or_404(prompt_id, data.version_id)
         else:

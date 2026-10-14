@@ -83,6 +83,7 @@ class AgentResponse(AgentBase):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]
+    allowed_actions: List[str] = Field(default_factory=list)
     tools: List[AgentToolResponse] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

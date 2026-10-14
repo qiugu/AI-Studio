@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/Layout/AppLayout'
 import Login from '@/pages/Login'
 import VerifyEmail from '@/pages/Login/VerifyEmail'
+import ResetPassword from '@/pages/Login/ResetPassword'
 import Dashboard from '@/pages/Dashboard'
 import ProviderList from '@/pages/AIModels/ProviderList'
 import ProviderForm from '@/pages/AIModels/ProviderForm'
@@ -34,6 +35,7 @@ import TenantList from '@/pages/Admin/TenantList'
 import AdminGuard from '@/components/AdminGuard'
 import TenantAdminGuard from '@/components/TenantAdminGuard'
 import TenantUserGuard from '@/components/TenantUserGuard'
+import { canManageSystem } from '@/utils/permission'
 import './styles/global.css'
 
 function AuthRoute({ children }: { children: React.ReactNode }) {
@@ -93,6 +95,7 @@ export default function App() {
                 </GuestRoute>
               }
             />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route
               path="/"
               element={
@@ -162,6 +165,6 @@ export default function App() {
 
 function TenantHome() {
   const user = useAuthStore((s) => s.user)
-  if (user?.roles?.some((role) => role.is_admin && role.status)) return <Dashboard />
+  if (canManageSystem(user)) return <Dashboard />
   return <Navigate to="/agents" replace />
 }

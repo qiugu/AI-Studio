@@ -73,6 +73,11 @@ export interface PluginConfigItem {
   has_value?: boolean
 }
 
+export interface PluginConfigUpdateRequest {
+  items: PluginConfigItem[]
+  current_password?: string
+}
+
 export interface PluginEndpointCreateRequest {
   endpoint: string
   method?: string

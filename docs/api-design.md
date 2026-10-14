@@ -57,6 +57,8 @@
 | POST | /auth/login | 登录，返回JWT |
 | POST | /auth/register | 已关闭自助注册（返回 403）；租户由平台管理员开通 |
 | POST | /auth/refresh | 刷新Token |
+| POST | /auth/change-password | 当前登录用户修改自己的密码；成功后旧会话失效 |
+| POST | /auth/password-reset | 使用一次性令牌完成密码重置；成功后旧认证会话失效 |
 | POST | /auth/logout | 登出 |
 | GET | /auth/me | 获取当前用户信息 |
 
@@ -71,13 +73,17 @@
 | GET | /users | 用户列表(分页) | user:read |
 | GET | /users/me | 当前用户详情 | - |
 | PUT | /users/me | 更新当前用户信息 | - |
-| PUT | /users/me/password | 修改密码 | - |
 | PUT | /users/me/avatar | 上传头像 | - |
 | GET | /users/{id} | 用户详情 | user:read |
 | PUT | /users/{id} | 更新用户 | user:update |
+| POST | /users/{id}/password-reset | 发起密码重置邮件（不接收管理员指定的新密码） | user:update + 当前密码再认证 |
 | DELETE | /users/{id} | 删除用户(软删除) | user:delete |
 | PUT | /users/{id}/status | 启用/禁用用户 | user:update |
 | PUT | /users/{id}/roles | 设置用户角色 | user:update |
+
+用户管理安全边界：租户管理员不提供成员密码修改入口；用户密码只能由本人从右上角账号菜单修改。
+修改密码要求当前密码再认证，成功后旧访问令牌和刷新令牌失效。忘记密码时仍可使用一次性重置链接流程，
+但该流程不属于用户管理编辑操作。昵称不是身份标识，审计应始终使用不可变用户 ID 和邮箱快照追踪用户。
 
 ---
 
@@ -247,6 +253,7 @@ Content-Type: application/json
 | GET | /workflows | 工作流列表 | workflow:read |
 | POST | /workflows | 创建工作流 | workflow:create |
 | GET | /workflows/{id} | 工作流详情(含节点和边) | workflow:read |
+| GET | /workflows/{id}/export | 导出工作流定义 | workflow:export |
 | PUT | /workflows/{id} | 更新工作流(含节点和边) | workflow:update |
 | DELETE | /workflows/{id} | 删除工作流 | workflow:delete |
 | POST | /workflows/{id}/publish | 发布工作流 | workflow:update |
@@ -353,7 +360,8 @@ Content-Type: application/json
 
 ## 14. 平台租户开通 `/api/admin`（仅平台管理员）
 
-> 所有接口均需 `users.is_platform_admin = true`，通过 `require_platform_admin` 依赖守卫鉴权，**不走普通 RBAC 权限表**。
+> 平台接口使用 `require_platform_permission(...)`：`is_platform_admin` 只证明平台身份，
+> 具体能力仍需明确的 platform permission；通过平台守卫后才允许显式跨租户查询上下文。
 
 平台管理员只负责创建租户并开通首位租户管理员；不提供租户列表/详情、配额、删除或平台公共模型管理接口。
 

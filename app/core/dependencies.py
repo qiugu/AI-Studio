@@ -11,11 +11,18 @@ if TYPE_CHECKING:
     from qdrant_client import QdrantClient
 from app.core.security import decode_token
 from app.core.exceptions import UnauthorizedException, ForbiddenException
-from app.core.tenant_scope import set_tenant_scope
+from app.core.config import config
+from app.core.tenant_scope import enable_platform_query_context, set_tenant_scope
+from app.core.membership import effective_role_ids, membership_read_mode
+from app.core.authorization import (
+    AuthorizationDecision,
+    AuthorizationService,
+    remember_authorization_decision,
+)
+from app.core.permissions import get_permission_definition
 from app.models.user import User
-from app.models.permission import Permission
 from app.models.role import Role
-from app.models.role_permission import role_permission
+from app.models.tenant import Tenant
 from app.models.user_role import user_role
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -61,14 +68,26 @@ async def get_current_user(
     if not user.status:
         raise UnauthorizedException("User is disabled")
 
+    try:
+        token_authz_version = int(payload.get("authz_version", 1))
+    except (TypeError, ValueError):
+        raise UnauthorizedException("Invalid token payload")
+    current_authz_version = int(user.authz_version or 1)
+    if token_authz_version != current_authz_version:
+        raise UnauthorizedException("Authorization state has changed")
+
     # 将用户信息存入 request.state 供中间件使用
     # 注意：只存储需要的信息，避免 Session 关闭后访问 detached 对象
     request.state.user_id = user.id
     request.state.tenant_id = user.tenant_id
 
     # S3：将租户作用域注入 ContextVar，供全局查询过滤器（tenant_scope）使用。
-    # 上下文随请求 Task 隔离，平台管理员（is_platform_admin）可跨租户，过滤器会据此跳过。
-    set_tenant_scope(user.tenant_id, user.is_platform_admin)
+    # 上下文随请求 Task 隔离；平台管理员默认仍处于当前租户作用域，只有通过
+    # 显式平台权限守卫后才可开启跨租户查询上下文。
+    request.state.tenant_scope_token = set_tenant_scope(
+        user.tenant_id,
+        user.is_platform_admin,
+    )
 
     return user
 
@@ -84,36 +103,12 @@ def require_permission(resource: str, action: str):
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_session),
     ) -> User:
-        if current_user.is_platform_admin:
-            raise ForbiddenException(resource, action)
-
-        # 只认当前租户下启用的管理员角色，平台管理员不通过租户 RBAC 访问业务接口。
-        has_admin_role = (
-            db.query(Role.id)
-            .join(user_role, user_role.c.role_id == Role.id)
-            .filter(
-                user_role.c.user_id == current_user.id,
-                Role.tenant_id == current_user.tenant_id,
-                Role.status.is_(True),
-                Role.is_admin.is_(True),
-            )
-            .first()
+        AuthorizationService(db).require_permission(
+            current_user,
+            current_user.tenant_id,
+            resource,
+            action,
         )
-        if has_admin_role:
-            return current_user
-        perm = (
-            db.query(Permission)
-            .select_from(Permission)
-            .join(role_permission, Permission.id == role_permission.c.permission_id)
-            .join(user_role, user_role.c.role_id == role_permission.c.role_id)
-            .join(Role, Role.id == user_role.c.role_id)
-            .filter(user_role.c.user_id == current_user.id)
-            .filter(Role.tenant_id == current_user.tenant_id, Role.status.is_(True))
-            .filter(Permission.resource == resource, Permission.action == action)
-            .first()
-        )
-        if not perm:
-            raise ForbiddenException(resource, action)
         return current_user
 
     return checker
@@ -126,16 +121,37 @@ def require_tenant_user(
     """租户业务接口守卫：仅允许当前租户中持有有效角色的非平台管理员。"""
     if current_user.is_platform_admin:
         raise ForbiddenException("tenant", "use")
-    has_active_role = (
-        db.query(Role.id)
-        .join(user_role, user_role.c.role_id == Role.id)
-        .filter(
-            user_role.c.user_id == current_user.id,
-            Role.tenant_id == current_user.tenant_id,
-            Role.status.is_(True),
+    if membership_read_mode() not in {"legacy", "shadow", "membership"}:
+        raise ForbiddenException("tenant", "membership_cutover")
+    if (
+        membership_read_mode() in {"shadow", "membership"}
+        and not bool(getattr(config, "membership_dual_write_enabled", False))
+    ):
+        raise ForbiddenException("tenant", "membership_cutover")
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if tenant is None or not tenant.status or tenant.deleted_at is not None:
+        raise ForbiddenException("tenant", "use")
+    if membership_read_mode() == "membership":
+        has_active_role = (
+            db.query(Role.id)
+            .filter(
+                Role.id.in_(effective_role_ids(current_user.id, current_user.tenant_id)),
+                Role.tenant_id == current_user.tenant_id,
+                Role.status.is_(True),
+            )
+            .first()
         )
-        .first()
-    )
+    else:
+        has_active_role = (
+            db.query(Role.id)
+            .join(user_role, user_role.c.role_id == Role.id)
+            .filter(
+                user_role.c.user_id == current_user.id,
+                Role.tenant_id == current_user.tenant_id,
+                Role.status.is_(True),
+            )
+            .first()
+        )
     if not has_active_role:
         raise ForbiddenException("tenant", "membership")
     return current_user
@@ -150,30 +166,78 @@ async def require_platform_admin(
     return current_user
 
 
+def require_platform_permission(action: str):
+    """平台权限守卫；平台权限不进入租户角色，也不自动开放租户业务接口。"""
+    definition = get_permission_definition("platform", action)
+    if definition.scope != "platform":
+        raise ValueError(f"不是平台权限: {definition.key}")
+
+    async def checker(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_session),
+    ) -> User:
+        if not current_user.is_platform_admin:
+            raise ForbiddenException("platform", action)
+        # 正常请求由 get_current_user 初始化 ContextVar；直接调用依赖的单测
+        # 没有请求上下文时保持安全的默认作用域即可。
+        try:
+            enable_platform_query_context()
+        except PermissionError:
+            pass
+        remember_authorization_decision(
+            AuthorizationDecision(
+                allowed=True,
+                reason="platform_permission_granted",
+                permission_key=definition.key,
+                tenant_id=None,
+            )
+        )
+        return current_user
+
+    return checker
+
+
 async def require_tenant_admin(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_session),
 ) -> User:
-    """租户管理员守卫 - 仅当前租户内有效的管理员角色可通过。"""
+    """租户管理守卫 - 由明确的租户治理权限表达。"""
     if current_user.is_platform_admin:
         raise ForbiddenException("tenant", "admin")
     # 邮箱未验证的账户不得行使管理权限（纵深防御：login 网关已拦截其登录，此处再兜底）
     if not current_user.email_verified:
         raise ForbiddenException("tenant", "admin")
-    has_admin_role = (
-        db.query(Role.id)
-        .join(user_role, user_role.c.role_id == Role.id)
-        .filter(
-            user_role.c.user_id == current_user.id,
-            Role.tenant_id == current_user.tenant_id,
-            Role.status.is_(True),
-            Role.is_admin.is_(True),
+    authorization = AuthorizationService(db)
+    for action in ("members_manage", "roles_manage", "settings"):
+        decision = authorization.check_permission(
+            current_user,
+            current_user.tenant_id,
+            "tenant",
+            action,
         )
-        .first()
-    )
-    if has_admin_role:
-        return current_user
+        if decision.allowed:
+            return current_user
     raise ForbiddenException("tenant", "admin")
+
+
+def require_tenant_permission(action: str):
+    """为租户治理 API 提供按能力拆分的守卫，避免管理权限横向扩大。"""
+
+    async def checker(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_session),
+    ) -> User:
+        if current_user.is_platform_admin or not current_user.email_verified:
+            raise ForbiddenException("tenant", action)
+        AuthorizationService(db).require_permission(
+            current_user,
+            current_user.tenant_id,
+            "tenant",
+            action,
+        )
+        return current_user
+
+    return checker
 
 
 # 类型别名，简化路由参数声明
@@ -194,5 +258,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentTenantId = Annotated[str, Depends(get_current_tenant)]
 PlatformAdmin = Annotated[User, Depends(require_platform_admin)]
+PlatformTenantProvisioner = Annotated[
+    User, Depends(require_platform_permission("tenant_provision"))
+]
 TenantAdmin = Annotated[User, Depends(require_tenant_admin)]
+TenantMembersAdmin = Annotated[User, Depends(require_tenant_permission("members_manage"))]
+TenantRolesAdmin = Annotated[User, Depends(require_tenant_permission("roles_manage"))]
 QdrantClientDep = Annotated["QdrantClient", Depends(get_qdrant_client)]

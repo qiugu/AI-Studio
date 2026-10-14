@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 
 from app.core.database import Base, DATABASE_URL
+from app.core.tenant_scope import tenant_scope_context
 from app.models import *
 
 config = context.config
@@ -28,7 +29,12 @@ def run_migrations_offline() -> None:
     )
 
     with context.begin_transaction():
-        context.run_migrations()
+        with tenant_scope_context(
+            "alembic-migration",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            context.run_migrations()
 
 
 def run_migrations_online() -> None:
@@ -44,7 +50,12 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
-            context.run_migrations()
+            with tenant_scope_context(
+                "alembic-migration",
+                is_platform_admin=True,
+                allow_cross_tenant=True,
+            ):
+                context.run_migrations()
 
 
 if context.is_offline_mode():

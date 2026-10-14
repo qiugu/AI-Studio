@@ -35,6 +35,10 @@ x-backend-env: &backend-env
   JWT_ALGORITHM: HS256
   JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
   JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+  # Staged tenant-membership rollout.  Keep the safe legacy defaults unless
+  # the target database has passed the read-only migration verifier.
+  MEMBERSHIP_DUAL_WRITE_ENABLED: ${MEMBERSHIP_DUAL_WRITE_ENABLED:-false}
+  MEMBERSHIP_READ_MODE: ${MEMBERSHIP_READ_MODE:-legacy}
   # Fernet（API Key 加密）
   FERNET_KEY: ${FERNET_KEY}
   # 文件上传
@@ -203,7 +207,11 @@ services:
     # 使用 threads 池而非默认 prefork：避免 fork 子进程加载 torch/sentence-transformers
     # 时 OpenMP 重复初始化导致的 SIGABRT（WorkerLostError: signal 6）。本地手动启动时
     # 亦可加 --pool=threads。celery_app.py 中已设置 KMP_DUPLICATE_LIB_OK 等环境变量作为兜底。
-    command: celery -A app.core.celery_app worker --pool=threads --loglevel=info --concurrency=2 --queues=default,document.ingest,tenant.cleanup
+    command: >-
+      sh -c 'if [ "${MEMBERSHIP_READ_MODE:-legacy}" != "legacy" ]; then
+      python scripts/verify_rbac_migration.py --strict --require-membership-ready;
+      fi && exec celery -A app.core.celery_app worker --pool=threads
+      --loglevel=info --concurrency=2 --queues=default,document.ingest,tenant.cleanup'
     stop_grace_period: 2m
     environment: *backend-env
     extra_hosts:

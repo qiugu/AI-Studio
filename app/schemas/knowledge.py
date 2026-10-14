@@ -6,6 +6,7 @@ from app.schemas.common import ResponseBase, PaginatedResponse
 class KnowledgeBaseResponse(BaseModel):
     """知识库响应"""
     id: str
+    created_by: Optional[str] = None
     name: str
     description: Optional[str]
     embedding_model: str

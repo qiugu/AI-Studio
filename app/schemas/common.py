@@ -38,3 +38,9 @@ class PageParams(BaseModel):
     """分页请求参数"""
     page: int = Field(default=1, ge=1, description="页码，从1开始")
     page_size: int = Field(default=20, ge=1, le=100, description="每页条数，最大100")
+
+
+class ReauthRequest(BaseModel):
+    """Current-password confirmation for high-risk mutations."""
+
+    current_password: str = Field(..., min_length=1, max_length=128)

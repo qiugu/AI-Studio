@@ -23,6 +23,8 @@ from app.core.exceptions import (
     ForbiddenException,
     ValidationException,
 )
+from app.core.authorization import AuthorizationService
+from app.models.user import User
 from app.core.plugin_policy import (
     AGENT_EXPOSABLE_PLUGIN_STATUSES,
     BINDABLE_SOURCE_TYPES,
@@ -31,6 +33,7 @@ from app.core.plugin_policy import (
 from app.core.tenant_scope import public_or_tenant_filter
 from app.utils.encryption import encrypt, decrypt
 from app.utils.plugin_executor import execute_plugin_call
+from app.core.reauthentication import require_current_password
 
 _SUPPORTED_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH"}
 
@@ -62,10 +65,46 @@ def _mask_config(value: Any, name_hint: str = "") -> Any:
 
 
 class PluginService:
-    def __init__(self, db: Session, tenant_id: str, is_platform_admin: bool = False):
+    def __init__(
+        self,
+        db: Session,
+        tenant_id: str,
+        is_platform_admin: bool = False,
+        actor: User | None = None,
+    ):
         self.db = db
         self.tenant_id = tenant_id
         self.is_platform_admin = is_platform_admin
+        self.actor = actor
+        self.authorization = AuthorizationService(db)
+
+    def _authorize(self, plugin: Plugin, action: str) -> None:
+        """Enforce plugin authorization again at the service boundary.
+
+        Public plugins are tenant-readable/configurable but remain platform-owned;
+        tenant actors must never mutate the shared catalog. Calls without an actor
+        are retained for trusted internal assembly paths and legacy maintenance
+        tests; HTTP routes always pass the authenticated actor.
+        """
+        if self.actor is None:
+            return
+        if plugin.tenant_id is None:
+            if action in {"update", "delete", "endpoint_bind"}:
+                raise ForbiddenException("plugin", action)
+            self.authorization.require_permission(
+                self.actor,
+                self.tenant_id,
+                "plugin",
+                action,
+            )
+            return
+        self.authorization.require_permission(
+            self.actor,
+            self.tenant_id,
+            "plugin",
+            action,
+            resource_obj=plugin,
+        )
 
     # ── 公共查询过滤 ─────────────────────────────────────────────────────────
 
@@ -94,6 +133,10 @@ class PluginService:
         source_type: str | None = None,
         status: str | None = None,
     ):
+        if self.actor is not None:
+            self.authorization.require_permission(
+                self.actor, self.tenant_id, "plugin", "read"
+            )
         query = self.db.query(Plugin).filter(self._base_filter(include_public))
         if source_type:
             query = query.filter(Plugin.source_type == source_type)
@@ -110,6 +153,7 @@ class PluginService:
 
     def get(self, plugin_id: str) -> Plugin:
         plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "read")
         endpoints = (
             self.db.query(PluginEndpoint)
             .filter(PluginEndpoint.plugin_id == plugin.id)
@@ -179,6 +223,10 @@ class PluginService:
         return result
 
     def create(self, data: PluginCreate) -> Plugin:
+        if self.actor is not None:
+            self.authorization.require_permission(
+                self.actor, self.tenant_id, "plugin", "install"
+            )
         if data.is_public and not self.is_platform_admin:
             raise ForbiddenException("plugin", "create_public")
         plugin = Plugin(
@@ -205,6 +253,7 @@ class PluginService:
 
     def update(self, plugin_id: str, data: PluginUpdate) -> Plugin:
         plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "update")
         if plugin.tenant_id is None and not self.is_platform_admin:
             raise ForbiddenException("plugin", "update")
 
@@ -223,6 +272,7 @@ class PluginService:
 
     def delete(self, plugin_id: str) -> None:
         plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "delete")
         if plugin.tenant_id is None and not self.is_platform_admin:
             raise ForbiddenException("plugin", "delete")
         # 级联删除端点与租户配置
@@ -287,6 +337,7 @@ class PluginService:
 
     def import_endpoints_from_spec(self, plugin_id: str) -> int:
         plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "endpoint_bind")
         if not plugin.api_spec:
             raise ValidationException("插件未配置 OpenAPI 规范，无法解析端点")
         return self._sync_endpoints_from_spec(plugin)
@@ -294,7 +345,8 @@ class PluginService:
     # ── 端点管理 ─────────────────────────────────────────────────────────────
 
     def list_endpoints(self, plugin_id: str) -> list[PluginEndpoint]:
-        self._get_or_404(plugin_id)
+        plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "read")
         return (
             self.db.query(PluginEndpoint)
             .filter(PluginEndpoint.plugin_id == plugin_id)
@@ -303,7 +355,8 @@ class PluginService:
         )
 
     def add_endpoint(self, plugin_id: str, data: PluginEndpointCreate) -> PluginEndpoint:
-        self._get_or_404(plugin_id)
+        plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "endpoint_bind")
         endpoint = PluginEndpoint(
             plugin_id=plugin_id,
             endpoint=data.endpoint,
@@ -320,7 +373,8 @@ class PluginService:
     def update_endpoint(
         self, plugin_id: str, ep_id: str, data: PluginEndpointUpdate
     ) -> PluginEndpoint:
-        self._get_or_404(plugin_id)
+        plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "endpoint_bind")
         endpoint = (
             self.db.query(PluginEndpoint)
             .filter(PluginEndpoint.id == ep_id, PluginEndpoint.plugin_id == plugin_id)
@@ -337,7 +391,8 @@ class PluginService:
         return endpoint
 
     def delete_endpoint(self, plugin_id: str, ep_id: str) -> None:
-        self._get_or_404(plugin_id)
+        plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "endpoint_bind")
         endpoint = (
             self.db.query(PluginEndpoint)
             .filter(PluginEndpoint.id == ep_id, PluginEndpoint.plugin_id == plugin_id)
@@ -377,7 +432,8 @@ class PluginService:
 
     def get_config(self, plugin_id: str) -> PluginConfigResponse:
         """读取配置（回显）。敏感值永不回显明文/占位，仅以 ``has_value`` 告知已设置（review §3.2）。"""
-        self._get_or_404(plugin_id)
+        plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "configure")
         rows = (
             self.db.query(PluginConfig)
             .filter(
@@ -415,6 +471,13 @@ class PluginService:
         - 真实值以 Fernet 密文落库（``value_encrypted``），``value`` 仅保留脱敏结构。
         """
         plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "configure")
+        if self.actor is not None:
+            require_current_password(
+                self.actor,
+                req.current_password,
+                "plugin_credential_update",
+            )
 
         # 1. 计算最终配置集合（现有 + 传入 - 待删除），用于 required 校验。
         #    传入值为 None 视为「未改动」：不覆盖既有值（避免前端回显空值/脱敏占位时
@@ -495,6 +558,7 @@ class PluginService:
 
     def test(self, plugin_id: str, request: PluginTestRequest) -> PluginTestResult:
         plugin = self._get_or_404(plugin_id)
+        self._authorize(plugin, "configure")
         config_values = self._load_config_dict(plugin_id)
 
         # 指定端点 -> 实际调用该端点

@@ -14,6 +14,7 @@ from app.core.exceptions import ConflictException
 from app.models.role import Role
 from app.models.user_role import user_role
 from app.core.security import hash_password
+from app.services.membership import sync_membership_owner, sync_membership_roles
 
 # 支持软删除的租户维度模型（级联软删除）
 _SOFT_DELETE_MODELS = [User, AIProvider, AIModel, KnowledgeBase, Workflow, Agent]
@@ -46,6 +47,8 @@ def create_tenant(data: dict, db: Session) -> Tenant:
     tenant.owner_id = admin_user.id
     db.execute(user_role.insert().values(user_id=admin_user.id, role_id=admin_role.id))
     db.flush()
+    sync_membership_roles(admin_user.id, tenant.id, db, role_ids=[admin_role.id])
+    sync_membership_owner(tenant.id, None, admin_user.id, db)
     return tenant
 
 
@@ -61,7 +64,8 @@ def _init_builtin_roles(tenant_id: str, db: Session) -> tuple[Role, Role]:
     db.add(admin)
     db.add(member)
     db.flush()
-    from app.services.role import grant_default_member_permissions
+    from app.services.role import grant_all_tenant_permissions, grant_default_member_permissions
+    grant_all_tenant_permissions(admin, db)
     grant_default_member_permissions(member, db)
     return admin, member
 

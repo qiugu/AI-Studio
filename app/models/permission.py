@@ -2,7 +2,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from sqlalchemy.orm import mapped_column, Mapped, relationship
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import Boolean, String, DateTime, func
 
 from app.core.database import Base
 from app.models.role_permission import role_permission
@@ -17,6 +17,15 @@ class Permission(Base):
     resource: Mapped[str] = mapped_column(String(100))
     action: Mapped[str] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    scope: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="tenant", server_default="tenant"
+    )
+    sensitivity: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="normal", server_default="normal"
+    )
+    is_delegable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
 
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 

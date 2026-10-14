@@ -481,39 +481,54 @@ def analyze_knowledge_base(kb_id: str) -> List[Dict[str, object]]:
     分块内容**——目的是回答「按当前代码重新切会得到什么」，而不是「库里现在是什么」。
     """
     from app.core.database import sessionLocal
+    from app.core.tenant_scope import tenant_scope_context
     from app.models.knowledge_document import DocumentStatus, KnowledgeDocument
+    from app.models.knowledge_base import KnowledgeBase
 
     session = sessionLocal()
     try:
-        docs = (
-            session.query(KnowledgeDocument)
-            .filter(
-                KnowledgeDocument.kb_id == kb_id,
-                KnowledgeDocument.status == DocumentStatus.COMPLETED,
-            )
-            .all()
-        )
-        results: List[Dict[str, object]] = []
-        for doc in docs:
-            path = doc.file_url
-            if not path or not Path(path).exists():
-                results.append(
-                    {"path": f"<missing:{doc.file_name}>", "file_type": doc.file_type}
+        with tenant_scope_context(
+            "chunking-report-resolver",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            knowledge_base = session.query(KnowledgeBase).filter(
+                KnowledgeBase.id == kb_id,
+                KnowledgeBase.deleted_at.is_(None),
+            ).first()
+        if knowledge_base is None:
+            return []
+
+        with tenant_scope_context(knowledge_base.tenant_id):
+            docs = (
+                session.query(KnowledgeDocument)
+                .filter(
+                    KnowledgeDocument.kb_id == kb_id,
+                    KnowledgeDocument.status == DocumentStatus.COMPLETED,
                 )
-                continue
-            try:
-                item = analyze_file(path, doc.file_type)
-            except Exception as exc:  # 单文档失败不应中断整份报告
-                item = {
-                    "path": path,
-                    "file_type": doc.file_type,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-            item["document_id"] = doc.id
-            item["file_name"] = doc.file_name
-            item["active_chunk_epoch"] = doc.active_chunk_epoch
-            results.append(item)
-        return results
+                .all()
+            )
+            results: List[Dict[str, object]] = []
+            for doc in docs:
+                path = doc.file_url
+                if not path or not Path(path).exists():
+                    results.append(
+                        {"path": f"<missing:{doc.file_name}>", "file_type": doc.file_type}
+                    )
+                    continue
+                try:
+                    item = analyze_file(path, doc.file_type)
+                except Exception as exc:  # 单文档失败不应中断整份报告
+                    item = {
+                        "path": path,
+                        "file_type": doc.file_type,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                item["document_id"] = doc.id
+                item["file_name"] = doc.file_name
+                item["active_chunk_epoch"] = doc.active_chunk_epoch
+                results.append(item)
+            return results
     finally:
         session.close()
 

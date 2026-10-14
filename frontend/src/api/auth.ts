@@ -9,6 +9,7 @@ import type {
   RefreshResponse,
   VerifyEmailResponse,
   ResendVerificationResponse,
+  PasswordResetResponse,
   User,
 } from '@/types/api'
 
@@ -38,6 +39,25 @@ export async function resendVerification(
 ): Promise<ApiResponse<ResendVerificationResponse>> {
   const response = await apiClient.post('/auth/resend-verification', { email })
   return response as unknown as ApiResponse<ResendVerificationResponse>
+}
+
+export async function completePasswordReset(
+  token: string,
+  password: string,
+): Promise<ApiResponse<PasswordResetResponse>> {
+  const response = await apiClient.post('/auth/password-reset', { token, password })
+  return response as unknown as ApiResponse<PasswordResetResponse>
+}
+
+export async function changeMyPassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<ApiResponse<{ message: string }>> {
+  const response = await apiClient.post('/auth/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  })
+  return response as unknown as ApiResponse<{ message: string }>
 }
 
 export async function refreshToken(data: RefreshRequest): Promise<ApiResponse<RefreshResponse>> {

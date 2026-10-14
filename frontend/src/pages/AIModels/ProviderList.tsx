@@ -58,7 +58,7 @@ export default function ProviderList() {
   }, [])
 
   useEffect(() => {
-    fetchProviders()
+    void Promise.resolve().then(() => fetchProviders())
   }, [fetchProviders])
 
   const handleDelete = async (id: string) => {

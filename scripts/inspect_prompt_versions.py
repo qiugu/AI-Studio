@@ -9,44 +9,53 @@ import sys
 from sqlalchemy import text
 
 from app.core.database import engine
+from app.core.tenant_scope import tenant_scope_context
 
 
 def main() -> None:
     prompt_id = sys.argv[1] if len(sys.argv) > 1 else "d0ac65cd-35d3-4bd4-8ad3-d3505940ad6b"
-    with engine.connect() as conn:
-        print("=== prompt ===")
-        row = conn.execute(
-            text(
-                "SELECT id, tenant_id, name, status, deleted_at "
-                "FROM prompts WHERE id = :pid"
-            ),
-            {"pid": prompt_id},
-        ).fetchone()
-        print(row)
+    # This diagnostic intentionally reads raw SQL across tenants, so make its
+    # platform maintenance scope explicit even though Core text() bypasses the
+    # ORM tenant filter.
+    with tenant_scope_context(
+        "prompt-version-diagnostic",
+        is_platform_admin=True,
+        allow_cross_tenant=True,
+    ):
+        with engine.connect() as conn:
+            print("=== prompt ===")
+            row = conn.execute(
+                text(
+                    "SELECT id, tenant_id, name, status, deleted_at "
+                    "FROM prompts WHERE id = :pid"
+                ),
+                {"pid": prompt_id},
+            ).fetchone()
+            print(row)
 
-        print("\n=== versions (raw, no tenant filter) ===")
-        rows = conn.execute(
-            text(
-                "SELECT id, prompt_id, tenant_id, version_number, is_current, "
-                "created_by, CHAR_LENGTH(content) AS content_len "
-                "FROM prompt_versions WHERE prompt_id = :pid "
-                "ORDER BY version_number DESC"
-            ),
-            {"pid": prompt_id},
-        ).fetchall()
-        for r in rows:
-            print(r)
-        print("total versions:", len(rows))
+            print("\n=== versions (raw, no tenant filter) ===")
+            rows = conn.execute(
+                text(
+                    "SELECT id, prompt_id, tenant_id, version_number, is_current, "
+                    "created_by, CHAR_LENGTH(content) AS content_len "
+                    "FROM prompt_versions WHERE prompt_id = :pid "
+                    "ORDER BY version_number DESC"
+                ),
+                {"pid": prompt_id},
+            ).fetchall()
+            for r in rows:
+                print(r)
+            print("total versions:", len(rows))
 
-        print("\n=== distinct tenant_id in prompt_versions ===")
-        rows = conn.execute(
-            text(
-                "SELECT tenant_id, COUNT(*) FROM prompt_versions "
-                "WHERE prompt_id = :pid GROUP BY tenant_id"
-            ),
-            {"pid": prompt_id},
-        ).fetchall()
-        print(rows)
+            print("\n=== distinct tenant_id in prompt_versions ===")
+            rows = conn.execute(
+                text(
+                    "SELECT tenant_id, COUNT(*) FROM prompt_versions "
+                    "WHERE prompt_id = :pid GROUP BY tenant_id"
+                ),
+                {"pid": prompt_id},
+            ).fetchall()
+            print(rows)
 
 
 if __name__ == "__main__":

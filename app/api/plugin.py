@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_session
-from app.core.dependencies import CurrentUser, CurrentTenantId, require_tenant_admin
+from app.core.dependencies import CurrentUser, CurrentTenantId, require_permission
 from app.schemas.plugin import (
     PluginCreate,
     PluginUpdate,
@@ -17,7 +17,7 @@ from app.schemas.plugin import (
 from app.schemas.common import ResponseBase, PaginatedData
 from app.services.plugin import PluginService
 
-router = APIRouter(dependencies=[Depends(require_tenant_admin)])
+router = APIRouter()
 
 
 def _svc(db: Session, tenant_id: str, current_user: CurrentUser) -> PluginService:
@@ -25,10 +25,15 @@ def _svc(db: Session, tenant_id: str, current_user: CurrentUser) -> PluginServic
         db=db,
         tenant_id=tenant_id,
         is_platform_admin=bool(current_user.is_platform_admin),
+        actor=current_user,
     )
 
 
-@router.get("", response_model=ResponseBase)
+@router.get(
+    "",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "read"))],
+)
 def list_plugins(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -57,7 +62,11 @@ def list_plugins(
     )
 
 
-@router.post("", response_model=ResponseBase)
+@router.post(
+    "",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "install"))],
+)
 def create_plugin(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -71,7 +80,11 @@ def create_plugin(
     return ResponseBase.ok(data=PluginOut.model_validate(plugin).model_dump())
 
 
-@router.get("/{plugin_id}", response_model=ResponseBase)
+@router.get(
+    "/{plugin_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "read"))],
+)
 def get_plugin(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -86,7 +99,11 @@ def get_plugin(
     )
 
 
-@router.put("/{plugin_id}", response_model=ResponseBase)
+@router.put(
+    "/{plugin_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "update"))],
+)
 def update_plugin(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -101,7 +118,11 @@ def update_plugin(
     return ResponseBase.ok(data=PluginOut.model_validate(plugin).model_dump())
 
 
-@router.delete("/{plugin_id}", response_model=ResponseBase)
+@router.delete(
+    "/{plugin_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "delete"))],
+)
 def delete_plugin(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -114,7 +135,11 @@ def delete_plugin(
     return ResponseBase.ok()
 
 
-@router.post("/{plugin_id}/test", response_model=ResponseBase)
+@router.post(
+    "/{plugin_id}/test",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "configure"))],
+)
 def test_plugin(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -127,7 +152,11 @@ def test_plugin(
     return ResponseBase.ok(data=result.model_dump())
 
 
-@router.get("/{plugin_id}/endpoints", response_model=ResponseBase)
+@router.get(
+    "/{plugin_id}/endpoints",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "read"))],
+)
 def list_endpoints(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -141,7 +170,11 @@ def list_endpoints(
     )
 
 
-@router.post("/{plugin_id}/endpoints", response_model=ResponseBase)
+@router.post(
+    "/{plugin_id}/endpoints",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "endpoint_bind"))],
+)
 def add_endpoint(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -156,7 +189,11 @@ def add_endpoint(
     return ResponseBase.ok(data=PluginEndpointOut.model_validate(endpoint).model_dump())
 
 
-@router.post("/{plugin_id}/endpoints/import", response_model=ResponseBase)
+@router.post(
+    "/{plugin_id}/endpoints/import",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "endpoint_bind"))],
+)
 def import_endpoints(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -171,7 +208,11 @@ def import_endpoints(
     )
 
 
-@router.put("/{plugin_id}/endpoints/{ep_id}", response_model=ResponseBase)
+@router.put(
+    "/{plugin_id}/endpoints/{ep_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "endpoint_bind"))],
+)
 def update_endpoint(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -187,7 +228,11 @@ def update_endpoint(
     return ResponseBase.ok(data=PluginEndpointOut.model_validate(endpoint).model_dump())
 
 
-@router.delete("/{plugin_id}/endpoints/{ep_id}", response_model=ResponseBase)
+@router.delete(
+    "/{plugin_id}/endpoints/{ep_id}",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "endpoint_bind"))],
+)
 def delete_endpoint(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -201,7 +246,11 @@ def delete_endpoint(
     return ResponseBase.ok()
 
 
-@router.get("/{plugin_id}/config", response_model=ResponseBase)
+@router.get(
+    "/{plugin_id}/config",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "configure"))],
+)
 def get_config(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,
@@ -213,7 +262,11 @@ def get_config(
     return ResponseBase.ok(data=config.model_dump())
 
 
-@router.put("/{plugin_id}/config", response_model=ResponseBase)
+@router.put(
+    "/{plugin_id}/config",
+    response_model=ResponseBase,
+    dependencies=[Depends(require_permission("plugin", "configure"))],
+)
 def update_config(
     _current_user: CurrentUser,
     tenant_id: CurrentTenantId,

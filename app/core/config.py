@@ -76,6 +76,26 @@ class Config(BaseSettings):
     redis_db: int = 0
     redis_password: SecretStr = SecretStr('')
 
+    # Synchronous PDP calls use a bounded in-process positive-decision cache.
+    # authz_version is part of every key; keep the TTL short as defense in
+    # depth for changes made outside the application mutation services.
+    authz_cache_ttl_seconds: float = 5.0
+    authz_cache_max_entries: int = 10000
+    # Require the authenticated user's current password for high-risk tenant
+    # authorization mutations.  Keep this configurable for staged rollout,
+    # but fail closed by default.
+    require_reauth_for_sensitive_actions: bool = True
+    # P4 staged membership migration.  Keep disabled until migration backfill
+    # has been verified in the target environment; this flag only controls
+    # additive dual-write, never weakens the legacy authorization path.
+    membership_dual_write_enabled: bool = False
+    # legacy keeps the current user_roles read path; shadow compares staged
+    # membership decisions without changing enforcement; membership switches
+    # enforcement to the staged graph after migration verification. Runtime
+    # authorization rejects shadow/membership modes unless dual-write is
+    # enabled first; this preserves the ordered rollout contract.
+    membership_read_mode: str = 'legacy'
+
     # RabbitMQ（Celery Broker）。密码独立于 Redis，避免缓存与任务队列共享故障域。
     rabbitmq_host: str = '127.0.0.1'
     rabbitmq_port: int = 5672

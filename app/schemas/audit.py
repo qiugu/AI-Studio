@@ -17,7 +17,15 @@ class AuditLogOut(BaseModel):
     path: str
     status_code: int
     ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    request_id: Optional[str] = None
     duration_ms: int
+    decision: Optional[str] = None
+    permission_key: Optional[str] = None
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    reason: Optional[str] = None
+    metadata_json: Optional[dict] = None
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

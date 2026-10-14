@@ -443,15 +443,24 @@ def main(argv: list[str] | None = None) -> int:
 
     # 注意：项目的工厂变量名是 `sessionLocal`（不是 SQLAlchemy 文档里的 `SessionLocal`）。
     from app.core.database import sessionLocal
+    from app.core.tenant_scope import tenant_scope_context
 
     db = sessionLocal()
     try:
-        result = seed(
-            db,
-            tenant_id=args.tenant_id,
-            tenant_name=args.tenant_name,
-            dry_run=args.dry_run,
-        )
+        with tenant_scope_context(
+            "demo-plugin-resolver",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            resolved_tenant_id = _resolve_tenant_id(
+                db, args.tenant_id, args.tenant_name
+            )
+        with tenant_scope_context(resolved_tenant_id):
+            result = seed(
+                db,
+                tenant_id=resolved_tenant_id,
+                dry_run=args.dry_run,
+            )
     finally:
         db.close()
 

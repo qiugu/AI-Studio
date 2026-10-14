@@ -5,6 +5,7 @@ import type {
   UserCreateRequest,
   UserUpdateRequest,
   UserRoleAssign,
+  PasswordResetResponse,
 } from '@/types/api'
 
 export async function listUsers(
@@ -34,8 +35,20 @@ export async function updateUser(
   return response as unknown as ApiResponse<User>
 }
 
-export async function deleteUser(id: string): Promise<ApiResponse<null>> {
-  const response = await apiClient.delete(`/users/${id}`)
+export async function requestPasswordReset(
+  id: string,
+  currentPassword: string,
+): Promise<ApiResponse<PasswordResetResponse>> {
+  const response = await apiClient.post(`/users/${id}/password-reset`, {
+    current_password: currentPassword,
+  })
+  return response as unknown as ApiResponse<PasswordResetResponse>
+}
+
+export async function deleteUser(id: string, currentPassword: string): Promise<ApiResponse<null>> {
+  const response = await apiClient.delete(`/users/${id}`, {
+    data: { current_password: currentPassword },
+  })
   return response as unknown as ApiResponse<null>
 }
 

@@ -82,6 +82,7 @@ export interface Agent {
   created_at: string
   updated_at: string
   deleted_at: string | null
+  allowed_actions?: string[]
   tools: AgentTool[]
 }
 

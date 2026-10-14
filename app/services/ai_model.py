@@ -6,6 +6,9 @@ from app.models.ai_model import AIModel
 from app.models.ai_provider import AIProvider
 from app.schemas.ai_model import AIModelCreate, AIModelUpdate, ModelTestResult
 from app.core.exceptions import NotFoundException
+from app.core.exceptions import ForbiddenException
+from app.core.authorization import AuthorizationService
+from app.models.user import User
 from app.core.tenant_scope import public_or_tenant_filter
 from app.services.quota import QuotaService
 from app.utils import llm as llm_utils
@@ -13,9 +16,36 @@ from app.utils.encryption import decrypt
 
 
 class AIModelService:
-    def __init__(self, db: Session, tenant_id: str):
+    def __init__(
+        self,
+        db: Session,
+        tenant_id: str,
+        actor: User | None = None,
+        is_platform_admin: bool = False,
+    ):
         self.db = db
         self.tenant_id = tenant_id
+        self.actor = actor
+        self.is_platform_admin = is_platform_admin
+        self.authorization = AuthorizationService(db)
+
+    def _authorize(self, model: AIModel, action: str) -> None:
+        if self.actor is None:
+            return
+        if model.tenant_id is None:
+            if action in {"update", "delete"}:
+                raise ForbiddenException("ai_model", action)
+            self.authorization.require_permission(
+                self.actor, self.tenant_id, "ai_model", action
+            )
+            return
+        self.authorization.require_permission(
+            self.actor,
+            self.tenant_id,
+            "ai_model",
+            action,
+            resource_obj=model,
+        )
 
     def _base_filter(self, include_public: bool = False):
         # 复用全局租户过滤器的公共行可见性规则（与 AIModel.__tenant_scope_clause__ 一致）。
@@ -42,6 +72,10 @@ class AIModelService:
         provider_id: str | None = None,
         include_public: bool = False,
     ):
+        if self.actor is not None:
+            self.authorization.require_permission(
+                self.actor, self.tenant_id, "ai_model", "read"
+            )
         query = self.db.query(AIModel).filter(self._base_filter(include_public))
         if model_type:
             query = query.filter(AIModel.model_type == model_type)
@@ -52,9 +86,15 @@ class AIModelService:
         return items, total
 
     def get(self, model_id: str) -> AIModel:
-        return self._get_or_404(model_id)
+        model = self._get_or_404(model_id)
+        self._authorize(model, "read")
+        return model
 
     def create(self, data: AIModelCreate) -> AIModel:
+        if self.actor is not None:
+            self.authorization.require_permission(
+                self.actor, self.tenant_id, "ai_model", "create"
+            )
         # 配额检查
         QuotaService(self.db).check_model_quota(self.tenant_id)
         model = AIModel(
@@ -74,11 +114,31 @@ class AIModelService:
         self.db.flush()
         return model
 
+    def create_public(self, data: AIModelCreate) -> AIModel:
+        if not self.is_platform_admin:
+            raise ForbiddenException("ai_model", "public_model_manage")
+        model = AIModel(
+            tenant_id=None,
+            provider_id=data.provider_id,
+            name=data.name,
+            display_name=data.display_name,
+            model_type=data.model_type,
+            config=data.config,
+            unit_price_input=data.unit_price_input,
+            unit_price_output=data.unit_price_output,
+            max_context_tokens=data.max_context_tokens,
+            max_output_tokens=data.max_output_tokens,
+            status=data.status,
+        )
+        self.db.add(model)
+        self.db.flush()
+        return model
+
     def update(self, model_id: str, data: AIModelUpdate) -> AIModel:
         model = self._get_or_404(model_id)
+        self._authorize(model, "update")
         # 公共模型（tenant_id=None）不允许普通租户修改
-        if model.tenant_id is None:
-            from app.core.exceptions import ForbiddenException
+        if model.tenant_id is None and not self.is_platform_admin:
             raise ForbiddenException("ai_model", "update")
         update_fields = data.model_dump(exclude_none=True)
         for key, value in update_fields.items():
@@ -88,14 +148,15 @@ class AIModelService:
 
     def delete(self, model_id: str) -> None:
         model = self._get_or_404(model_id)
-        if model.tenant_id is None:
-            from app.core.exceptions import ForbiddenException
+        self._authorize(model, "delete")
+        if model.tenant_id is None and not self.is_platform_admin:
             raise ForbiddenException("ai_model", "delete")
         self.db.delete(model)
         self.db.flush()
 
     def test_model(self, model_id: str, messages: list[dict]) -> ModelTestResult:
         model = self._get_or_404(model_id)
+        self._authorize(model, "test")
         provider = (
             self.db.query(AIProvider)
             .filter(AIProvider.id == model.provider_id)

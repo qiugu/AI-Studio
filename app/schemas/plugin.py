@@ -131,6 +131,7 @@ class PluginConfigUpdateRequest(BaseModel):
     items: List[PluginConfigItem] = Field(..., description="配置项列表（按 name upsert）")
     # 需删除的配置项名称（显式移除，避免「保存即全量、但无法删除」的语义缺失，review P1-C1）。
     remove: List[str] = Field(default_factory=list, description="需删除的配置项名称列表")
+    current_password: Optional[str] = Field(None, min_length=1, max_length=128)
 
 
 class PluginConfigResponse(BaseModel):

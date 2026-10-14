@@ -91,6 +91,8 @@ export interface WorkflowEdge {
   tenant_id: string
   source_node_id: string
   target_node_id: string
+  source_handle: string | null
+  target_handle: string | null
   condition: WorkflowEdgeCondition | null
   label: string | null
   created_at: string
@@ -100,6 +102,8 @@ export interface WorkflowEdge {
 export interface WorkflowEdgeCreate {
   source_node_id: string // 临时ID或持久化UUID
   target_node_id: string // 临时ID或持久化UUID
+  source_handle?: string
+  target_handle?: string
   condition?: WorkflowEdgeCondition
   label?: string
 }
@@ -119,6 +123,7 @@ export interface Workflow {
   created_at: string
   updated_at: string
   deleted_at: string | null
+  allowed_actions?: string[]
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
 }

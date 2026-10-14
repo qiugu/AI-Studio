@@ -7,6 +7,7 @@ from sqlalchemy import String, DateTime, Boolean, ForeignKey, func
 from app.core.database import Base
 from app.models.role_permission import role_permission
 from app.models.user_role import user_role
+from app.models.membership_role import membership_role
 
 import uuid
 
@@ -27,3 +28,6 @@ class Role(Base):
 
     permissions: Mapped[List['Permission']] = relationship('Permission', secondary=role_permission, back_populates="roles")
     users: Mapped[List['User']] = relationship('User', secondary=user_role, back_populates="roles")
+    memberships: Mapped[List['TenantMembership']] = relationship(
+        'TenantMembership', secondary=membership_role, back_populates="roles"
+    )

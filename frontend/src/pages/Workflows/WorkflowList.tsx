@@ -6,12 +6,16 @@ import type { ColumnsType } from 'antd/es/table'
 import { listWorkflows, deleteWorkflow, publishWorkflow, archiveWorkflow } from '../../api/workflow'
 import type { Workflow, WorkflowNode, WorkflowStatus } from '../../types/workflow'
 import { usePagination } from '../../hooks/usePagination'
-import { useAuthStore } from '@/stores/auth'
-import { canManageSystem } from '@/utils/permission'
+import { usePermission } from '@/hooks/usePermission'
 
 const WorkflowList: React.FC = () => {
   const navigate = useNavigate()
-  const canManage = canManageSystem(useAuthStore((s) => s.user))
+  const { check } = usePermission()
+  const canCreate = check('workflow', 'create')
+  const canUpdate = check('workflow', 'update')
+  const canDelete = check('workflow', 'delete')
+  const canPublish = check('workflow', 'publish')
+  const canExecute = check('workflow', 'execute')
   const [statusFilter, setStatusFilter] = useState<WorkflowStatus | undefined>()
   const { data, loading, setData, setLoading, onChange, total, current, pageSize } = usePagination<Workflow>()
 
@@ -75,6 +79,9 @@ const WorkflowList: React.FC = () => {
     return <Tag color={config.color}>{config.text}</Tag>
   }
 
+  const canAct = (workflow: Workflow, action: string, fallback: boolean) =>
+    workflow.allowed_actions ? workflow.allowed_actions.includes(action) : fallback
+
   const columns: ColumnsType<Workflow> = [
     {
       title: '名称',
@@ -117,7 +124,7 @@ const WorkflowList: React.FC = () => {
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
-          {canManage && <Button
+          {canAct(record, 'update', canUpdate) && <Button
             type="link"
             size="small"
             icon={<EditOutlined />}
@@ -125,7 +132,7 @@ const WorkflowList: React.FC = () => {
           >
             编辑
           </Button>}
-          {canManage && record.status === 'draft' && (
+          {canAct(record, 'publish', canPublish) && record.status === 'draft' && (
             <Button
               type="link"
               size="small"
@@ -135,7 +142,7 @@ const WorkflowList: React.FC = () => {
               发布
             </Button>
           )}
-          {record.status === 'published' && (
+          {record.status === 'published' && canAct(record, 'execute', canExecute) && (
             <>
               <Button
                 type="link"
@@ -145,7 +152,7 @@ const WorkflowList: React.FC = () => {
               >
                 执行
               </Button>
-              {canManage && <Button
+              {canAct(record, 'update', canUpdate) && <Button
                 type="link"
                 size="small"
                 icon={<InboxOutlined />}
@@ -155,7 +162,7 @@ const WorkflowList: React.FC = () => {
               </Button>}
             </>
           )}
-          {canManage && <Popconfirm
+          {canAct(record, 'delete', canDelete) && <Popconfirm
             title="确定删除此工作流吗？"
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
@@ -178,7 +185,7 @@ const WorkflowList: React.FC = () => {
   return (
     <Card
       title="工作流列表"
-      extra={canManage && (
+      extra={canCreate && (
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -188,7 +195,7 @@ const WorkflowList: React.FC = () => {
         </Button>
       )}
     >
-      {canManage && <Space style={{ marginBottom: 16 }}>
+      {canUpdate && <Space style={{ marginBottom: 16 }}>
         <span>状态筛选：</span>
         <Button
           type={statusFilter === undefined ? 'primary' : 'default'}

@@ -72,18 +72,35 @@ def load_texts_from_mysql(kb_id: str) -> Dict[str, str]:
     from sqlalchemy import text as sql_text
 
     from app.core.database import sessionLocal
+    from app.core.tenant_scope import tenant_scope_context
+    from app.models.knowledge_base import KnowledgeBase
 
     session = sessionLocal()
     try:
-        rows = session.execute(
-            sql_text(
-                "SELECT c.vector_id, c.content FROM knowledge_chunks AS c "
-                "JOIN knowledge_documents AS d ON d.id = c.doc_id AND d.deleted_at IS NULL "
-                "WHERE c.kb_id = :kb_id AND c.deleted_at IS NULL AND c.vector_id IS NOT NULL"
-            ),
-            {"kb_id": kb_id},
-        ).fetchall()
-        return {str(row[0]): row[1] for row in rows}
+        # Resolve the target first in an explicit platform maintenance scope;
+        # then constrain the actual chunk read to that knowledge base's tenant.
+        with tenant_scope_context(
+            "hybrid-backfill-resolver",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            knowledge_base = session.query(KnowledgeBase).filter(
+                KnowledgeBase.id == kb_id,
+                KnowledgeBase.deleted_at.is_(None),
+            ).first()
+        if knowledge_base is None:
+            raise ValueError(f"知识库不存在或已删除: {kb_id}")
+        with tenant_scope_context(knowledge_base.tenant_id):
+            rows = session.execute(
+                sql_text(
+                    "SELECT c.vector_id, c.content FROM knowledge_chunks AS c "
+                    "JOIN knowledge_documents AS d ON d.id = c.doc_id AND d.deleted_at IS NULL "
+                    "WHERE c.kb_id = :kb_id AND c.tenant_id = :tenant_id "
+                    "AND c.deleted_at IS NULL AND c.vector_id IS NOT NULL"
+                ),
+                {"kb_id": kb_id, "tenant_id": knowledge_base.tenant_id},
+            ).fetchall()
+            return {str(row[0]): row[1] for row in rows}
     finally:
         session.close()
 

@@ -2,7 +2,7 @@
  * 知识库详情页面
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Card,
   Button,
@@ -37,7 +37,7 @@ import { useAuthStore } from "@/stores/auth";
 import { canManageSystem } from "@/utils/permission";
 import RouteHeader from "@/components/Layout/RouteHeader";
 
-const DocumentStatusTag: Record<string, any> = {
+const DocumentStatusTag: Record<string, { color: string; label: string }> = {
   pending: { color: "default", label: "待处理" },
   processing: { color: "processing", label: "处理中" },
   completed: { color: "success", label: "完成" },
@@ -66,14 +66,7 @@ export default function KnowledgeDetail() {
   const [chunksLoading, setChunksLoading] = useState(false);
   const [chunksDrawerVisible, setChunksDrawerVisible] = useState(false);
 
-  useEffect(() => {
-    if (kbId) {
-      loadKnowledgeBase();
-      loadDocuments();
-    }
-  }, [kbId]);
-
-  const loadKnowledgeBase = async () => {
+  const loadKnowledgeBase = useCallback(async () => {
     try {
       const { data } = await kbApi.getKnowledgeBase(kbId || '');
       setKb(data);
@@ -81,9 +74,9 @@ export default function KnowledgeDetail() {
       console.error("Failed to load knowledge base:", error);
       message.error("加载知识库失败");
     }
-  };
+  }, [kbId]);
 
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await kbApi.listDocuments(kbId || '');
@@ -94,7 +87,16 @@ export default function KnowledgeDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [kbId]);
+
+  useEffect(() => {
+    if (kbId) {
+      void Promise.resolve().then(() => Promise.all([
+        loadKnowledgeBase(),
+        loadDocuments(),
+      ]));
+    }
+  }, [kbId, loadKnowledgeBase, loadDocuments]);
 
   const handleUploadDocument = async (file: RcFile) => {
     setUploading(true);

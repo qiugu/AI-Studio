@@ -48,8 +48,12 @@ spec:
         - name: backend
           image: ai-studio-backend:local
           imagePullPolicy: Never
-          command: [uvicorn]
-          args: [app.main:app, --host, 0.0.0.0, --port, "8000"]
+          command: [sh, -c]
+          args:
+            - >-
+              if [ "${MEMBERSHIP_READ_MODE:-legacy}" != "legacy" ]; then
+              python scripts/verify_rbac_migration.py --strict --require-membership-ready;
+              fi && exec uvicorn app.main:app --host 0.0.0.0 --port 8000
           envFrom:
             - configMapRef: {name: ai-studio-config}
             - secretRef: {name: ai-studio-secrets}
@@ -119,15 +123,13 @@ spec:
         - name: celery-worker
           image: ai-studio-backend:local
           imagePullPolicy: Never
-          command: [celery]
+          command: [sh, -c]
           args:
-            - -A
-            - app.core.celery_app
-            - worker
-            - --pool=threads
-            - --loglevel=info
-            - --concurrency=2
-            - --queues=default,document.ingest,tenant.cleanup
+            - >-
+              if [ "${MEMBERSHIP_READ_MODE:-legacy}" != "legacy" ]; then
+              python scripts/verify_rbac_migration.py --strict --require-membership-ready;
+              fi && exec celery -A app.core.celery_app worker --pool=threads
+              --loglevel=info --concurrency=2 --queues=default,document.ingest,tenant.cleanup
           envFrom:
             - configMapRef: {name: ai-studio-config}
             - secretRef: {name: ai-studio-secrets}

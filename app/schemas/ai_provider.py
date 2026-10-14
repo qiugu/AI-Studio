@@ -11,6 +11,7 @@ class AIProviderCreate(BaseModel):
     api_key: Optional[str] = None
     config: Optional[dict] = None
     status: bool = True
+    current_password: Optional[str] = Field(None, min_length=1, max_length=128)
 
 
 class AIProviderUpdate(BaseModel):
@@ -20,6 +21,7 @@ class AIProviderUpdate(BaseModel):
     api_key: Optional[str] = None
     config: Optional[dict] = None
     status: Optional[bool] = None
+    current_password: Optional[str] = Field(None, min_length=1, max_length=128)
 
 
 class AIProviderOut(BaseModel):

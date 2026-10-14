@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.database import sessionLocal
+from app.core.tenant_scope import reset_tenant_scope
 from app.models.tenant import Tenant
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ _WHITELIST_PATHS = {
     "/auth/login",
     "/auth/register",
     "/auth/refresh",
+    "/auth/password-reset",
     "/docs",
     "/openapi.json",
     "/redoc",
@@ -82,4 +84,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
             except Exception as e:
                 logger.exception("TenantMiddleware error: %s", e)
 
-        return await call_next(request)
+        try:
+            return await call_next(request)
+        finally:
+            scope_token = getattr(request.state, "tenant_scope_token", None)
+            if scope_token is not None:
+                reset_tenant_scope(scope_token)

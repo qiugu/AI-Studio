@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.knowledge_base import KnowledgeBase
 from app.models.knowledge_document import KnowledgeDocument, DocumentStatus
 from app.models.knowledge_chunk import KnowledgeChunk
+from app.models.user import User
 from app.repositories.knowledge import (
     KnowledgeBaseRepository,
     KnowledgeDocumentRepository,
@@ -45,6 +46,7 @@ from app.utils.retrieval_context import (
     join_window,
 )
 from app.utils.sparse import default_encoder
+from app.services.resource_authorization import ResourceAuthorizationService
 
 logger = logging.getLogger(__name__)
 
@@ -103,12 +105,45 @@ def _sigmoid(value: float) -> float:
 class KnowledgeBaseService:
     """知识库服务"""
 
-    def __init__(self, db: Session, tenant_id: str):
+    def __init__(
+        self,
+        db: Session,
+        tenant_id: str,
+        actor: User | None = None,
+    ):
         self.db = db
         self.tenant_id = tenant_id
+        self.actor = actor
+        self.resource_authorization = ResourceAuthorizationService(db)
         self.kb_repo = KnowledgeBaseRepository(db=db, tenant_id=tenant_id)
         self.doc_repo = KnowledgeDocumentRepository(db=db, tenant_id=tenant_id)
         self.chunk_repo = KnowledgeChunkRepository(db=db, tenant_id=tenant_id)
+
+    def _authorize_knowledge_base(self, kb: KnowledgeBase, action: str) -> None:
+        """在 Service 层执行知识库父资源授权和状态校验。
+
+        知识库是租户内共享容器，读取、检索和上传由对应的租户权限控制；
+        更新/删除仍经过资源授权服务，使 owner、管理员和后续 grants 可以
+        复用同一决策入口。
+        """
+        if self.actor is None:
+            return
+        if action in {"read", "search", "upload"}:
+            self.resource_authorization.authorization.require_permission(
+                self.actor,
+                self.tenant_id,
+                "knowledge",
+                action,
+                resource_obj=kb,
+            )
+            return
+        self.resource_authorization.require(
+            self.actor,
+            self.tenant_id,
+            "knowledge",
+            action,
+            kb,
+        )
 
     # ── 知识库 CRUD ──────────────────────────────────────────────────────────
 
@@ -117,6 +152,7 @@ class KnowledgeBaseService:
         name: str,
         description: Optional[str] = None,
         embedding_model: Optional[str] = None,
+        user_id: str | None = None,
     ) -> KnowledgeBase:
         """创建知识库
 
@@ -125,6 +161,13 @@ class KnowledgeBaseService:
         """
         if not name or not name.strip():
             raise ValidationException("Knowledge base name cannot be empty")
+        if self.actor is not None:
+            self.resource_authorization.authorization.require_permission(
+                self.actor,
+                self.tenant_id,
+                "knowledge",
+                "create",
+            )
 
         embedding_model = embedding_model or config.embedding_model
 
@@ -132,6 +175,7 @@ class KnowledgeBaseService:
             name=name.strip(),
             description=description,
             embedding_model=embedding_model,
+            created_by=user_id,
         )
 
         # 创建对应的 Qdrant Collection
@@ -146,10 +190,18 @@ class KnowledgeBaseService:
         kb = self.kb_repo.get_by_id(kb_id)
         if not kb:
             raise NotFoundException("KnowledgeBase", kb_id)
+        self._authorize_knowledge_base(kb, "read")
         return kb
 
     def list_knowledge_bases(self, page: int = 1, page_size: int = 20) -> tuple[List[KnowledgeBase], int]:
         """列出知识库"""
+        if self.actor is not None:
+            self.resource_authorization.authorization.require_permission(
+                self.actor,
+                self.tenant_id,
+                "knowledge",
+                "read",
+            )
         kbs = self.kb_repo.list(page=page, page_size=page_size)
         total = self.kb_repo.count()
         return kbs, total
@@ -162,6 +214,7 @@ class KnowledgeBaseService:
     ) -> KnowledgeBase:
         """更新知识库"""
         kb = self.get_knowledge_base(kb_id)
+        self._authorize_knowledge_base(kb, "update")
         updates = {}
         if name is not None:
             if not name.strip():
@@ -190,6 +243,7 @@ class KnowledgeBaseService:
         只影响存储回收，降级为告警即可，不应把已成功的业务操作回滚掉。
         """
         kb = self.get_knowledge_base(kb_id)
+        self._authorize_knowledge_base(kb, "delete")
         deleted_at = datetime.utcnow()
 
         docs = self.doc_repo.list_all_by_kb(kb_id)
@@ -236,6 +290,7 @@ class KnowledgeBaseService:
         """
         # 验证知识库存在
         kb = self.get_knowledge_base(kb_id)
+        self._authorize_knowledge_base(kb, "upload")
 
         # 验证文件类型
         valid_types = ["txt", "pdf", "docx", "md"]
@@ -298,6 +353,13 @@ class KnowledgeBaseService:
         doc = self.doc_repo.get_by_id(doc_id)
         if not doc:
             raise NotFoundException("KnowledgeDocument", doc_id)
+        parent_kb = self.kb_repo.get_by_id(doc.kb_id)
+        if parent_kb is None:
+            if self.actor is None:
+                parent_kb = self.kb_repo.get_by_id_including_deleted(doc.kb_id)
+            if parent_kb is None:
+                raise NotFoundException("KnowledgeDocument", doc_id)
+        self._authorize_knowledge_base(parent_kb, "read")
         return doc
 
     def list_documents(
@@ -308,6 +370,7 @@ class KnowledgeBaseService:
         page_size: int = 20,
     ) -> tuple[List[KnowledgeDocument], int]:
         """列出知识库中的文档"""
+        self.get_knowledge_base(kb_id)
         docs = self.doc_repo.list_by_kb(kb_id=kb_id, status=status, page=page, page_size=page_size)
         total = self.doc_repo.count_by_kb(kb_id=kb_id, status=status)
         return docs, total
@@ -409,6 +472,11 @@ class KnowledgeBaseService:
         """
         doc = self.get_document(doc_id)
         kb = self.kb_repo.get_by_id_including_deleted(doc.kb_id)
+        if self.actor is not None:
+            live_kb = self.kb_repo.get_by_id(doc.kb_id)
+            if live_kb is None:
+                raise NotFoundException("KnowledgeDocument", doc_id)
+            self._authorize_knowledge_base(live_kb, "delete")
         deleted_at = datetime.utcnow()
 
         # 计数只在知识库本身仍存活时维护：知识库已删时其计数在删除时已归零，
@@ -438,6 +506,7 @@ class KnowledgeBaseService:
         page_size: int = 20,
     ) -> tuple[List[KnowledgeChunk], int]:
         """获取文档的分块列表"""
+        self.get_document(doc_id)
         chunks = self.chunk_repo.list_by_document(doc_id=doc_id, page=page, page_size=page_size)
         total = self.chunk_repo.count_by_document(doc_id=doc_id)
         return chunks, total
@@ -512,6 +581,7 @@ class KnowledgeBaseService:
             raise ValidationException("Query cannot be empty")
 
         kb = self.get_knowledge_base(kb_id)
+        self._authorize_knowledge_base(kb, "search")
 
         threshold = (
             score_threshold

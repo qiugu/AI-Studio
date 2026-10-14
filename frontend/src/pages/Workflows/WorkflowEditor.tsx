@@ -3,6 +3,8 @@ import ReactFlow, {
   Controls,
   Background,
   MiniMap,
+  BackgroundVariant,
+  ConnectionLineType,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -84,8 +86,11 @@ const WorkflowEditor: React.FC = () => {
       // 将数据库边转换为React Flow边
       const flowEdges: Edge[] = workflowData.edges.map((edge) => ({
         id: edge.id.toString(),
+        type: 'smoothstep',
         source: edge.source_node_id.toString(),
         target: edge.target_node_id.toString(),
+        sourceHandle: edge.source_handle || undefined,
+        targetHandle: edge.target_handle || undefined,
         label: edge.label || undefined,
         data: {
           condition: edge.condition,
@@ -107,7 +112,7 @@ const WorkflowEditor: React.FC = () => {
   }, [workflowId, fetchWorkflow])
 
   const onConnect = useCallback((params: Connection) => {
-    setEdges((eds) => addEdge(params, eds))
+    setEdges((eds) => addEdge({ ...params, type: 'smoothstep' }, eds))
   }, [setEdges])
 
   const handleAddNode = useCallback((nodeType: NodeType) => {
@@ -222,12 +227,13 @@ const WorkflowEditor: React.FC = () => {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
+          connectionLineType={ConnectionLineType.SmoothStep}
           fitView
           attributionPosition="bottom-left"
         >
           <Controls />
           <MiniMap />
-          <Background gap={16} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
 
           {/* Node palette - positioned in top-left */}
           <Panel position="top-left">

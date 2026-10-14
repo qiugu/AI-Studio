@@ -18,7 +18,8 @@
 - 同时覆盖 1.x 风格 ``db.query(Model)`` 与 2.0 风格 ``select(Model)``。
 - 模型可通过类属性 ``__tenant_scope_clause__``（``staticmethod(cls, tenant_id) -> 表达式``）
   声明自定义可见性条件；未声明时使用严格的 ``tenant_id`` 等值过滤。
-- 平台管理员（``is_platform_admin=True``）需要跨租户视角，跳过过滤。
+- 平台管理员身份本身不会跳过过滤；只有显式激活 ``PlatformQueryContext`` 的平台请求
+  才允许跨租户视角。
 - 上下文缺失（CLI / Celery / 迁移等非请求上下文）时不做任何注入，避免误伤。
 - 已在查询中手写 ``tenant_id`` 过滤的，再多一条同值条件，语义无变化（幂等）。
 
@@ -37,6 +38,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+from contextlib import contextmanager
 from typing import Any, Optional
 
 from sqlalchemy import and_, event, or_
@@ -102,15 +104,79 @@ def public_or_tenant_filter(
     return strict_tenant_clause(model, tenant_id)
 
 
-def set_tenant_scope(tenant_id: str, is_platform_admin: bool) -> Any:
-    """设置当前请求的租户作用域，返回 reset 用的 token。"""
+def set_tenant_scope(
+    tenant_id: str,
+    is_platform_admin: bool,
+    *,
+    allow_cross_tenant: bool = False,
+) -> Any:
+    """设置当前请求的租户作用域，返回 reset 用的 token。
+
+    ``allow_cross_tenant`` 必须通过显式的平台权限守卫或平台查询上下文开启，
+    不能仅因为用户带有 ``is_platform_admin`` 标记而默认开启。
+    """
     return tenant_scope_ctx.set(
-        {"tenant_id": tenant_id, "is_platform_admin": is_platform_admin}
+        {
+            "tenant_id": tenant_id,
+            "is_platform_admin": is_platform_admin,
+            "allow_cross_tenant": bool(allow_cross_tenant and is_platform_admin),
+        }
     )
 
 
 def reset_tenant_scope(token: Any) -> None:
-    tenant_scope_ctx.reset(token)
+    """Restore a scope token when it belongs to the current Context.
+
+    Starlette's ``BaseHTTPMiddleware`` runs ``call_next`` in a child context.
+    A token created by ``get_current_user`` can therefore be handed back to
+    the outer middleware context, where ``ContextVar.reset`` raises
+    ``ValueError`` because the token was created elsewhere.  The child
+    request context is discarded after the response; clearing the current
+    context is the safe fallback and prevents a request cleanup error from
+    turning an authorized response into HTTP 500.
+    """
+    try:
+        tenant_scope_ctx.reset(token)
+    except ValueError:
+        tenant_scope_ctx.set(None)
+
+
+@contextmanager
+def tenant_scope_context(
+    tenant_id: str,
+    *,
+    is_platform_admin: bool = False,
+    allow_cross_tenant: bool = False,
+):
+    """Explicit scope for Celery/CLI/maintenance code.
+
+    Background code must state which tenant it operates on.  A cross-tenant
+    maintenance read must additionally opt into the platform context instead
+    of relying on an absent ContextVar (which would disable the ORM guard).
+    """
+    if not tenant_id:
+        raise ValueError("tenant_id is required for tenant scope")
+    token = set_tenant_scope(
+        tenant_id,
+        is_platform_admin=is_platform_admin,
+        allow_cross_tenant=allow_cross_tenant,
+    )
+    try:
+        yield
+    finally:
+        reset_tenant_scope(token)
+
+
+def enable_platform_query_context() -> None:
+    """显式开启当前平台请求的跨租户查询上下文。
+
+    该函数只供已经通过平台权限守卫的代码调用；非平台身份即使误调用也会
+    直接失败，避免把 ContextVar 当成可自行伪造的授权入口。
+    """
+    ctx = tenant_scope_ctx.get()
+    if ctx is None or not ctx.get("is_platform_admin"):
+        raise PermissionError("platform query context requires platform authorization")
+    tenant_scope_ctx.set({**ctx, "allow_cross_tenant": True})
 
 
 def _tenant_scoped_models(statement: Any) -> list:
@@ -144,7 +210,9 @@ def _tenant_clause(model: Any, tenant_id: str) -> Any:
 def _apply_tenant_filter(state: Any) -> None:
     """``do_orm_execute`` 回调：为涉及租户实体的 SELECT 注入租户过滤。"""
     ctx = tenant_scope_ctx.get()
-    if ctx is None or ctx.get("is_platform_admin"):
+    if ctx is None or (
+        ctx.get("is_platform_admin") and ctx.get("allow_cross_tenant")
+    ):
         return
 
     tenant_id = ctx.get("tenant_id")

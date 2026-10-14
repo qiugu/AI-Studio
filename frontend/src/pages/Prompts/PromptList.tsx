@@ -13,12 +13,13 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
+import type { BadgeProps } from 'antd'
 import { listPrompts, deletePrompt } from '@/api/prompt'
 import type { Prompt, PromptStatus } from '@/types/prompt'
 
 const { Title } = Typography
 
-const STATUS_COLORS: Record<PromptStatus, string> = {
+const STATUS_COLORS: Record<PromptStatus, BadgeProps['status']> = {
   draft: 'default',
   published: 'success',
   archived: 'warning',
@@ -49,7 +50,7 @@ export default function PromptList() {
   }, [filters])
 
   useEffect(() => {
-    fetchAll()
+    void Promise.resolve().then(() => fetchAll())
   }, [fetchAll])
 
   const handleDelete = async (id: string) => {
@@ -90,7 +91,7 @@ export default function PromptList() {
       dataIndex: 'status',
       key: 'status',
       render: (status: PromptStatus) => (
-        <Badge status={STATUS_COLORS[status] as any} text={STATUS_LABELS[status]} />
+        <Badge status={STATUS_COLORS[status]} text={STATUS_LABELS[status]} />
       ),
     },
     {

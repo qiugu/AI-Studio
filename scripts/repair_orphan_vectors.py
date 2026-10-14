@@ -583,15 +583,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     from app.core.database import sessionLocal
     from app.core.vector_db import get_qdrant_client
+    from app.core.tenant_scope import tenant_scope_context
 
     db = sessionLocal()
     try:
-        client = get_qdrant_client()
-        plan = build_plan(db, client, args.kb_id)
-        print_plan(plan, execute=args.execute)
-        if plan.is_clean or not args.execute:
-            return 0
-        execute_plan(db, client, plan, kb_id=args.kb_id)
+        with tenant_scope_context(
+            "maintenance-verifier",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            client = get_qdrant_client()
+            plan = build_plan(db, client, args.kb_id)
+            print_plan(plan, execute=args.execute)
+            if plan.is_clean or not args.execute:
+                return 0
+            execute_plan(db, client, plan, kb_id=args.kb_id)
     except Exception as exc:  # noqa: BLE001 - CLI 顶层需给出明确错误与退出码
         db.rollback()
         print(f"[error] 修复失败已回滚：{exc}", file=sys.stderr)
@@ -604,10 +610,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print("修复后复检：")
     db = sessionLocal()
     try:
-        client = get_qdrant_client()
-        remaining = build_plan(db, client, args.kb_id)
-        print_plan(remaining, execute=False)
-        return 0 if remaining.is_clean else 1
+        with tenant_scope_context(
+            "maintenance-verifier",
+            is_platform_admin=True,
+            allow_cross_tenant=True,
+        ):
+            client = get_qdrant_client()
+            remaining = build_plan(db, client, args.kb_id)
+            print_plan(remaining, execute=False)
+            return 0 if remaining.is_clean else 1
     finally:
         db.close()
 

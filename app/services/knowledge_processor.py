@@ -10,6 +10,7 @@ from app.core.celery_app import celery_app
 from app.core.config import config
 from app.core.database import sessionLocal
 from app.core.exceptions import ValidationException
+from app.core.tenant_scope import tenant_scope_context
 from app.core.vector_db import (
     collection_layout,
     collection_name_for,
@@ -50,7 +51,49 @@ def vector_id_for(doc_id: str, index: int, epoch: str) -> str:
 
 @celery_app.task(name="process_document_task", bind=False)
 def process_document_task(doc_id: str, file_path: str, tenant_id: str) -> None:
+    if not tenant_id:
+        raise ValidationException("tenant_id is required for document processing")
     session: Session = sessionLocal()
+    try:
+        with tenant_scope_context(tenant_id):
+            return _process_document_in_scope(
+                session,
+                doc_id,
+                file_path,
+                tenant_id,
+            )
+    except Exception as exc:
+        logger.exception("Knowledge document processing failed: %s", exc)
+        session.rollback()
+        try:
+            with tenant_scope_context(tenant_id):
+                doc = session.query(KnowledgeDocument).filter(
+                    KnowledgeDocument.id == doc_id,
+                    KnowledgeDocument.tenant_id == tenant_id,
+                ).first()
+                if doc:
+                    doc.status = DocumentStatus.FAILED
+                    doc.error_message = str(exc)
+                    session.add(doc)
+                    session.commit()
+        except Exception:
+            logger.exception(
+                "Failed to persist failure state for knowledge document %s",
+                doc_id,
+            )
+            session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _process_document_in_scope(
+    session: Session,
+    doc_id: str,
+    file_path: str,
+    tenant_id: str,
+) -> None:
+    """Existing processing body, called only inside an explicit tenant scope."""
     try:
         doc = session.query(KnowledgeDocument).filter(
             KnowledgeDocument.id == doc_id,
@@ -222,26 +265,6 @@ def process_document_task(doc_id: str, file_path: str, tenant_id: str) -> None:
         ).count_live_by_kb(kb.id)
 
         session.commit()
-    except Exception as exc:
-        logger.exception("Knowledge document processing failed: %s", exc)
-        session.rollback()
-        try:
-            doc = session.query(KnowledgeDocument).filter(
-                KnowledgeDocument.id == doc_id,
-                KnowledgeDocument.tenant_id == tenant_id,
-            ).first()
-            if doc:
-                doc.status = DocumentStatus.FAILED
-                doc.error_message = str(exc)
-                session.add(doc)
-                session.commit()
-        except Exception:
-            logger.exception(
-                "Failed to persist failure state for knowledge document %s",
-                doc_id,
-            )
-            session.rollback()
-        # 不能吞掉异常：Celery 必须记录失败，late ack 才能保持正确的投递语义。
+    except Exception:
+        # 不能吞掉异常：外层任务负责记录失败并让 Celery 正确重试。
         raise
-    finally:
-        session.close()

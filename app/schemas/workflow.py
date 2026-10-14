@@ -62,6 +62,8 @@ class WorkflowNodeResponse(WorkflowNodeBase):
 class WorkflowEdgeBase(BaseModel):
     source_node_id: str = Field(..., description="源节点ID")
     target_node_id: str = Field(..., description="目标节点ID")
+    source_handle: Optional[str] = Field(default=None, max_length=50, description="源连接点ID")
+    target_handle: Optional[str] = Field(default=None, max_length=50, description="目标连接点ID")
     condition: Optional[Dict[str, Any]] = Field(default=None, description="条件配置")
     label: Optional[str] = Field(default=None, description="边标签")
 
@@ -120,6 +122,7 @@ class WorkflowResponse(WorkflowBase):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime]
+    allowed_actions: List[str] = Field(default_factory=list)
     nodes: List[WorkflowNodeResponse] = Field(default_factory=list)
     edges: List[WorkflowEdgeResponse] = Field(default_factory=list)
 

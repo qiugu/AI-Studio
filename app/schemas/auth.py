@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -24,3 +24,8 @@ class VerifyEmailForm(BaseModel):
 
 class ResendVerifyForm(BaseModel):
     email: str
+
+
+class ChangePasswordForm(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=12, max_length=128)

@@ -44,12 +44,12 @@ describe('canManageSystem', () => {
     expect(canManageSystem(undefined)).toBe(false)
   })
 
-  it('租户管理员（is_admin 角色）可见系统管理', () => {
-    expect(canManageSystem(makeUser({ roles: [role('tenant_admin', true)] }))).toBe(true)
+  it('后端 capability 快照包含治理权限时可见系统管理', () => {
+    expect(canManageSystem(makeUser({ capabilities: ['tenant.roles_manage'] }))).toBe(true)
   })
 
-  it('兼容旧用户响应中缺少 status 的管理员角色', () => {
-    expect(canManageSystem(makeUser({ roles: [{ ...role('tenant_admin', true), status: undefined } as unknown as Role] }))).toBe(true)
+  it('旧 is_admin 角色字段不能单独放行系统管理', () => {
+    expect(canManageSystem(makeUser({ roles: [role('tenant_admin', true)] }))).toBe(false)
   })
 
   it('角色 code 含 admin 但 is_admin=false 时不可见（不再按 code 子串判断）', () => {

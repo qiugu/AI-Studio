@@ -3,11 +3,13 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.schemas.auth import (
+    ChangePasswordForm,
     LoginForm,
     RefreshForm,
     VerifyEmailForm,
     ResendVerifyForm,
 )
+from app.schemas.user import PasswordResetComplete
 from app.schemas.common import ResponseBase
 from app.core.database import get_session
 from app.core.dependencies import CurrentUser
@@ -21,6 +23,8 @@ from app.services.user import (
     verify_email,
     resend_verification,
     build_user_payload,
+    complete_password_reset,
+    change_my_password,
 )
 from app.utils.email import send_verification_email
 
@@ -72,8 +76,8 @@ async def login(form_data: LoginForm, db: Session = Depends(get_session)) -> Res
     update_last_login(user, db)
     db.commit()
 
-    access_token = create_access_token(user.id, user.tenant_id)
-    refresh_token = create_refresh_token(user.id)
+    access_token = create_access_token(user.id, user.tenant_id, user.authz_version)
+    refresh_token = create_refresh_token(user.id, user.credentials_version)
 
     return ResponseBase.ok(
         data={
@@ -109,8 +113,8 @@ def _do_verify_email(token: str, db: Session) -> ResponseBase:
         db.rollback()
         raise
 
-    access_token = create_access_token(user.id, user.tenant_id)
-    refresh_token = create_refresh_token(user.id)
+    access_token = create_access_token(user.id, user.tenant_id, user.authz_version)
+    refresh_token = create_refresh_token(user.id, user.credentials_version)
     return ResponseBase.ok(
         data={
             "access_token": access_token,
@@ -173,13 +177,41 @@ async def refresh(
     if not user:
         raise UnauthorizedException("User not found or disabled")
 
-    access_token = create_access_token(user_id, user.tenant_id)
+    try:
+        token_credentials_version = int(payload.get("credentials_version", 1))
+    except (TypeError, ValueError):
+        raise UnauthorizedException("Invalid refresh token payload")
+    if token_credentials_version != int(user.credentials_version or 1):
+        raise UnauthorizedException("Password credentials have changed")
+
+    access_token = create_access_token(user_id, user.tenant_id, user.authz_version)
 
     return ResponseBase.ok(
         data={
             "access_token": access_token,
         }
     )
+
+
+@router.post("/password-reset")
+def complete_password_reset_api(
+    data: PasswordResetComplete,
+    db: Session = Depends(get_session),
+) -> ResponseBase:
+    user = complete_password_reset(data.token, data.password, db)
+    db.commit()
+    return ResponseBase.ok(data={"message": "密码已重置，请使用新密码登录"})
+
+
+@router.post("/change-password")
+def change_password_api(
+    data: ChangePasswordForm,
+    current_user: CurrentUser,
+    db: Session = Depends(get_session),
+) -> ResponseBase:
+    change_my_password(current_user, data.current_password, data.new_password, db)
+    db.commit()
+    return ResponseBase.ok(data={"message": "密码已修改，请重新登录"})
 
 
 @router.post("/logout")

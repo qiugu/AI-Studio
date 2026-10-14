@@ -54,6 +54,7 @@ beforeEach(() => {
       last_login_at: null,
       created_at: null,
       updated_at: null,
+      capabilities: ['tenant.roles_manage', 'knowledge.create'],
       roles: [{
         id: 'role-1',
         tenant_id: 'tenant-1',
