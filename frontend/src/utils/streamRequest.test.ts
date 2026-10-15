@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createStreamRequest } from './streamRequest'
+import { createStreamRequest, createWorkflowStreamRequest } from './streamRequest'
 
 function streamResponse(...chunks: string[]): Response {
   const encoder = new TextEncoder()
@@ -61,6 +61,45 @@ describe('createStreamRequest', () => {
         },
         onError: (error) => reject(new Error(`不应报告流中断：${error}`)),
       })
+    })
+  })
+})
+
+describe('createWorkflowStreamRequest', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('flushes the final execution event when the stream closes without a blank line', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        streamResponse(
+          'event: execution_completed\r\ndata: {"execution_id":"e1","output":{"result":42}}',
+        ),
+      ),
+    )
+
+    await new Promise<void>((resolve, reject) => {
+      createWorkflowStreamRequest(
+        '/workflows/w1/execute/stream',
+        { method: 'POST', body: '{}' },
+        {
+          onEvent: (event) => {
+            try {
+              expect(event).toEqual({
+                type: 'execution_completed',
+                execution_id: 'e1',
+                output: { result: 42 },
+              })
+              resolve()
+            } catch (assertionError) {
+              reject(assertionError)
+            }
+          },
+          onError: (error) => reject(new Error(`不应报告工作流流错误：${error}`)),
+        },
+      )
     })
   })
 })

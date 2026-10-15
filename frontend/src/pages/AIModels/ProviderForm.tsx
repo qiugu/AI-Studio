@@ -14,6 +14,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { createProvider, getProvider, updateProvider } from '@/api/ai-model'
 import type { AIProviderCreateRequest } from '@/types/ai-model'
 import RouteHeader from '@/components/Layout/RouteHeader'
+import { requiresProviderReauth } from '@/utils/reauth'
 
 const { Password } = Input
 
@@ -57,21 +58,28 @@ export default function ProviderForm() {
   const handleSubmit = async (values: Record<string, unknown>) => {
     setLoading(true)
     try {
+      const apiKey = typeof values.api_key === 'string' ? values.api_key.trim() : undefined
+      let parsedConfig: Record<string, unknown> | undefined
       const payload: AIProviderCreateRequest = {
         name: values.name as string,
         provider_type: values.provider_type as AIProviderCreateRequest['provider_type'],
         api_base_url: values.api_base_url as string | undefined,
-        api_key: values.api_key as string | undefined,
+        api_key: apiKey || undefined,
         status: values.status as boolean,
         current_password: (values.current_password as string) || undefined,
       }
       if (values.config) {
         try {
-          payload.config = JSON.parse(values.config as string)
+          parsedConfig = JSON.parse(values.config as string)
+          payload.config = parsedConfig
         } catch {
           message.error('额外配置 JSON 格式错误')
           return
         }
+      }
+      if (requiresProviderReauth(apiKey, parsedConfig) && !payload.current_password) {
+        message.error('修改 API Key 或敏感配置时需要输入当前密码')
+        return
       }
 
       if (isEdit && id) {
@@ -140,7 +148,7 @@ export default function ProviderForm() {
 
           <Form.Item
             name="current_password"
-            label="当前密码（修改凭据或配置时必填）"
+            label="当前密码（仅修改 API Key 或敏感配置时需要）"
           >
             <Password placeholder="请输入当前登录密码" />
           </Form.Item>

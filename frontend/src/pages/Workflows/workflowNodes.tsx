@@ -15,6 +15,7 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons'
 import type { NodeType, WorkflowNodeConfig } from '../../types/workflow'
+import { getLoopHandleDefinitions } from './workflowLoopHandles'
 import './WorkflowEditor.css'
 
 interface CustomNodeData {
@@ -71,7 +72,7 @@ const getHandleConfig = (nodeType: NodeType) => {
       targets: [Position.Left]
     },
 
-    // 循环型节点：右侧继续循环，底部退出循环
+    // 循环型节点：两个出口使用语义标签区分循环体和完成后分支
     loop: {
       sources: [Position.Right, Position.Bottom],
       targets: [Position.Left, Position.Top]
@@ -146,22 +147,46 @@ const CustomNode: React.FC<NodeProps<CustomNodeData> & { nodeType: NodeType }> =
               <pre>{data.config.code.substring(0, 100)}</pre>
             </div>
           )}
-          {nodeType === 'loop' && data.config?.max_iterations && (
-            <div>最大迭代次数: {data.config.max_iterations}</div>
+          {nodeType === 'loop' && (
+            <div className="workflow-node-loop-summary">
+              <div>
+                遍历 <code>{data.config?.loop_source || '未配置集合'}</code>
+              </div>
+              <div>
+                当前项 <code>{data.config?.loop_variable || 'item'}</code>
+              </div>
+            </div>
           )}
         </div>
 
         {/* Smart Connection Handles - Multi-directional */}
-        {handleConfig.sources.map((position, index) => (
-          <Handle
-            key={`source-${index}`}
-            type="source"
-            position={position}
-            id={`source-${position}`}
-            style={{ background: style.color }}
-            className={`handle-${position}`}
-          />
-        ))}
+        {nodeType === 'loop'
+          ? getLoopHandleDefinitions().map(({ id, position, label }) => (
+              <React.Fragment key={id}>
+                <Handle
+                  type="source"
+                  position={position}
+                  id={id}
+                  style={{ background: style.color }}
+                  className={`handle-${position}`}
+                />
+                <span
+                  className={`workflow-node-route-label workflow-node-route-label--${position}`}
+                >
+                  {label}
+                </span>
+              </React.Fragment>
+            ))
+          : handleConfig.sources.map((position, index) => (
+              <Handle
+                key={`source-${index}`}
+                type="source"
+                position={position}
+                id={`source-${position}`}
+                style={{ background: style.color }}
+                className={`handle-${position}`}
+              />
+            ))}
         {handleConfig.targets.map((position, index) => (
           <Handle
             key={`target-${index}`}

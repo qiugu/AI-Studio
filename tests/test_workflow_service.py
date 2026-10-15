@@ -286,3 +286,297 @@ def test_execution_records_normalize_uuid_objects_to_string_ids():
     assert execution.workflow_id == str(workflow_id)
     assert execution.tenant_id == str(engine.tenant_id)
     assert execution.created_by == str(user_id)
+
+
+def test_stream_execution_passes_workflow_input_to_start_node():
+    start = SimpleNamespace(id="start", node_type="start", name="开始")
+    end = SimpleNamespace(id="end", node_type="end", name="结束")
+    workflow = SimpleNamespace(
+        id="workflow-1",
+        status="published",
+        nodes=[start, end],
+        edges=[SimpleNamespace(source_node_id="start", target_node_id="end")],
+    )
+
+    class _WorkflowService:
+        def get_workflow(self, _workflow_id, authorize=False):
+            return workflow
+
+        def validate_workflow_dag(self, _workflow_id, authorize=False):
+            return None
+
+    class _DB:
+        def commit(self):
+            return None
+
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    engine.tenant_id = "tenant-1"
+    engine.actor = None
+    engine.db = _DB()
+    engine.workflow_service = _WorkflowService()
+    engine.create_execution = lambda *_args, **_kwargs: SimpleNamespace(id="execution-1")
+    engine.update_execution_status = lambda *_args, **_kwargs: None
+    seen_contexts = []
+
+    async def _execute_node(node, context, _execution_id):
+        seen_contexts.append((node.node_type, context))
+        return {"value": context.get("input", {}).get("value", "done")}
+
+    engine.execute_node = _execute_node
+
+    async def _run():
+        return [event async for event in engine.execute_workflow_stream("workflow-1", {"value": 10}, "user-1")]
+
+    asyncio.run(_run())
+
+    assert seen_contexts[0] == ("start", {"input": {"value": 10}})
+
+
+def test_end_node_without_output_mapping_passes_through_node_output():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    node = SimpleNamespace(config={})
+
+    output = asyncio.run(engine._execute_end_node(node, {"result": 42}))
+
+    assert output == {"result": 42}
+
+
+def test_start_node_without_output_mapping_passes_through_workflow_input():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    node = SimpleNamespace(config={})
+
+    output = asyncio.run(engine._execute_start_node(node, {"input": {"query": "北京"}}))
+
+    assert output == {"query": "北京"}
+
+
+def test_tool_node_calls_configured_plugin_endpoint(monkeypatch):
+    endpoint = SimpleNamespace(
+        id="endpoint-1",
+        endpoint="/weather",
+        method="POST",
+        headers=None,
+        request_body_schema=None,
+    )
+    plugin = SimpleNamespace(
+        id="plugin-1",
+        name="天气服务",
+        status="active",
+        source_type="http",
+        api_spec={"servers": [{"url": "https://example.com"}]},
+        _endpoints=[endpoint],
+    )
+
+    class _PluginService:
+        def __init__(self, db, tenant_id, actor=None):
+            assert tenant_id == "tenant-1"
+
+        def get(self, plugin_id):
+            assert plugin_id == "plugin-1"
+            return plugin
+
+        def _load_config_dict(self, plugin_id):
+            assert plugin_id == "plugin-1"
+            return {"base_url": "https://example.com"}
+
+    calls = []
+
+    def _execute_plugin_call(**kwargs):
+        calls.append(kwargs)
+        return {"success": True, "status_code": 200, "data": {"temperature": 26}}
+
+    monkeypatch.setattr("app.services.plugin.PluginService", _PluginService)
+    monkeypatch.setattr("app.utils.plugin_executor.execute_plugin_call", _execute_plugin_call)
+
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    engine.db = object()
+    engine.tenant_id = "tenant-1"
+    engine.actor = None
+    node = SimpleNamespace(
+        config={
+            "tool_type": "plugin",
+            "tool_name": "天气查询",
+            "input_variables": ["city"],
+            "output_variable": "weather",
+            "tool_config": {
+                "plugin_id": "plugin-1",
+                "endpoint_id": "endpoint-1",
+                "params": {"unit": "celsius"},
+            },
+        }
+    )
+
+    output = asyncio.run(engine._execute_tool_node(node, {"city": "北京"}))
+
+    assert output["weather"] == {"temperature": 26}
+    assert output["tool_type"] == "plugin"
+    assert calls[0]["params"] == {"unit": "celsius", "city": "北京"}
+    assert calls[0]["endpoint_path"] == "/weather"
+
+
+def test_while_loop_requires_condition_template():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    node = SimpleNamespace(
+        config={
+            "loop_type": "while",
+            "loop_variable": "count",
+            "loop_source": "items",
+            "max_iterations": 3,
+        }
+    )
+
+    with pytest.raises(ValidationException, match="循环条件"):
+        asyncio.run(engine._execute_loop_node(node, {"items": []}))
+
+
+def test_code_node_supports_input_data_and_return_style_code():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    node = SimpleNamespace(
+        config={
+            "code": "return input_data['value'] * 2",
+            "input_variables": ["value"],
+            "output_variable": "result",
+        }
+    )
+
+    output = asyncio.run(engine._execute_code_node(node, {"value": 21}))
+
+    assert output == {"result": 42}
+
+
+def test_for_loop_executes_right_branch_for_each_item_and_collects_results():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    loop = SimpleNamespace(id="loop", node_type="loop", config={
+        "loop_type": "for",
+        "loop_variable": "item",
+        "loop_source": "items",
+        "max_iterations": 10,
+    })
+    body = SimpleNamespace(id="body", node_type="variable", config={})
+    exit_node = SimpleNamespace(id="end", node_type="end", config={})
+    workflow = SimpleNamespace(
+        nodes=[loop, body, exit_node],
+        edges=[
+            SimpleNamespace(source_node_id="loop", target_node_id="body", source_handle="source-right"),
+            SimpleNamespace(source_node_id="loop", target_node_id="end", source_handle="source-bottom"),
+            SimpleNamespace(source_node_id="body", target_node_id="end", source_handle="source-right"),
+        ],
+    )
+
+    async def _execute_node(node, context, _execution_id):
+        if node.id == "body":
+            return {"seen": context["item"]}
+        return {}
+
+    engine.execute_node = _execute_node
+    output, consumed = asyncio.run(
+        engine._execute_loop_runtime(
+            workflow,
+            loop,
+            {"items": ["a", "b"]},
+            "execution-1",
+            ["loop", "body", "end"],
+        )
+    )
+
+    assert output["iterations"] == 2
+    assert output["loop_results"] == [{"seen": "a"}, {"seen": "b"}]
+    assert consumed == {"body"}
+
+
+def test_for_loop_accepts_semantic_body_and_done_handles():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    loop = SimpleNamespace(id="loop", node_type="loop", config={
+        "loop_type": "for",
+        "loop_variable": "item",
+        "loop_source": "items",
+        "max_iterations": 10,
+    })
+    body = SimpleNamespace(id="body", node_type="variable", config={})
+    exit_node = SimpleNamespace(id="end", node_type="end", config={})
+    workflow = SimpleNamespace(
+        nodes=[loop, body, exit_node],
+        edges=[
+            SimpleNamespace(source_node_id="loop", target_node_id="body", source_handle="loop-body"),
+            SimpleNamespace(source_node_id="loop", target_node_id="end", source_handle="loop-done"),
+        ],
+    )
+
+    async def _execute_node(node, context, _execution_id):
+        if node.id == "body":
+            return {"seen": context["item"]}
+        return {}
+
+    engine.execute_node = _execute_node
+    output, consumed = asyncio.run(
+        engine._execute_loop_runtime(
+            workflow,
+            loop,
+            {"items": ["a"]},
+            "execution-1",
+            ["loop", "body", "end"],
+        )
+    )
+
+    assert output["loop_results"] == [{"seen": "a"}]
+    assert consumed == {"body"}
+
+
+def test_while_loop_repeats_until_condition_is_false():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    loop = SimpleNamespace(id="loop", node_type="loop", config={
+        "loop_type": "while",
+        "loop_variable": "count",
+        "loop_source": "count",
+        "condition_template": "{{count}} < 3",
+        "max_iterations": 10,
+    })
+    body = SimpleNamespace(id="body", node_type="code", config={})
+    workflow = SimpleNamespace(
+        nodes=[loop, body],
+        edges=[SimpleNamespace(source_node_id="loop", target_node_id="body", source_handle="source-right")],
+    )
+
+    async def _execute_node(node, context, _execution_id):
+        if node.id == "body":
+            return {"count": context["count"] + 1}
+        return {}
+
+    engine.execute_node = _execute_node
+    output, _consumed = asyncio.run(
+        engine._execute_loop_runtime(
+            workflow,
+            loop,
+            {"count": 0},
+            "execution-1",
+            ["loop", "body"],
+        )
+    )
+
+    assert output["iterations"] == 3
+    assert output["loop_results"] == [{"count": 1}, {"count": 2}, {"count": 3}]
+
+
+def test_loop_requires_a_right_branch_as_body():
+    engine = WorkflowEngine.__new__(WorkflowEngine)
+    loop = SimpleNamespace(id="loop", node_type="loop", config={
+        "loop_type": "for",
+        "loop_variable": "item",
+        "loop_source": "items",
+        "max_iterations": 10,
+    })
+    workflow = SimpleNamespace(
+        nodes=[loop],
+        edges=[],
+    )
+
+    with pytest.raises(ValidationException, match="循环体"):
+        asyncio.run(
+            engine._execute_loop_runtime(
+                workflow,
+                loop,
+                {"items": [1]},
+                "execution-1",
+                ["loop"],
+            )
+        )

@@ -22,6 +22,11 @@ import { createNodeComponent } from './workflowNodes'
 import NodePalette from './NodePalette'
 import NodeConfigPanel from './NodeConfigPanel'
 import { buildWorkflowGraphPayload } from './workflowPayload'
+import {
+  getDefaultNodeConfig,
+  getDefaultNodeName,
+  normalizeLoopSourceHandle,
+} from './workflowNodeDefaults'
 import './WorkflowEditor.css'
 
 const WorkflowEditor: React.FC = () => {
@@ -89,7 +94,11 @@ const WorkflowEditor: React.FC = () => {
         type: 'smoothstep',
         source: edge.source_node_id.toString(),
         target: edge.target_node_id.toString(),
-        sourceHandle: edge.source_handle || undefined,
+        sourceHandle:
+          workflowData.nodes.find((node) => node.id.toString() === edge.source_node_id.toString())
+            ?.node_type === 'loop'
+            ? normalizeLoopSourceHandle(edge.source_handle)
+            : edge.source_handle || undefined,
         targetHandle: edge.target_handle || undefined,
         label: edge.label || undefined,
         data: {
@@ -121,8 +130,8 @@ const WorkflowEditor: React.FC = () => {
       type: nodeType,
       position: { x: 250, y: 150 }, // 默认位置
       data: {
-        name: `新${nodeType}节点`,
-        config: {},
+        name: getDefaultNodeName(nodeType),
+        config: getDefaultNodeConfig(nodeType),
         onEdit: handleEditNode,
         onDelete: handleDeleteNode,
       },

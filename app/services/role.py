@@ -168,7 +168,8 @@ def create_role(data: RoleCreate, tenant_id: str, db: Session, actor: User | Non
         AuthorizationService(db).require_permission(
             actor, tenant_id, "role", "create"
         )
-        require_current_password(actor, data.current_password, "role_create")
+        if data.permission_ids:
+            require_current_password(actor, data.current_password, "role_create")
     _lock_tenant_for_mutation(tenant_id, db)
     # 内置角色 code 受保护，禁止创建同名角色
     role = Role(
@@ -218,11 +219,13 @@ def update_role(
         AuthorizationService(db).require_permission(
             actor, tenant_id, "role", "update", resource_obj=role
         )
-        require_current_password(
-            actor,
-            current_password if current_password is not None else data.current_password,
-            "role_update",
-        )
+        lifecycle_change = data.status is not None and data.status != role.status
+        if lifecycle_change:
+            require_current_password(
+                actor,
+                current_password if current_password is not None else data.current_password,
+                "role_update",
+            )
     if data.name is not None:
         role.name = data.name
     if data.description is not None:

@@ -7,6 +7,7 @@ from app.core.exceptions import NotFoundException, ConflictException
 from app.core.authorization import AuthorizationService
 from app.models.user import User
 from app.utils.encryption import encrypt, decrypt
+from app.utils.secret_fields import contains_sensitive_field
 from app.utils import llm as llm_utils
 from app.core.reauthentication import require_current_password
 
@@ -30,6 +31,10 @@ class AIProviderService:
         if not provider:
             raise NotFoundException("AIProvider", provider_id)
         return provider
+
+    @staticmethod
+    def _credential_change(api_key: str | None, config: dict | None) -> bool:
+        return api_key is not None or contains_sensitive_field(config)
 
     def list(self, page: int = 1, page_size: int = 20, status: bool | None = None):
         if self.actor is not None:
@@ -62,7 +67,7 @@ class AIProviderService:
             self.authorization.require_permission(
                 self.actor, self.tenant_id, "ai_provider", "create"
             )
-            if data.api_key is not None or data.config is not None:
+            if self._credential_change(data.api_key, data.config):
                 require_current_password(
                     self.actor, data.current_password, "ai_provider_credential_create"
                 )
@@ -89,7 +94,7 @@ class AIProviderService:
                 "update",
                 resource_obj=provider,
             )
-            if data.api_key is not None or data.config is not None:
+            if self._credential_change(data.api_key, data.config):
                 require_current_password(
                     self.actor, data.current_password, "ai_provider_credential_update"
                 )

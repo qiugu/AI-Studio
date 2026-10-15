@@ -5,6 +5,7 @@
 import { getToken } from './auth'
 import { SSEParser, type SSEEvent } from './sseParser'
 import type { Citation } from '@/types/agent'
+import type { SSEToolCompletedEvent, SSEToolStartedEvent } from '@/types/workflow'
 
 /**
  * 流式响应回调函数类型
@@ -206,6 +207,8 @@ export type SSEWorkflowEvent =
   | { type: 'node_started'; node_id: string; node_name: string; node_type: string }
   | { type: 'node_completed'; node_id: string; node_name: string; output: Record<string, unknown> }
   | { type: 'node_failed'; node_id: string; node_name: string; error: string }
+  | SSEToolStartedEvent
+  | SSEToolCompletedEvent
   | { type: 'execution_completed'; execution_id: string; output: Record<string, unknown> }
   | { type: 'execution_failed'; execution_id: string; error: string }
 
@@ -266,33 +269,40 @@ export function createWorkflowStreamRequest(
       const decoder = new TextDecoder()
       const parser = new SSEParser()
 
+      const handleEvents = (events: ReturnType<SSEParser['feed']>) => {
+        for (const { event: eventType, data: dataStr } of events) {
+          try {
+            const data = JSON.parse(dataStr)
+
+            // 构造事件对象
+            const event = {
+              type: eventType,
+              ...data,
+            } as SSEWorkflowEvent
+
+            callbacks.onEvent(event)
+          } catch (e) {
+            // JSON 解析失败，忽略
+            console.warn('Failed to parse SSE data:', dataStr, e)
+          }
+        }
+      }
+
       try {
         while (true) {
           const { done, value } = await reader.read()
 
           if (done) {
-            // 流式结束
+            // 某些代理在最后一帧后会省略 SSE 规范要求的空行，必须刷新
+            // 解码器和解析器，否则 execution_completed 会停留在缓冲区里，
+            // 页面只会显示节点日志而不会展示最终结果。
+            handleEvents(parser.feed(decoder.decode()).concat(parser.flush()))
             break
           }
 
           // 解码数据块
           const chunk = decoder.decode(value, { stream: true })
-          for (const { event: eventType, data: dataStr } of parser.feed(chunk)) {
-            try {
-              const data = JSON.parse(dataStr)
-
-              // 构造事件对象
-              const event = {
-                type: eventType,
-                ...data,
-              } as SSEWorkflowEvent
-
-              callbacks.onEvent(event)
-            } catch (e) {
-              // JSON 解析失败，忽略
-              console.warn('Failed to parse SSE data:', dataStr, e)
-            }
-          }
+          handleEvents(parser.feed(chunk))
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {

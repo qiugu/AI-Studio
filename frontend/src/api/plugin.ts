@@ -118,12 +118,10 @@ export async function getPluginConfig(
 export async function updatePluginConfig(
   pluginId: string,
   items: PluginConfigItem[],
-  currentPassword: string
+  currentPassword?: string
 ): Promise<ApiResponse<PluginConfigResponse>> {
-  const payload: PluginConfigUpdateRequest = {
-    items,
-    current_password: currentPassword,
-  }
+  const payload: PluginConfigUpdateRequest = { items }
+  if (currentPassword) payload.current_password = currentPassword
   const response = await apiClient.put(`/plugins/${pluginId}/config`, payload)
   return response as unknown as ApiResponse<PluginConfigResponse>
 }

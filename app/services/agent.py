@@ -3,6 +3,7 @@ from typing import Optional, List, Dict, Any, AsyncGenerator
 from datetime import datetime
 import logging
 import uuid
+from types import SimpleNamespace
 
 from pydantic import create_model
 from sqlalchemy.orm import Session
@@ -897,6 +898,32 @@ class AgentService:
                     )
 
         return tools
+
+    def build_langchain_tools_for_bindings(
+        self,
+        bindings: List[Dict[str, Any]],
+        collector: Optional[CitationCollector] = None,
+    ) -> List[Any]:
+        """为工作流 LLM 节点复用 Agent 的工具装配逻辑。
+
+        工作流节点不属于 Agent，也没有 ``AgentTool`` ORM 关系；但插件门禁、端点
+        Schema、HTTP/API/函数/子工作流执行必须与 Agent 完全一致。因此这里只做一层
+        轻量适配，把工作流配置转换成 ``_build_langchain_tools`` 已经理解的工具形状，
+        不复制任何工具执行代码。
+        """
+        tool_objects = [
+            SimpleNamespace(
+                name=binding.get("name", ""),
+                description=binding.get("description"),
+                tool_type=binding.get("tool_type"),
+                config=binding.get("config", {}),
+                is_enabled=binding.get("is_enabled", True),
+            )
+            for binding in bindings
+            if isinstance(binding, dict)
+        ]
+        proxy_agent = SimpleNamespace(tools=tool_objects)
+        return self._build_langchain_tools(proxy_agent, collector)
 
     def _build_llm_client(self, agent: Agent) -> Any:
         """构建LLM客户端"""

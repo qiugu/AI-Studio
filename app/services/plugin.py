@@ -33,6 +33,7 @@ from app.core.plugin_policy import (
 from app.core.tenant_scope import public_or_tenant_filter
 from app.utils.encryption import encrypt, decrypt
 from app.utils.plugin_executor import execute_plugin_call
+from app.utils.secret_fields import contains_sensitive_field, is_sensitive_name
 from app.core.reauthentication import require_current_password
 
 _SUPPORTED_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH"}
@@ -43,14 +44,8 @@ _SUPPORTED_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH"}
 MAX_BINDABLE_PLUGINS = 200
 
 # 敏感配置项名称的子串（命中即视为密钥，回显脱敏、存储加密）。
-_SECRET_KEY_HINTS = (
-    "key", "secret", "token", "password", "pwd", "credential",
-    "authorization", "auth",
-)
-
-
 def _is_secret_key(name: str) -> bool:
-    return any(hint in name.lower() for hint in _SECRET_KEY_HINTS)
+    return is_sensitive_name(name)
 
 
 def _mask_config(value: Any, name_hint: str = "") -> Any:
@@ -472,14 +467,7 @@ class PluginService:
         """
         plugin = self._get_or_404(plugin_id)
         self._authorize(plugin, "configure")
-        if self.actor is not None:
-            require_current_password(
-                self.actor,
-                req.current_password,
-                "plugin_credential_update",
-            )
-
-        # 1. 计算最终配置集合（现有 + 传入 - 待删除），用于 required 校验。
+        # 1. 计算最终配置集合（现有 + 传入 - 待删除），用于 required 校验和凭据判断。
         #    传入值为 None 视为「未改动」：不覆盖既有值（避免前端回显空值/脱敏占位时
         #    把真实凭据误写成空），也用于「敏感项不回显、留空即保留」的契约。
         existing_rows = (
@@ -490,6 +478,23 @@ class PluginService:
             )
             .all()
         )
+        credential_change = any(
+            contains_sensitive_field(item.value, item.name)
+            for item in req.items
+            if item.value is not None
+        ) or any(
+            contains_sensitive_field(
+                next((row.value for row in existing_rows if row.name == name), None),
+                name,
+            )
+            for name in req.remove or []
+        )
+        if self.actor is not None and credential_change:
+            require_current_password(
+                self.actor,
+                req.current_password,
+                "plugin_credential_update",
+            )
         incoming = {it.name: it.value for it in req.items if it.value is not None}
         final = {r.name: r.value for r in existing_rows}
         final.update(incoming)

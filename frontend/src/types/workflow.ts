@@ -2,6 +2,14 @@
 
 export type NodeType = 'start' | 'end' | 'llm' | 'condition' | 'knowledge' | 'code' | 'tool' | 'loop' | 'variable'
 
+export interface WorkflowToolBinding {
+  name: string
+  description?: string
+  tool_type: 'knowledge' | 'api' | 'function' | 'workflow' | 'plugin'
+  config: Record<string, unknown>
+  is_enabled?: boolean
+}
+
 export interface WorkflowNodeConfig {
   // LLM节点配置
   model_id?: string
@@ -11,6 +19,8 @@ export interface WorkflowNodeConfig {
   temperature?: number
   max_tokens?: number
   output_variable?: string
+  tool_bindings?: WorkflowToolBinding[]
+  max_tool_rounds?: number
 
   // Condition节点配置
   conditions?: Array<{
@@ -26,10 +36,9 @@ export interface WorkflowNodeConfig {
   // Code节点配置
   code?: string
   input_variables?: string[]
-  code_output_variable?: string
 
   // Tool节点配置
-  tool_type?: string
+  tool_type?: 'plugin' | 'api' | 'function' | 'workflow'
   tool_name?: string
   tool_config?: Record<string, unknown>
 
@@ -37,6 +46,7 @@ export interface WorkflowNodeConfig {
   loop_type?: 'for' | 'while'
   loop_variable?: string
   loop_source?: string
+  condition_template?: string
   max_iterations?: number
 
   // Variable节点配置
@@ -201,6 +211,21 @@ export interface SSENodeFailedEvent {
   error: string
 }
 
+export interface SSEToolStartedEvent {
+  type: 'tool_started'
+  node_id: string
+  tool_name: string
+  round: number
+}
+
+export interface SSEToolCompletedEvent {
+  type: 'tool_completed'
+  node_id: string
+  tool_name: string
+  round: number
+  status: 'success' | 'error'
+}
+
 export interface SSEExecutionCompletedEvent {
   type: 'execution_completed'
   execution_id: string
@@ -218,5 +243,7 @@ export type SSEWorkflowEvent =
   | SSENodeStartedEvent
   | SSENodeCompletedEvent
   | SSENodeFailedEvent
+  | SSEToolStartedEvent
+  | SSEToolCompletedEvent
   | SSEExecutionCompletedEvent
   | SSEExecutionFailedEvent

@@ -57,6 +57,7 @@ import {
   getSetupProgress,
   splitConnectionConfig,
 } from './pluginExperience'
+import { containsSensitiveConfig, requiresPluginConfigReauth } from '@/utils/reauth'
 import './PluginExperience.css'
 
 const { Title, Text } = Typography
@@ -290,13 +291,6 @@ export default function PluginConfig() {
     return (schema.properties as Record<string, Record<string, unknown>>) || {}
   }, [plugin])
 
-// 与后端 _SECRET_KEY_HINTS 保持一致：命中即视为敏感项，回显不暴露、留空即保留。
-const SECRET_NAME_HINTS = ['key', 'secret', 'token', 'password', 'pwd', 'credential', 'authorization', 'auth']
-function isSecretName(name: string): boolean {
-  const n = (name || '').toLowerCase()
-  return SECRET_NAME_HINTS.some((h) => n.includes(h))
-}
-
   const handleSaveConfig = async () => {
     if (!id) return
     setSaving(true)
@@ -319,7 +313,7 @@ function isSecretName(name: string): boolean {
           // 敏感项：若用户留空且加载时本已设置真实值，则跳过发送，保留既有凭据
           // （后端敏感项回显为 value=null + has_value=true，空值不能作为新值覆盖）。
           const isEmpty = value === null || value === undefined || value === ''
-          if (isSecretName(name) && isEmpty && hasValueRef.current[name]) {
+          if (containsSensitiveConfig(value, name) && isEmpty && hasValueRef.current[name]) {
             return null as unknown as PluginConfigItem
           }
           return { name, value }
@@ -347,14 +341,15 @@ function isSecretName(name: string): boolean {
           return
         }
       }
-      const currentPassword = (hasSchema ? form : connectionForm).getFieldValue(
+      const currentPasswordField = (hasSchema ? form : connectionForm).getFieldValue(
         'current_password'
       ) as string | undefined
-      if (!currentPassword) {
-        message.error('保存连接信息需要输入当前密码')
+      const needsReauth = requiresPluginConfigReauth(items)
+      if (needsReauth && !currentPasswordField) {
+        message.error('修改敏感凭据时需要输入当前密码')
         return
       }
-      await updatePluginConfig(id, items, currentPassword)
+      await updatePluginConfig(id, items, needsReauth ? currentPasswordField : undefined)
       const serverConfigured = items.some((item) => item.name === 'base_url' && item.value)
       const servers = (plugin?.api_spec?.servers as Array<{ url?: string }> | undefined) || []
       setHasConnection(serverConfigured || servers.some((server) => Boolean(server.url)))
@@ -609,7 +604,7 @@ function isSecretName(name: string): boolean {
         {hasSchema ? (
           <Form form={form} layout="vertical" className="plugin-connection-form">
             {Object.entries(schemaProperties).map(([name, prop]) => renderSchemaField(name, prop))}
-            <Form.Item name="current_password" label="当前密码（修改连接凭据时必填）">
+            <Form.Item name="current_password" label="当前密码（仅修改敏感凭据时需要）">
               <Password placeholder="请输入当前登录密码" />
             </Form.Item>
           </Form>
@@ -657,7 +652,7 @@ function isSecretName(name: string): boolean {
                 ),
               }]}
             />
-            <Form.Item name="current_password" label="当前密码（修改连接凭据时必填）">
+            <Form.Item name="current_password" label="当前密码（仅修改敏感凭据时需要）">
               <Password placeholder="请输入当前登录密码" />
             </Form.Item>
           </Form>

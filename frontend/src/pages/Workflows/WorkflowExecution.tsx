@@ -1,13 +1,30 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Button, Form, Input, Space, Timeline, Alert, Spin, message, Result, Descriptions } from 'antd'
-import { PlayCircleOutlined, StopOutlined, CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Empty, Form, Input, Result, Space, Spin, Tag, Timeline, message } from 'antd'
+import {
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  LoadingOutlined,
+  PlayCircleOutlined,
+  StopOutlined,
+  ToolOutlined,
+} from '@ant-design/icons'
 import { getWorkflow, validateWorkflow, executeWorkflowStreamUrl } from '../../api/workflow'
 import { createWorkflowStreamRequest } from '../../utils/streamRequest'
 import type { SSEWorkflowEvent } from '../../utils/streamRequest'
 import type { Workflow } from '../../types/workflow'
 import { getErrorMessage } from '../../utils/request'
 import RouteHeader from '@/components/Layout/RouteHeader'
+import './WorkflowExecution.css'
+
+function formatOutputValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value)
+  } catch {
+    return String(value)
+  }
+}
 
 const WorkflowExecution: React.FC = () => {
   const { workflowId } = useParams<{ workflowId: string }>()
@@ -100,29 +117,48 @@ const WorkflowExecution: React.FC = () => {
     message.info('执行已取消')
   }
 
+  const executionState = executing
+    ? { label: '执行中', tone: 'running' }
+    : error
+      ? { label: '执行失败', tone: 'failed' }
+      : finalOutput
+        ? { label: '已完成', tone: 'completed' }
+        : { label: '待执行', tone: 'ready' }
+
   const renderTimelineItem = (event: SSEWorkflowEvent) => {
     switch (event.type) {
       case 'execution_started':
         return {
           color: 'blue',
           dot: <PlayCircleOutlined />,
-          children: `执行开始 (ID: ${event.execution_id})`,
+          children: (
+            <div className="workflow-event workflow-event--started">
+              <div className="workflow-event__title">执行开始</div>
+              <div className="workflow-event__meta">运行 ID · {event.execution_id}</div>
+            </div>
+          ),
         }
       case 'node_started':
         return {
           color: 'gray',
           dot: <LoadingOutlined />,
-          children: `节点开始: ${event.node_name} (${event.node_type})`,
+          children: (
+            <div className="workflow-event">
+              <div className="workflow-event__title">{event.node_name}</div>
+              <div className="workflow-event__meta">节点开始 · {event.node_type}</div>
+            </div>
+          ),
         }
       case 'node_completed':
         return {
           color: 'green',
           dot: <CheckCircleOutlined />,
           children: (
-            <div>
-              <div>节点完成: {event.node_name}</div>
-              <div style={{ fontSize: 12, color: '#666' }}>
-                输出: {JSON.stringify(event.output).substring(0, 100)}
+            <div className="workflow-event">
+              <div className="workflow-event__title">{event.node_name}</div>
+              <div className="workflow-event__meta">节点完成</div>
+              <div className="workflow-event__output">
+                {formatOutputValue(event.output).substring(0, 180)}
               </div>
             </div>
           ),
@@ -132,9 +168,34 @@ const WorkflowExecution: React.FC = () => {
           color: 'red',
           dot: <CloseCircleOutlined />,
           children: (
-            <div>
-              <div>节点失败: {event.node_name}</div>
-              <div style={{ fontSize: 12, color: 'var(--app-color-danger)' }}>{event.error}</div>
+            <div className="workflow-event workflow-event--failed">
+              <div className="workflow-event__title">{event.node_name}</div>
+              <div className="workflow-event__meta">节点失败</div>
+              <div className="workflow-event__error">{event.error}</div>
+            </div>
+          ),
+        }
+      case 'tool_started':
+        return {
+          color: 'blue',
+          dot: <ToolOutlined />,
+          children: (
+            <div className="workflow-event">
+              <div className="workflow-event__title">调用工具：{event.tool_name}</div>
+              <div className="workflow-event__meta">第 {event.round} 轮 · 调用中</div>
+            </div>
+          ),
+        }
+      case 'tool_completed':
+        return {
+          color: event.status === 'success' ? 'green' : 'red',
+          dot: event.status === 'success' ? <CheckCircleOutlined /> : <CloseCircleOutlined />,
+          children: (
+            <div className={`workflow-event${event.status === 'error' ? ' workflow-event--failed' : ''}`}>
+              <div className="workflow-event__title">工具返回：{event.tool_name}</div>
+              <div className="workflow-event__meta">
+                第 {event.round} 轮 · {event.status === 'success' ? '已返回模型' : '调用失败，已反馈模型'}
+              </div>
             </div>
           ),
         }
@@ -142,13 +203,18 @@ const WorkflowExecution: React.FC = () => {
         return {
           color: 'green',
           dot: <CheckCircleOutlined />,
-          children: '执行完成',
+          children: <div className="workflow-event__title">执行完成</div>,
         }
       case 'execution_failed':
         return {
           color: 'red',
           dot: <CloseCircleOutlined />,
-          children: `执行失败: ${event.error}`,
+          children: (
+            <div className="workflow-event workflow-event--failed">
+              <div className="workflow-event__title">执行失败</div>
+              <div className="workflow-event__error">{event.error}</div>
+            </div>
+          ),
         }
       default:
         return {
@@ -160,21 +226,23 @@ const WorkflowExecution: React.FC = () => {
 
   if (loading) {
     return (
-      <div>
+      <div className="workflow-execution-page">
         <RouteHeader
           eyebrow="应用开发 / 工作流"
           title="执行工作流"
           backTo="/workflows"
           backLabel="返回工作流列表"
         />
-        <Card><Spin size="large" /></Card>
+        <Card className="workflow-panel workflow-loading-panel" bordered={false}>
+          <Spin size="large" />
+        </Card>
       </div>
     )
   }
 
   if (!workflow) {
     return (
-      <div>
+      <div className="workflow-execution-page">
         <RouteHeader
           eyebrow="应用开发 / 工作流"
           title="工作流不存在"
@@ -187,34 +255,40 @@ const WorkflowExecution: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: 24 }}>
+    <div className="workflow-execution-page">
       <RouteHeader
         eyebrow="应用开发 / 工作流"
         title={`执行工作流：${workflow.name}`}
         backTo="/workflows"
         backLabel="返回工作流列表"
+        description={workflow.status === 'published' ? '实时观测节点进度与最终输出' : '当前工作流尚未发布，暂时无法执行'}
         extra={(
-          <Button onClick={() => navigate(`/workflows/${workflowId}/edit`)}>
-            返回编辑
-          </Button>
+          <Space className="workflow-header-actions" size={12}>
+            <Tag color={executionState.tone === 'failed' ? 'error' : executionState.tone === 'completed' ? 'success' : executionState.tone === 'running' ? 'processing' : undefined}>
+              {executionState.label}
+            </Tag>
+            <Button onClick={() => navigate(`/workflows/${workflowId}/edit`)}>
+              返回编辑
+            </Button>
+          </Space>
         )}
       />
-      <Card>
-        <Space orientation="vertical" style={{ width: '100%' }} size="large">
-          {/* 输入参数 */}
-          <Card size="small" title="输入参数">
+      <div className="workflow-execution-grid">
+        <main className="workflow-execution-primary">
+          <Card className="workflow-panel workflow-input-panel" title="输入参数">
             <Form form={form} layout="vertical" onFinish={handleExecute}>
               <Form.Item
-                label="输入数据 (JSON格式)"
+                label="输入数据"
                 name="input_data"
-                help='例如: {"value": 10}'
+                help='请输入 JSON，例如：{"query":"设计一个北京 3 日游的计划"}'
               >
                 <Input.TextArea
-                  rows={4}
+                  className="workflow-json-input"
+                  rows={5}
                   placeholder='{"key": "value"}'
                 />
               </Form.Item>
-              <Form.Item>
+              <div className="workflow-form-actions">
                 <Button
                   type="primary"
                   htmlType="submit"
@@ -225,49 +299,79 @@ const WorkflowExecution: React.FC = () => {
                   执行工作流
                 </Button>
                 {executing && (
-                  <Button
-                    style={{ marginLeft: 8 }}
-                    icon={<StopOutlined />}
-                    onClick={handleCancel}
-                  >
-                    取消
+                  <Button icon={<StopOutlined />} onClick={handleCancel}>
+                    取消执行
                   </Button>
                 )}
-              </Form.Item>
+              </div>
             </Form>
           </Card>
 
-          {/* 执行日志 */}
-          {executionEvents.length > 0 && (
-            <Card size="small" title="执行日志">
-              <Timeline items={executionEvents.map(renderTimelineItem)} />
-            </Card>
-          )}
+          <Card
+            className="workflow-panel workflow-log-panel"
+            title="执行日志"
+            extra={executionEvents.length ? `${executionEvents.length} 个事件` : '等待运行'}
+          >
+            {executionEvents.length > 0 ? (
+              <div className="workflow-timeline-wrap">
+                <Timeline items={executionEvents.map(renderTimelineItem)} />
+              </div>
+            ) : (
+              <Empty
+                className="workflow-empty-state"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="运行后将在这里显示节点进度"
+              />
+            )}
+          </Card>
+        </main>
 
-          {/* 执行结果 */}
-          {finalOutput && (
-            <Card size="small" title="执行结果">
-              <Descriptions bordered column={1}>
-                {Object.entries(finalOutput).map(([key, value]) => (
-                  <Descriptions.Item key={key} label={key}>
-                    <pre style={{ margin: 0 }}>{JSON.stringify(value, null, 2)}</pre>
-                  </Descriptions.Item>
-                ))}
-              </Descriptions>
-            </Card>
-          )}
+        <aside className="workflow-execution-aside">
+          <Card
+            className="workflow-panel workflow-result-panel"
+            title="执行结果"
+            extra={finalOutput ? <Tag color="success">已生成</Tag> : undefined}
+          >
+            {finalOutput ? (
+              Object.keys(finalOutput).length > 0 ? (
+                <div className="workflow-result-list">
+                  {Object.entries(finalOutput).map(([key, value]) => (
+                    <div className="workflow-result-row" key={key}>
+                      <div className="workflow-result-key">{key}</div>
+                      <pre>{formatOutputValue(value)}</pre>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Empty description="本次运行没有输出变量，请在结束节点中配置输出映射。" />
+              )
+            ) : (
+              <Empty
+                description={executing ? '正在等待最终输出' : '执行一次工作流，查看结构化结果。'}
+              />
+            )}
+          </Card>
 
-          {/* 错误信息 */}
+          <Card className="workflow-panel workflow-summary-panel" title="运行摘要">
+            <div className="workflow-stat-grid">
+              <div><span>节点</span><strong>{workflow.nodes.length}</strong></div>
+              <div><span>连线</span><strong>{workflow.edges.length}</strong></div>
+              <div><span>状态</span><strong>{workflow.status === 'published' ? '已发布' : '草稿'}</strong></div>
+            </div>
+          </Card>
+
           {error && (
             <Alert
+              className="workflow-error-alert"
               type="error"
               title="执行失败"
-              message={error}
+              description={error}
               showIcon
+              icon={<CloseCircleOutlined />}
             />
           )}
-        </Space>
-      </Card>
+        </aside>
+      </div>
     </div>
   )
 }

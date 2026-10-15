@@ -20,6 +20,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, SafetyOutlined } from '@ant
 import type { ColumnsType } from 'antd/es/table'
 import { listRoles, createRole, updateRole, deleteRole, listPermissions, setRolePermissions } from '@/api/role'
 import type { Role, Permission } from '@/types/api'
+import { requiresRoleUpdateReauth } from '@/utils/reauth'
 
 const { Title } = Typography
 
@@ -97,11 +98,17 @@ export default function Roles() {
     try {
       const values = await form.validateFields()
       setSubmitting(true)
-      const currentPassword = await askCurrentPassword(
-        editing ? '修改角色需要验证当前密码' : '创建角色需要验证当前密码',
+      const needsReauth = Boolean(
+        editing && requiresRoleUpdateReauth(Boolean(editing.status), Boolean(values.status)),
       )
-      if (!currentPassword) return
-      const payload = { ...values, current_password: currentPassword }
+      const currentPassword = needsReauth
+        ? await askCurrentPassword('修改角色启停状态需要验证当前密码')
+        : null
+      if (needsReauth && !currentPassword) return
+      const payload = {
+        ...values,
+        ...(currentPassword ? { current_password: currentPassword } : {}),
+      }
       if (editing) {
         await updateRole(editing.id, payload)
         message.success('更新成功')

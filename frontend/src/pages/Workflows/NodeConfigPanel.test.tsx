@@ -5,15 +5,27 @@ import type { Node } from 'reactflow'
 
 import NodeConfigPanel from './NodeConfigPanel'
 
-const { listModelsMock, listKnowledgeBasesMock, listPromptsMock } = vi.hoisted(() => ({
+const {
+  listModelsMock,
+  listKnowledgeBasesMock,
+  listPromptsMock,
+  listPluginsMock,
+  listEndpointsMock,
+} = vi.hoisted(() => ({
   listModelsMock: vi.fn(),
   listKnowledgeBasesMock: vi.fn(),
   listPromptsMock: vi.fn(),
+  listPluginsMock: vi.fn(),
+  listEndpointsMock: vi.fn(),
 }))
 
 vi.mock('@/api/ai-model', () => ({ listModels: listModelsMock }))
 vi.mock('@/api/knowledge', () => ({ listKnowledgeBases: listKnowledgeBasesMock }))
 vi.mock('@/api/prompt', () => ({ listPrompts: listPromptsMock }))
+vi.mock('@/api/plugin', () => ({
+  listPlugins: listPluginsMock,
+  listEndpoints: listEndpointsMock,
+}))
 
 vi.mock('antd', async (importOriginal) => {
   const actual = await importOriginal<typeof import('antd')>()
@@ -114,6 +126,8 @@ beforeEach(() => {
       ],
     },
   })
+  listPluginsMock.mockResolvedValue({ data: { items: [] } })
+  listEndpointsMock.mockResolvedValue({ data: [] })
 })
 
 afterEach(cleanup)
@@ -269,5 +283,257 @@ describe('LLM 节点模型配置', () => {
     await waitFor(() => expect(listKnowledgeBasesMock).toHaveBeenCalledWith(1, 100))
     expect(await screen.findByRole('combobox', { name: '知识库' })).toBeDefined()
     expect(await screen.findByText('产品知识库')).toBeDefined()
+  })
+
+  it('结束节点可以配置要展示的输出变量', async () => {
+    const onSave = vi.fn()
+    const endNode = {
+      id: 'end-1',
+      type: 'end',
+      position: { x: 0, y: 0 },
+      data: {
+        name: '结束',
+        config: { output_variables: [] },
+      },
+    } as Node
+
+    render(<NodeConfigPanel visible node={endNode} onClose={vi.fn()} onSave={onSave} />)
+
+    expect(await screen.findByText('输出变量')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: '添加输出变量' }))
+
+    fireEvent.change(screen.getByRole('textbox', { name: '变量名' }), {
+      target: { value: 'answer' },
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: '来源变量' }), {
+      target: { value: 'output' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave).toHaveBeenCalledWith('end-1', {
+      name: '结束',
+      config: { output_variables: [{ name: 'answer', source: 'output' }] },
+    })
+  })
+
+  it('LLM 节点可以配置多轮工具调用能力和最大调用轮数', async () => {
+    const onSave = vi.fn()
+    const toolEnabledLlmNode = {
+      id: 'llm-tool-1',
+      type: 'llm',
+      position: { x: 0, y: 0 },
+      data: {
+        name: '智能查询',
+        config: {
+          model_id: 'model-uuid-1',
+          prompt_template: '请回答用户问题',
+          tool_bindings: [
+            {
+              name: '天气查询',
+              description: '查询天气',
+              tool_type: 'plugin',
+              config: { plugin_id: 'plugin-1', endpoint_id: 'endpoint-1' },
+            },
+          ],
+          max_tool_rounds: 3,
+        },
+      },
+    } as Node
+
+    render(
+      <NodeConfigPanel
+        visible
+        node={toolEnabledLlmNode}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />,
+    )
+
+    expect(await screen.findByText('工具调用能力')).toBeDefined()
+    expect((screen.getByRole('textbox', { name: '能力名称' }) as HTMLInputElement).value).toBe(
+      '天气查询',
+    )
+    expect(screen.getByRole('spinbutton', { name: '最大工具调用轮数' })).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave).toHaveBeenCalledWith('llm-tool-1', {
+      name: '智能查询',
+      config: expect.objectContaining({
+        max_tool_rounds: 3,
+        tool_bindings: [
+          expect.objectContaining({
+            name: '天气查询',
+            tool_type: 'plugin',
+            config: { plugin_id: 'plugin-1', endpoint_id: 'endpoint-1' },
+          }),
+        ],
+      }),
+    })
+  })
+})
+
+describe('工具、循环和变量节点配置', () => {
+  it('插件工具可以从插件目录选择插件和具体端点，并保存引用', async () => {
+    const onSave = vi.fn()
+    listPluginsMock.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'plugin-1',
+            tenant_id: 'tenant-1',
+            name: '天气插件',
+            source_type: 'http',
+            version: '1.0.0',
+            status: 'active',
+            is_public: false,
+            endpoints: [],
+          },
+        ],
+      },
+    })
+    listEndpointsMock.mockResolvedValue({
+      data: [
+        {
+          id: 'endpoint-1',
+          plugin_id: 'plugin-1',
+          endpoint: '/weather',
+          method: 'POST',
+          description: '查询天气',
+        },
+      ],
+    })
+    const pluginNode = {
+      id: 'tool-plugin-1',
+      type: 'tool',
+      position: { x: 0, y: 0 },
+      data: {
+        name: '天气查询',
+        config: {
+          tool_type: 'plugin',
+          tool_name: '天气查询',
+          output_variable: 'weather',
+          tool_config: { params: {} },
+        },
+      },
+    } as Node
+
+    render(<NodeConfigPanel visible node={pluginNode} onClose={vi.fn()} onSave={onSave} />)
+
+    await waitFor(() => {
+      expect(listPluginsMock).toHaveBeenCalledWith({
+        page: 1,
+        page_size: 200,
+        include_public: true,
+        source_type: 'http',
+        status: 'active',
+      })
+    })
+    const pluginSelect = await screen.findByRole('combobox', { name: '插件' })
+    fireEvent.mouseDown(pluginSelect)
+    fireEvent.click(await screen.findByText('天气插件'))
+
+    await waitFor(() => expect(listEndpointsMock).toHaveBeenCalledWith('plugin-1'))
+    const endpointSelect = await screen.findByRole('combobox', { name: '插件端点' })
+    fireEvent.mouseDown(endpointSelect)
+    fireEvent.click(await screen.findByText(/POST \/weather/))
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave).toHaveBeenCalledWith('tool-plugin-1', {
+      name: '天气查询',
+      config: expect.objectContaining({
+        tool_type: 'plugin',
+        tool_config: expect.objectContaining({
+          plugin_id: 'plugin-1',
+          endpoint_id: 'endpoint-1',
+        }),
+      }),
+    })
+  })
+
+  it('工具节点提供完整的工具调用配置，而不是显示暂无配置项', async () => {
+    const onSave = vi.fn()
+    const toolNode = {
+      id: 'tool-1',
+      type: 'tool',
+      position: { x: 0, y: 0 },
+      data: {
+        name: '调用工具',
+        config: {
+          tool_type: 'api',
+          tool_name: '天气查询',
+          input_variables: ['city'],
+          output_variable: 'weather',
+          tool_config: { url: 'https://example.com/weather', method: 'GET' },
+        },
+      },
+    } as Node
+
+    render(<NodeConfigPanel visible node={toolNode} onClose={vi.fn()} onSave={onSave} />)
+
+    expect(await screen.findByRole('combobox', { name: '工具类型' })).toBeDefined()
+    expect(screen.getByRole('textbox', { name: '工具名称' })).toBeDefined()
+    expect(screen.getByRole('combobox', { name: '输入变量' })).toBeDefined()
+    expect(screen.getByRole('textbox', { name: '输出变量名' })).toBeDefined()
+    expect(screen.getByRole('textbox', { name: '工具配置 JSON' })).toBeDefined()
+    expect(screen.queryByText('此节点类型暂无配置项')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave).toHaveBeenCalledWith('tool-1', {
+      name: '调用工具',
+      config: expect.objectContaining({
+        tool_type: 'api',
+        tool_name: '天气查询',
+        input_variables: ['city'],
+        output_variable: 'weather',
+        tool_config: { url: 'https://example.com/weather', method: 'GET' },
+      }),
+    })
+  })
+
+  it('循环节点支持 for/while 的必要配置', async () => {
+    const loopNode = {
+      id: 'loop-1',
+      type: 'loop',
+      position: { x: 0, y: 0 },
+      data: {
+        name: '遍历列表',
+        config: { loop_type: 'for', loop_variable: 'item', loop_source: 'items', max_iterations: 20 },
+      },
+    } as Node
+
+    render(<NodeConfigPanel visible node={loopNode} onClose={vi.fn()} onSave={vi.fn()} />)
+
+    expect(await screen.findByRole('combobox', { name: '循环类型' })).toBeDefined()
+    expect(screen.getByRole('textbox', { name: '当前项名称' })).toBeDefined()
+    expect(screen.getByRole('textbox', { name: '遍历集合' })).toBeDefined()
+    expect(screen.getByRole('spinbutton', { name: '安全上限' })).toBeDefined()
+    expect(screen.getByRole('alert').textContent).toContain('循环体')
+    expect(screen.getByRole('alert').textContent).toContain('完成后')
+  })
+
+  it('变量节点根据变量类型显示上下文来源或表达式字段', async () => {
+    const variableNode = {
+      id: 'variable-2',
+      type: 'variable',
+      position: { x: 0, y: 0 },
+      data: {
+        name: '准备变量',
+        config: {
+          variables: [
+            { name: 'city', type: 'context', source: 'input.city' },
+            { name: 'is_big', type: 'expression', expression: '{{count}} > 10' },
+          ],
+        },
+      },
+    } as Node
+
+    render(<NodeConfigPanel visible node={variableNode} onClose={vi.fn()} onSave={vi.fn()} />)
+
+    expect(await screen.findByPlaceholderText('上下文变量名')).toBeDefined()
+    expect(screen.getByPlaceholderText('表达式，例如 {{count}} > 10')).toBeDefined()
   })
 })
