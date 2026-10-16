@@ -26,18 +26,33 @@ Celery result backend is enabled.
 
 ## Deploy
 
-Run on the target VM from the project root:
+Run from the local workstation; the script uploads the project to the target
+server and executes the existing server-side deployment scripts there:
 
 ```bash
-chmod +x deploy/k8s/build-images.sh deploy/k8s/deploy.sh
-./deploy/k8s/build-images.sh
-./deploy/k8s/deploy.sh
+chmod +x deploy/k8s/one-click-deploy.sh
+./deploy/k8s/one-click-deploy.sh
 ```
 
-If Docker Hub is unavailable on the target VM, build the two ARM64 images on
-another ARM64 Docker host, transfer their `docker save` archives, and import
-them with `sudo ctr --namespace k8s.io images import <archive>` before running
-`deploy.sh`.
+The local script only requires `ssh` and `tar`. The server must provide Docker,
+`ctr`, kubectl, sudo, openssl, and base64. The new script supports
+`./deploy/k8s/one-click-deploy.sh build`,
+`./deploy/k8s/one-click-deploy.sh deploy`,
+`./deploy/k8s/one-click-deploy.sh status`, and
+`./deploy/k8s/one-click-deploy.sh --skip-build`.
+
+The default target is `qiugu@192.168.99.131`. Override it when needed:
+
+```bash
+K8S_DEPLOY_HOST=192.168.99.131 \
+K8S_DEPLOY_USER=qiugu \
+K8S_DEPLOY_SSH_KEY=/path/to/key \
+./deploy/k8s/one-click-deploy.sh
+```
+
+The upload uses a generated temporary directory under `/tmp` on the server and
+removes it after the remote command finishes. The local `.env` file is not
+uploaded; only platform-admin and membership rollout variables are forwarded.
 
 `build-images.sh` uses the repository root for the backend image. It does not
 build an AMD64 image; an AMD64 worker requires a registry-backed BuildKit

@@ -188,11 +188,10 @@ docker compose watch
 如果已有 Kubernetes 集群，也可以使用项目提供的可选 K8s 部署方案：
 
 ```bash
-./deploy/k8s/build-images.sh
-./deploy/k8s/deploy.sh
+./deploy/k8s/one-click-deploy.sh
 ```
 
-Kubernetes 是在本地开发和 Docker Compose 之外新增的部署方式，不替换现有部署流程。清单、资源要求和运维命令见 [deploy/k8s/README.md](deploy/k8s/README.md)。
+新增脚本会把项目上传到部署服务器，再在服务器上执行原有的镜像构建/导入和集群部署脚本。已完成镜像导入时可使用 `./deploy/k8s/one-click-deploy.sh --skip-build`，也可分别执行 `build`、`deploy` 和 `status` 子命令。原有 `deploy/k8s/build-images.sh` 与 `deploy/k8s/deploy.sh` 保持不变。Kubernetes 清单、服务器要求和运维命令见 [deploy/k8s/README.md](deploy/k8s/README.md)。
 
 > 完整的环境要求、本地开发启动、环境变量说明与运维命令，请查阅 [AGENTS.md](AGENTS.md)（技术架构与开发指南）。
 

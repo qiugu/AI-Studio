@@ -249,15 +249,16 @@ git pull && docker compose up -d --build       # 更新后重建
 Kubernetes 是项目新增的一种部署选择，不替代上面的本地开发或 Docker Compose 部署方式。当前清单针对单节点 ARM64 集群设计，使用本地持久卷部署 Redis 与 RabbitMQ，并通过 NodePort 暴露前端：
 
 ```bash
-./deploy/k8s/build-images.sh
-./deploy/k8s/deploy.sh
+./deploy/k8s/one-click-deploy.sh
 ```
+
+新增 `deploy/k8s/one-click-deploy.sh` 会把项目上传到部署服务器，再在服务器上执行原有的镜像构建/导入和集群部署脚本。已完成镜像导入时可使用 `./deploy/k8s/one-click-deploy.sh --skip-build`，也可分别执行 `build`、`deploy` 和 `status` 子命令。原有 `deploy/k8s/build-images.sh` 与 `deploy/k8s/deploy.sh` 保持不变。
 
 默认访问地址为 `http://<节点IP>:30080`。完整的环境假设、镜像导入、验证、日志与回滚说明见 [deploy/k8s/README.md](deploy/k8s/README.md)。
 
-Kubernetes 首次部署时，在运行 `deploy.sh` 前通过环境变量设置 `PLATFORM_ADMIN_EMAIL` 和 `PLATFORM_ADMIN_PASSWORD`（密码至少 12 位）；脚本将两者写入 `ai-studio-secrets`，等待后端迁移完成后创建并等待一次性管理员引导 Job。Job 完成记录会保留，后续部署不重复运行；需要手动重跑时先删除 `job/bootstrap-platform-admin` 再执行 `deploy.sh`。已有 Secret 会被复用，不会覆盖或轮换已有凭据。生产集群建议使用外部 Secret 管理方案，并保护 Kubernetes Secret 的读取权限。
+Kubernetes 首次部署时，在运行 `./deploy/k8s/one-click-deploy.sh` 前通过环境变量设置 `PLATFORM_ADMIN_EMAIL` 和 `PLATFORM_ADMIN_PASSWORD`（密码至少 12 位）；脚本将两者写入 `ai-studio-secrets`，等待后端迁移完成后创建并等待一次性管理员引导 Job。Job 完成记录会保留，后续部署不重复运行；需要手动重跑时先删除 `job/bootstrap-platform-admin` 再执行 `./deploy/k8s/one-click-deploy.sh deploy`。已有 Secret 会被复用，不会覆盖或轮换已有凭据。生产集群建议使用外部 Secret 管理方案，并保护 Kubernetes Secret 的读取权限。
 
-`deploy.sh` 会为新旧 `ai-studio-secrets` 幂等补齐 RabbitMQ 凭据。当前单节点清单中的 RabbitMQ 只实现缓存与消息代理的故障域分离，不构成基础设施高可用；正式多节点生产应使用托管 RabbitMQ 或至少 3 个跨节点副本的 RabbitMQ 集群承载 quorum queue。
+原有 `deploy/k8s/deploy.sh` 会为新旧 `ai-studio-secrets` 幂等补齐 RabbitMQ 凭据。当前单节点清单中的 RabbitMQ 只实现缓存与消息代理的故障域分离，不构成基础设施高可用；正式多节点生产应使用托管 RabbitMQ 或至少 3 个跨节点副本的 RabbitMQ 集群承载 quorum queue。
 
 ---
 
