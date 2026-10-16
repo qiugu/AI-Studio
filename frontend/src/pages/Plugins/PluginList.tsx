@@ -192,7 +192,9 @@ export default function PluginList() {
       <section className="plugin-hero">
         <div className="plugin-hero__copy">
           <Text className="plugin-eyebrow">Agent 能力中心</Text>
-          <Title level={1}>让 Agent 连接你正在使用的服务</Title>
+          <Title level={1}>
+            让 Agent 连接你正在<span className="plugin-hero__nowrap">使用的服务</span>
+          </Title>
           <Paragraph>
             添加一个插件，Agent 就能在对话中查询信息、创建内容或执行操作。你只需要完成连接、试用，再选择给哪些 Agent 使用。
           </Paragraph>

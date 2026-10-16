@@ -33,7 +33,10 @@
   font-size: clamp(30px, 3.4vw, 48px);
   line-height: 1.16;
   letter-spacing: -0.035em;
+  text-wrap: balance;
 }
+
+.plugin-hero__nowrap { white-space: nowrap; }
 
 .plugin-hero__copy p.ant-typography {
   max-width: 650px;

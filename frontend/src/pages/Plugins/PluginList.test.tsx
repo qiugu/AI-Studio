@@ -75,6 +75,7 @@ describe('PluginList capability-first experience', () => {
         name: '让 Agent 连接你正在使用的服务',
       })
     ).toBeTruthy()
+    expect(screen.getByText('使用的服务').classList.contains('plugin-hero__nowrap')).toBe(true)
     expect(screen.getByText('你的服务')).toBeTruthy()
     expect(screen.getByText('插件')).toBeTruthy()
     expect(screen.getByText('Agent')).toBeTruthy()
