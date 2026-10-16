@@ -39,12 +39,55 @@ function parseJson(value: string, allowEmpty: boolean) {
   }
 }
 
+function decodeJsonWhitespace(value: string) {
+  let result = ''
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+
+    if (inString) {
+      result += character
+      if (escaped) {
+        escaped = false
+      } else if (character === '\\') {
+        escaped = true
+      } else if (character === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (character === '"') {
+      inString = true
+      result += character
+      continue
+    }
+
+    if (character === '\\') {
+      const nextCharacter = value[index + 1]
+      const whitespace = nextCharacter === 'n' ? '\n' : nextCharacter === 'r' ? '\r' : nextCharacter === 't' ? '\t' : null
+      if (whitespace) {
+        result += whitespace
+        index += 1
+        continue
+      }
+    }
+
+    result += character
+  }
+
+  return result
+}
+
 function formatJsonHint(value?: string) {
   if (!value) return ''
+  const source = decodeJsonWhitespace(value)
   try {
-    return JSON.stringify(JSON.parse(value), null, 2)
+    return JSON.stringify(JSON.parse(source), null, 2)
   } catch {
-    return value
+    return source
   }
 }
 
@@ -62,6 +105,7 @@ export default function JsonEditor({
   const parsed = parseJson(value, allowEmpty)
   const hasContent = Boolean(value.trim())
   const hasError = Boolean(parsed.error)
+  const exampleValue = formatJsonHint(example)
   const emptyHint = formatJsonHint(example ?? placeholder)
 
   const handleFormat = () => {
@@ -96,7 +140,7 @@ export default function JsonEditor({
               type="text"
               size="small"
               icon={<CodeOutlined />}
-              onClick={() => onChange?.(example)}
+              onClick={() => onChange?.(exampleValue)}
               aria-label="填入示例"
             >
               填入示例

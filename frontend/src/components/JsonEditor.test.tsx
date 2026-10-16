@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import JsonEditor from './JsonEditor'
 
@@ -32,6 +32,10 @@ vi.mock('./CodeEditor', () => ({
 }))
 
 describe('JsonEditor', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   it('uses Monaco JSON mode and formats valid JSON', () => {
     const onChange = vi.fn()
     render(<JsonEditor label="高级配置" value='{"region":"cn-east"}' onChange={onChange} />)
@@ -54,6 +58,21 @@ describe('JsonEditor', () => {
     )
 
     expect(screen.getByText(/JSON 语法错误/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '填入示例' }))
+    expect(onChange).toHaveBeenCalledWith('{\n  "query": "北京天气"\n}')
+  })
+
+  it('converts escaped line breaks in a JSX example into real line breaks', () => {
+    const onChange = vi.fn()
+    render(
+      <JsonEditor
+        label="请求体"
+        value=""
+        example={'{\\n  "query": "北京天气"\\n}'}
+        onChange={onChange}
+      />
+    )
+
     fireEvent.click(screen.getByRole('button', { name: '填入示例' }))
     expect(onChange).toHaveBeenCalledWith('{\n  "query": "北京天气"\n}')
   })
