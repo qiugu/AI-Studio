@@ -39,6 +39,15 @@ function parseJson(value: string, allowEmpty: boolean) {
   }
 }
 
+function formatJsonHint(value?: string) {
+  if (!value) return ''
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
+  }
+}
+
 export default function JsonEditor({
   id,
   label,
@@ -53,6 +62,7 @@ export default function JsonEditor({
   const parsed = parseJson(value, allowEmpty)
   const hasContent = Boolean(value.trim())
   const hasError = Boolean(parsed.error)
+  const emptyHint = formatJsonHint(example ?? placeholder)
 
   const handleFormat = () => {
     if (hasError || !hasContent) return
@@ -102,7 +112,11 @@ export default function JsonEditor({
           language="json"
           height={height}
         />
-        {!hasContent && placeholder && <span className="json-editor__placeholder">{placeholder}</span>}
+        {!hasContent && emptyHint && (
+          <span className="json-editor__placeholder" role="note" aria-label="JSON 示例">
+            {emptyHint}
+          </span>
+        )}
       </div>
       <div className="json-editor__footer" aria-live="polite">
         {parsed.error ? (

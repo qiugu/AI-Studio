@@ -326,9 +326,14 @@
   position: absolute;
   top: 14px;
   left: 58px;
+  right: 14px;
+  overflow: hidden;
   color: #8e9ba7;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.78;
+  overflow-wrap: anywhere;
   pointer-events: none;
   white-space: pre-wrap;
 }

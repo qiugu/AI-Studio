@@ -57,4 +57,19 @@ describe('JsonEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: '填入示例' }))
     expect(onChange).toHaveBeenCalledWith('{\n  "query": "北京天气"\n}')
   })
+
+  it('shows the readable example as the empty-editor hint', () => {
+    render(
+      <JsonEditor
+        label="输入格式"
+        value=""
+        placeholder='{"type":"object","properties":{"query":{"type":"string"}}}'
+        example={'{\n  "type": "object",\n  "properties": {\n    "query": { "type": "string" }\n  }\n}'}
+      />
+    )
+
+    const hint = screen.getByRole('note', { name: 'JSON 示例' }).textContent
+    expect(hint).toContain('"query": {')
+    expect(hint).toContain('"type": "string"')
+  })
 })
