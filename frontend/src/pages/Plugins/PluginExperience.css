@@ -267,6 +267,82 @@
   white-space: nowrap;
 }
 
+.json-editor {
+  min-width: 0;
+}
+
+.json-editor__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
+  margin-bottom: 6px;
+}
+
+.json-editor__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #526170;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.json-editor__label .anticon {
+  color: #8b98a5;
+  font-size: 13px;
+}
+
+.json-editor__heading .ant-btn {
+  color: #54716d;
+  font-size: 12px;
+}
+
+.json-editor__heading .ant-btn:not(:disabled):hover {
+  color: var(--plugin-teal);
+  background: var(--plugin-mint);
+}
+
+.json-editor__surface {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #d7e3e1;
+  border-radius: 9px;
+  background: #1e2933;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.json-editor__surface:focus-within {
+  border-color: var(--plugin-teal);
+  box-shadow: 0 0 0 2px rgba(13, 124, 115, 0.12);
+}
+
+.json-editor--error .json-editor__surface {
+  border-color: var(--app-color-danger);
+}
+
+.json-editor__placeholder {
+  position: absolute;
+  top: 14px;
+  left: 58px;
+  color: #8e9ba7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.json-editor__footer {
+  min-height: 23px;
+  padding-top: 5px;
+  font-size: 12px;
+}
+
+.json-editor__footer .ant-typography {
+  font-size: inherit;
+}
+
 .plugin-modal-intro {
   margin: -4px 0 20px;
   padding: 13px 15px;
@@ -561,4 +637,5 @@
 @media (prefers-reduced-motion: reduce) {
   .plugin-card { transition: none; }
   .plugin-card:hover { transform: none; }
+  .json-editor__surface { transition: none; }
 }

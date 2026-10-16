@@ -1,6 +1,7 @@
 import Editor from '@monaco-editor/react'
 
 interface Props {
+  id?: string
   value: string
   onChange?: (value: string) => void
   language?: string
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export default function CodeEditor({
+  id,
   value,
   onChange,
   language = 'markdown',
@@ -17,6 +19,7 @@ export default function CodeEditor({
 }: Props) {
   return (
     <Editor
+      wrapperProps={id ? { id } : undefined}
       height={height}
       language={language}
       value={value}

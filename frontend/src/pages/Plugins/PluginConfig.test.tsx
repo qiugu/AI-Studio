@@ -33,6 +33,15 @@ vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'plugin-1' }),
 }))
 
+vi.mock('@/components/JsonEditor', () => ({
+  default: ({ label, value = '', onChange, id }: { label?: string; value?: string; onChange?: (value: string) => void; id?: string }) => (
+    <div data-testid="plugin-json-editor">
+      <span>{label ?? 'JSON 编辑器'}</span>
+      <textarea id={id} value={value} onChange={(event) => onChange?.(event.target.value)} />
+    </div>
+  ),
+}))
+
 beforeEach(() => {
   vi.clearAllMocks()
   Object.defineProperty(window, 'matchMedia', {
@@ -91,6 +100,7 @@ describe('PluginConfig guided setup', () => {
     expect(await screen.findByLabelText('服务地址')).toBeTruthy()
     expect(screen.getByLabelText('访问密钥')).toBeTruthy()
     expect(screen.getByLabelText('附加请求头')).toBeTruthy()
+    expect(screen.getAllByTestId('plugin-json-editor').length).toBeGreaterThan(0)
     expect(screen.getByText('其他连接设置')).toBeTruthy()
   })
 })

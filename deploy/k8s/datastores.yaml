@@ -31,6 +31,8 @@ spec:
         app.kubernetes.io/name: ai-studio
         app.kubernetes.io/component: mysql
     spec:
+      nodeSelector: {kubernetes.io/arch: arm64}
+      terminationGracePeriodSeconds: 60
       containers:
         - name: mysql
           image: mysql:8.0
@@ -90,6 +92,8 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: redis}
     spec:
+      nodeSelector: {kubernetes.io/arch: arm64}
+      terminationGracePeriodSeconds: 30
       containers:
         - name: redis
           image: redis:7-alpine
@@ -136,6 +140,8 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: rabbitmq}
     spec:
+      nodeSelector: {kubernetes.io/arch: arm64}
+      terminationGracePeriodSeconds: 60
       containers:
         - name: rabbitmq
           image: rabbitmq:4.1-management-alpine
@@ -194,6 +200,8 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: qdrant}
     spec:
+      nodeSelector: {kubernetes.io/arch: arm64}
+      terminationGracePeriodSeconds: 60
       containers:
         - name: qdrant
           image: qdrant/qdrant:latest

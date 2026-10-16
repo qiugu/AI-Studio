@@ -16,7 +16,6 @@ import {
   Spin,
   Popconfirm,
   Alert,
-  Tooltip,
   Collapse,
 } from 'antd'
 import {
@@ -27,12 +26,12 @@ import {
   DeleteOutlined,
   ThunderboltOutlined,
   ImportOutlined,
-  QuestionCircleOutlined,
   CheckOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
+import JsonEditor from '@/components/JsonEditor'
 import {
   getPlugin,
   getPluginConfig,
@@ -96,66 +95,6 @@ function parseJsonField(
   }
 }
 
-/** 多行 JSON 输入区：带标题、说明、示例与实时格式校验反馈。 */
-function JsonField({
-  label,
-  tooltip,
-  placeholder,
-  example,
-  value,
-  onChange,
-  rows = 3,
-}: {
-  label: string
-  tooltip?: string
-  placeholder?: string
-  example?: string
-  value: string
-  onChange: (v: string) => void
-  rows?: number
-}) {
-  const parsed = parseJsonField(value)
-  const error = isParseError(parsed) ? parsed.error : null
-  return (
-    <Form.Item
-      label={
-        <Space size={4}>
-          <span>{label}</span>
-          {tooltip && (
-            <Tooltip title={tooltip}>
-              <QuestionCircleOutlined style={{ color: '#999' }} />
-            </Tooltip>
-          )}
-        </Space>
-      }
-      validateStatus={error ? 'error' : undefined}
-      help={
-        error ? (
-          error
-        ) : (
-          <span style={{ color: '#999' }}>
-            标准 JSON 格式（双引号、无尾随逗号）。点此查看示例：
-            <Typography.Link
-              style={{ marginLeft: 4 }}
-              onClick={() => onChange(example ?? '')}
-            >
-              填入示例
-            </Typography.Link>
-          </span>
-        )
-      }
-    >
-      <TextArea
-        rows={rows}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        style={error ? { borderColor: 'var(--app-color-danger)' } : undefined}
-      />
-    </Form.Item>
-  )
-}
-
 /** 根据 JSON Schema 渲染单个配置字段 */
 function renderSchemaField(propName: string, prop: Record<string, unknown>) {
   const type = prop.type as string
@@ -173,7 +112,7 @@ function renderSchemaField(propName: string, prop: Record<string, unknown>) {
       break
     case 'object':
     case 'array':
-      control = <TextArea rows={4} placeholder="JSON 格式" />
+      control = <JsonEditor placeholder="JSON 格式" height={180} />
       break
     default:
       control = isSecret ? <Password placeholder="敏感信息" /> : <Input />
@@ -631,7 +570,7 @@ export default function PluginConfig() {
               label="附加请求头"
               extra="仅在服务要求额外身份信息时填写；多数情况下保持空对象即可。"
             >
-              <TextArea rows={4} className="plugin-code-field" placeholder='{"X-Team":"studio"}' />
+              <JsonEditor height={160} placeholder='{"X-Team":"studio"}' />
             </Form.Item>
             <Collapse
               ghost
@@ -640,14 +579,14 @@ export default function PluginConfig() {
                 key: 'other-config',
                 label: '其他连接设置',
                 children: (
-                  <JsonField
+                  <JsonEditor
                     label="高级配置"
                     tooltip="用于该服务特有的连接字段。每个顶层键会保存为一个独立配置项。"
                     placeholder='{"region":"cn-east"}'
                     example='{\n  "region": "cn-east"\n}'
                     value={rawConfig}
                     onChange={setRawConfig}
-                    rows={5}
+                    height={200}
                   />
                 ),
               }]}
@@ -735,32 +674,32 @@ export default function PluginConfig() {
               label: '高级设置',
               children: (
                 <>
-                  <JsonField
+                  <JsonEditor
                     label="固定请求头"
                     tooltip="每次使用这项能力时都会携带的请求头，会与连接信息中的请求头合并。"
                     placeholder='{"X-Api-Key":"..."}'
                     example='{\n  "X-Api-Key": "xxx",\n  "Content-Type": "application/json"\n}'
                     value={epHeaders}
                     onChange={setEpHeaders}
-                    rows={2}
+                    height={140}
                   />
-                  <JsonField
+                  <JsonEditor
                     label="输入格式"
                     tooltip="用 JSON Schema 告诉 Agent 这项能力接受哪些输入。"
                     placeholder='{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}'
                     example='{\n  "type": "object",\n  "properties": {\n    "query": { "type": "string", "description": "查询内容" }\n  },\n  "required": ["query"]\n}'
                     value={epReqSchema}
                     onChange={setEpReqSchema}
-                    rows={4}
+                    height={200}
                   />
-                  <JsonField
+                  <JsonEditor
                     label="返回格式"
                     tooltip="用 JSON Schema 描述服务返回的内容，可以留空。"
                     placeholder='{"type":"object","properties":{"result":{"type":"string"}}}'
                     example='{\n  "type": "object",\n  "properties": {\n    "result": { "type": "string" }\n  }\n}'
                     value={epRespSchema}
                     onChange={setEpRespSchema}
-                    rows={4}
+                    height={200}
                   />
                 </>
               ),
@@ -799,14 +738,14 @@ export default function PluginConfig() {
               }))}
             />
           </Form.Item>
-          <JsonField
+          <JsonEditor
             label="试用内容"
             tooltip="填写一次真实试用需要的内容，例如查询词或记录信息。"
             placeholder='{"query":"北京天气"}'
             example='{\n  "query": "北京天气"\n}'
             value={testParamsText}
             onChange={setTestParamsText}
-            rows={4}
+            height={200}
           />
           <Collapse
             ghost

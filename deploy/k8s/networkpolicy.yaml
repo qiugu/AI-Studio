@@ -1,0 +1,167 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ai-studio
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend
+  namespace: ai-studio
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-studio
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-to-backend
+  namespace: ai-studio
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-studio
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: frontend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: celery-worker
+        # Kubelet HTTP probes originate from node addresses. Keep both
+        # interfaces in this two-node cluster reachable for /health.
+        - ipBlock:
+            cidr: 192.168.1.0/24
+        - ipBlock:
+            cidr: 192.168.99.0/24
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-to-datastores
+  namespace: ai-studio
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-studio
+      app.kubernetes.io/component: mysql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: celery-worker
+        - podSelector:
+            matchLabels:
+              job-name: bootstrap-platform-admin
+      ports:
+        - protocol: TCP
+          port: 3306
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-to-redis
+  namespace: ai-studio
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-studio
+      app.kubernetes.io/component: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: celery-worker
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-to-rabbitmq
+  namespace: ai-studio
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-studio
+      app.kubernetes.io/component: rabbitmq
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: celery-worker
+      ports:
+        - protocol: TCP
+          port: 5672
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-to-qdrant
+  namespace: ai-studio
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-studio
+      app.kubernetes.io/component: qdrant
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-studio
+              app.kubernetes.io/component: celery-worker
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 6334

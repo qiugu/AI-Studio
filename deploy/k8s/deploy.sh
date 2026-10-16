@@ -17,6 +17,28 @@ command -v kubectl >/dev/null || { echo "kubectl is required" >&2; exit 1; }
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
 command -v base64 >/dev/null || { echo "base64 is required" >&2; exit 1; }
 
+preflight_cluster() {
+  local ready_arm64_nodes ready_nodes
+
+  ready_arm64_nodes="$(kubectl get nodes -l kubernetes.io/arch=arm64 --no-headers \
+    | awk '$2 ~ /^Ready/ {count += 1} END {print count + 0}')"
+  if [[ "${ready_arm64_nodes}" -lt 1 ]]; then
+    echo "No Ready ARM64 node is available for the checked-in local images." >&2
+    exit 1
+  fi
+
+  ready_nodes="$(kubectl get nodes --no-headers \
+    | awk '$2 ~ /^Ready/ {count += 1} END {print count + 0}')"
+  if [[ "${ready_nodes}" -lt 2 ]]; then
+    echo "Warning: fewer than two Ready nodes are available; this deployment is not HA." >&2
+  fi
+
+  kubectl --namespace kube-system wait \
+    --for=condition=Ready pod \
+    -l k8s-app=calico-node \
+    --timeout=180s
+}
+
 membership_dual_write_enabled="${MEMBERSHIP_DUAL_WRITE_ENABLED:-false}"
 membership_read_mode="${MEMBERSHIP_READ_MODE:-legacy}"
 case "${membership_dual_write_enabled,,}" in
@@ -64,6 +86,8 @@ if [[ -n "${PLATFORM_ADMIN_PASSWORD:-}" && ${#PLATFORM_ADMIN_PASSWORD} -lt 12 ]]
   echo "PLATFORM_ADMIN_PASSWORD must contain at least 12 characters." >&2
   exit 1
 fi
+
+preflight_cluster
 
 sudo install -d -m 0777 \
   /var/lib/ai-studio/mysql \

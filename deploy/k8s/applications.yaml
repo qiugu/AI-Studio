@@ -11,6 +11,8 @@ kind: Deployment
 metadata: {name: backend, namespace: ai-studio}
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
   strategy: {type: Recreate}
   selector:
     matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: backend}
@@ -18,6 +20,7 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: backend}
     spec:
+      nodeSelector: {kubernetes.io/arch: arm64}
       initContainers:
         - name: wait-for-datastores
           image: ai-studio-backend:local
@@ -64,6 +67,11 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 12
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
           livenessProbe:
             httpGet: {path: /health, port: http}
             initialDelaySeconds: 30
@@ -85,6 +93,8 @@ kind: Deployment
 metadata: {name: celery-worker, namespace: ai-studio}
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
   strategy: {type: Recreate}
   selector:
     matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: celery-worker}
@@ -92,6 +102,7 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: celery-worker}
     spec:
+      nodeSelector: {kubernetes.io/arch: arm64}
       initContainers:
         - name: wait-for-backend-and-broker
           image: ai-studio-backend:local
@@ -160,6 +171,8 @@ kind: Deployment
 metadata: {name: frontend, namespace: ai-studio}
 spec:
   replicas: 1
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
   strategy: {type: Recreate}
   selector:
     matchLabels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: frontend}
@@ -167,6 +180,8 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: ai-studio, app.kubernetes.io/component: frontend}
     spec:
+      nodeSelector: {kubernetes.io/arch: arm64}
+      terminationGracePeriodSeconds: 30
       containers:
         - name: frontend
           image: ai-studio-frontend:local

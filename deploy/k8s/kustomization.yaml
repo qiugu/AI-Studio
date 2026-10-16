@@ -4,5 +4,6 @@ resources:
   - namespace.yaml
   - storage.yaml
   - configmap.yaml
+  - networkpolicy.yaml
   - datastores.yaml
   - applications.yaml

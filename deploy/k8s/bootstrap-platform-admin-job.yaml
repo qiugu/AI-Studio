@@ -15,6 +15,7 @@ spec:
         app.kubernetes.io/component: platform-admin-bootstrap
     spec:
       restartPolicy: Never
+      nodeSelector: {kubernetes.io/arch: arm64}
       containers:
         - name: bootstrap-platform-admin
           image: ai-studio-backend:local
