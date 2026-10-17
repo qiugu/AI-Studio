@@ -139,7 +139,9 @@ prepare_env_file() {
   for key in PLATFORM_ADMIN_EMAIL PLATFORM_ADMIN_PASSWORD \
     MEMBERSHIP_DUAL_WRITE_ENABLED MEMBERSHIP_READ_MODE; do
     value="$(local_env_value "${key}")"
-    [[ -n "${value}" ]] && printf '%s=%q\n' "${key}" "${value}" >>"${LOCAL_ENV_FILE}"
+    if [[ -n "${value}" ]]; then
+      printf '%s=%q\n' "${key}" "${value}" >>"${LOCAL_ENV_FILE}"
+    fi
   done
 }
 
