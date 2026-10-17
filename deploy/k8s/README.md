@@ -22,7 +22,15 @@ NodePort `30080`.
 Redis is dedicated to cache, rate limiting, and token revocation. RabbitMQ is
 the Celery Broker and stores the durable `default`, `document.ingest`, and
 `tenant.cleanup` quorum queues. Task business status remains in MySQL; no
-Celery result backend is enabled.
+Celery result backend is enabled. Redis authentication is generated into the
+Kubernetes Secret on first deployment and reused later; it is intentionally not
+stored in the ConfigMap. Redis also has a bounded `maxmemory` and an eviction
+policy because cache and rate-limit data are disposable. The default policy is
+`noeviction` because the same instance also contains Token revocation state;
+this prevents memory pressure from silently deleting a blacklist entry. The
+checked-in Redis StatefulSet is a single replica and is not highly available;
+production HA requires managed Redis, Sentinel, or Cluster with monitored
+failover.
 
 ## Deploy
 
@@ -70,11 +78,12 @@ kubectl apply --dry-run=server -k deploy/k8s
 ARM64 node and waits for all `k8s-app=calico-node` Pods to be Ready, then applies
 the resources and waits for the workload rollouts.
 
-The first run creates `ai-studio-secrets` with generated database, RabbitMQ,
-JWT, and Fernet keys. Later runs reuse that Secret so existing database
-credentials, Broker credentials, and encrypted provider keys remain valid.
-When upgrading an older installation, `deploy.sh` patches only missing
-RabbitMQ keys and does not rotate existing database, JWT, or Fernet values.
+The first run creates `ai-studio-secrets` with generated database, Redis,
+RabbitMQ, JWT, and Fernet keys. Later runs reuse that Secret so existing
+database credentials, Redis/Broker credentials, and encrypted provider keys
+remain valid. When upgrading an older installation, `deploy.sh` patches only
+missing Redis/RabbitMQ keys and does not rotate existing database, JWT, or
+Fernet values.
 
 To create the initial platform administrator, export both values before the
 first deployment:

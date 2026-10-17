@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 import jwt
 from pwdlib import PasswordHash
@@ -23,6 +24,7 @@ def create_access_token(user_id: str, tenant_id: str, authz_version: int = 1) ->
         "sub": str(user_id),
         "tid": tenant_id,
         "authz_version": int(authz_version),
+        "jti": uuid4().hex,
         "exp": expire,
         "type": "access",
     }
@@ -38,6 +40,7 @@ def create_refresh_token(user_id: str, credentials_version: int = 1) -> str:
     to_encode: dict[str, Any] = {
         "sub": str(user_id),
         "credentials_version": int(credentials_version),
+        "jti": uuid4().hex,
         "exp": expire,
         "type": "refresh",
     }

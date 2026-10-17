@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -28,6 +29,34 @@ from app.core.vector_db import (
     search_points,
     search_sparse_points,
 )
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.values = {}
+        self.locks = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def setex(self, key, _ttl, value):
+        self.values[key] = value
+        return True
+
+    async def set(self, key, value, nx=False, ex=None):
+        del ex
+        if nx and key in self.locks:
+            return False
+        self.locks[key] = value
+        return True
+
+    async def eval(self, _script, _numkeys, key, token):
+        if self.locks.get(key) == token:
+            del self.locks[key]
+        return 1
+
+    async def delete(self, key):
+        self.values.pop(key, None)
 
 
 @pytest.fixture(autouse=True)
@@ -191,17 +220,27 @@ class TestCollectionLayout:
         assert vector_db.collection_layout("kb_x", client=client) == "missing"
         assert vector_db.collection_layout("kb_x", client=client) == "hybrid"
 
-    def test_result_is_cached(self):
+    def test_result_is_cached_in_redis(self, monkeypatch):
+        redis = _FakeRedis()
+        async def get_redis():
+            return redis
+
+        monkeypatch.setattr(vector_db, "get_redis", get_redis)
         client = self._client(sparse_names=[NAMED_SPARSE_VECTOR])
-        vector_db.collection_layout("kb_x", client=client)
-        vector_db.collection_layout("kb_x", client=client)
+        asyncio.run(vector_db.collection_layout_async("kb_x", client=client))
+        asyncio.run(vector_db.collection_layout_async("kb_x", client=client))
         assert client.get_collection.call_count == 1, "未命中缓存，每次检索都会多一次往返"
 
-    def test_reset_cache_forces_reprobe(self):
+    def test_reset_cache_forces_reprobe(self, monkeypatch):
+        redis = _FakeRedis()
+        async def get_redis():
+            return redis
+
+        monkeypatch.setattr(vector_db, "get_redis", get_redis)
         client = self._client(sparse_names=[NAMED_SPARSE_VECTOR])
-        vector_db.collection_layout("kb_x", client=client)
-        vector_db.reset_layout_cache()
-        vector_db.collection_layout("kb_x", client=client)
+        asyncio.run(vector_db.collection_layout_async("kb_x", client=client))
+        asyncio.run(vector_db.reset_layout_cache_async("kb_x"))
+        asyncio.run(vector_db.collection_layout_async("kb_x", client=client))
         assert client.get_collection.call_count == 2
 
 

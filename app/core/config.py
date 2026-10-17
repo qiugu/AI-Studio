@@ -52,6 +52,8 @@ CHUNK_STRATEGY_VERSION: str = 'p3'
 
 
 class Config(BaseSettings):
+    env: str = 'prod'
+    app_name: str = 'ai-studio'
     # 首次部署平台管理员引导账号。两项均为空时不创建；不提供默认凭据。
     platform_admin_email: str = ''
     platform_admin_password: SecretStr = SecretStr('')
@@ -76,11 +78,10 @@ class Config(BaseSettings):
     redis_db: int = 0
     redis_password: SecretStr = SecretStr('')
 
-    # Synchronous PDP calls use a bounded in-process positive-decision cache.
+    # Synchronous PDP calls use a short-lived Redis positive-decision cache.
     # authz_version is part of every key; keep the TTL short as defense in
     # depth for changes made outside the application mutation services.
     authz_cache_ttl_seconds: float = 5.0
-    authz_cache_max_entries: int = 10000
     # Require the authenticated user's current password for high-risk tenant
     # authorization mutations.  Keep this configurable for staged rollout,
     # but fail closed by default.

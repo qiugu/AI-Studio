@@ -6,6 +6,8 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 K8S_DEPLOY_HOST="${K8S_DEPLOY_HOST:-192.168.99.131}"
 K8S_DEPLOY_USER="${K8S_DEPLOY_USER:-qiugu}"
 K8S_DEPLOY_SSH_KEY="${K8S_DEPLOY_SSH_KEY:-}"
+K8S_DEPLOY_PRIVILEGED_IMAGE="${K8S_DEPLOY_PRIVILEGED_IMAGE:-node:22-bookworm}"
+K8S_DEPLOY_REUSE_BACKEND_DEPS="${K8S_DEPLOY_REUSE_BACKEND_DEPS:-false}"
 REMOTE_TARGET="${K8S_DEPLOY_USER}@${K8S_DEPLOY_HOST}"
 REMOTE_DIR=""
 LOCAL_ENV_FILE=""
@@ -26,6 +28,10 @@ Local requirements: ssh and tar.
 Server requirements: Docker, ctr, kubectl, sudo, openssl, and base64.
 Configure K8S_DEPLOY_HOST, K8S_DEPLOY_USER, and optionally
 K8S_DEPLOY_SSH_KEY when the defaults do not match the target server.
+If sudo is not passwordless, the server must have the image named by
+K8S_DEPLOY_PRIVILEGED_IMAGE so Docker can access host ctr and install.
+Set K8S_DEPLOY_REUSE_BACKEND_DEPS=true only when the existing server backend
+image already contains the exact requirements.txt dependencies.
 EOF
 }
 
@@ -44,7 +50,68 @@ if [[ -n "${K8S_DEPLOY_SSH_KEY}" ]]; then
 fi
 
 ssh_remote() {
-  ssh "${ssh_options[@]}" -o BatchMode=yes "${REMOTE_TARGET}" "$@"
+  if ((${#ssh_options[@]} > 0)); then
+    ssh "${ssh_options[@]}" -o BatchMode=yes "${REMOTE_TARGET}" "$@"
+  else
+    ssh -o BatchMode=yes "${REMOTE_TARGET}" "$@"
+  fi
+}
+
+remote_privilege_helper() {
+  local image reuse
+  printf -v image '%q' "${K8S_DEPLOY_PRIVILEGED_IMAGE}"
+  printf -v reuse '%q' "${K8S_DEPLOY_REUSE_BACKEND_DEPS}"
+  cat <<EOF
+if [[ ${reuse} == true ]]; then
+docker() {
+  if [[ "\$1" == build && "\$*" == *ai-studio-backend:local* ]]; then
+    echo "Reusing the existing backend image dependencies on the server..."
+    command docker tag ai-studio-backend:local ai-studio-backend:deploy-deps-cache
+    command docker build --platform linux/arm64 -t ai-studio-backend:local -f - . <<'AI_STUDIO_BACKEND_DOCKERFILE'
+FROM ai-studio-backend:deploy-deps-cache
+WORKDIR /app
+COPY app /app/app
+COPY alembic /app/alembic
+COPY scripts /app/scripts
+COPY alembic.ini /app/alembic.ini
+COPY requirements.txt /app/requirements.txt
+AI_STUDIO_BACKEND_DOCKERFILE
+  else
+    command docker "\$@"
+  fi
+}
+export -f docker
+fi
+sudo() {
+  case "\$1" in
+    docker)
+      shift
+      if [[ ${reuse} == true && "\$1" == build && "\$*" == *ai-studio-backend:local* ]]; then
+        docker "\$@"
+      elif command sudo -n true >/dev/null 2>&1; then
+        command sudo docker "\$@"
+      else
+        docker "\$@"
+      fi
+      ;;
+    ctr|install)
+      if command sudo -n true >/dev/null 2>&1; then
+        command sudo "\$@"
+        return
+      fi
+      local executable="\$1"
+      shift
+      command docker run --rm --privileged -v /:/host ${image} \\
+        chroot /host "/usr/bin/\${executable}" "\$@"
+      ;;
+    *)
+      echo "one-click-deploy.sh: no non-interactive privilege fallback for sudo \$*" >&2
+      return 1
+      ;;
+  esac
+}
+export -f sudo
+EOF
 }
 
 read_env_value() {
@@ -107,6 +174,7 @@ upload_project() {
     --exclude=.git \
     --exclude=.venv \
     --exclude=.env \
+    --exclude=.hf-cache \
     --exclude=frontend/node_modules \
     --exclude=frontend/dist \
     --exclude='*.pyc' \
@@ -121,6 +189,9 @@ upload_project() {
 run_remote() {
   local build_images="$1"
   local command=""
+  local privilege_helper
+
+  privilege_helper="$(remote_privilege_helper)"
 
   if [[ "${build_images}" == "true" ]]; then
     command+='chmod +x deploy/k8s/build-images.sh deploy/k8s/deploy.sh && '
@@ -128,12 +199,14 @@ run_remote() {
   fi
   command+='bash deploy/k8s/deploy.sh'
   echo "Executing deployment on ${REMOTE_TARGET}..."
-  ssh_remote "cd '${REMOTE_DIR}' && if [ -s .env.k8s ]; then set -a; . ./.env.k8s; set +a; fi; ${command}"
+  ssh_remote "cd '${REMOTE_DIR}' && ${privilege_helper}; if [ -s .env.k8s ]; then set -a; . ./.env.k8s; set +a; fi; ${command}"
 }
 
 run_remote_build() {
+  local privilege_helper
+  privilege_helper="$(remote_privilege_helper)"
   echo "Executing image build/import on ${REMOTE_TARGET}..."
-  ssh_remote "cd '${REMOTE_DIR}' && chmod +x deploy/k8s/build-images.sh && bash deploy/k8s/build-images.sh"
+  ssh_remote "cd '${REMOTE_DIR}' && ${privilege_helper}; chmod +x deploy/k8s/build-images.sh && bash deploy/k8s/build-images.sh"
 }
 
 run_remote_status() {

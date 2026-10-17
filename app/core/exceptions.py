@@ -64,6 +64,11 @@ class ConflictException(AppException):
         super().__init__(409, "CONFLICT", message)
 
 
+class ServiceUnavailableException(AppException):
+    def __init__(self, message: str = "Service temporarily unavailable"):
+        super().__init__(503, "SERVICE_UNAVAILABLE", message)
+
+
 def build_error_envelope(exc: "AppException") -> dict:
     """构造统一异常响应信封 ``{code, error_code?, message, data}``。
 

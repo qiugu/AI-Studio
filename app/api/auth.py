@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.schemas.auth import (
     ChangePasswordForm,
     LoginForm,
+    LogoutForm,
     RefreshForm,
     VerifyEmailForm,
     ResendVerifyForm,
@@ -14,9 +15,13 @@ from app.schemas.common import ResponseBase
 from app.core.database import get_session
 from app.core.dependencies import CurrentUser
 from app.core.security import create_access_token, create_refresh_token, verify_password, decode_token
-from app.core.exceptions import UnauthorizedException, BadRequestException, ForbiddenException
-from app.core.redis import get_redis
-from app.core.config import config
+from app.core.exceptions import (
+    UnauthorizedException,
+    BadRequestException,
+    ForbiddenException,
+    ServiceUnavailableException,
+)
+from app.core.redis import get_redis, token_blacklist_key
 from app.models.user import User
 from app.services.user import (
     update_last_login,
@@ -30,32 +35,37 @@ from app.utils.email import send_verification_email
 
 router = APIRouter()
 
-# Token 黑名单 Redis key 前缀
-_TOKEN_BLACKLIST_PREFIX = "token_blacklist:"
-_TOKEN_BLACKLIST_TTL = 60 * 60 * 24 * 7  # 7 天
-
-
-async def _blacklist_token(token: str) -> None:
+async def _blacklist_token(token: str) -> bool:
     """将 token 加入 Redis 黑名单。"""
     redis = await get_redis()
-    if redis is not None:
-        try:
-            payload = decode_token(token)
-            import time
-            exp = payload.get("exp", 0)
-            ttl = max(int(exp - time.time()), 1)
-            await redis.setex(f"{_TOKEN_BLACKLIST_PREFIX}{token}", ttl, "1")
-        except Exception:
-            pass
+    if redis is None:
+        raise ServiceUnavailableException("Token revocation service is unavailable")
+    try:
+        payload = decode_token(token)
+    except ValueError:
+        # 已过期或格式错误的 Token 本身不能再恢复会话，视为已完成退出。
+        return True
+
+    try:
+        import time
+        exp = payload.get("exp", 0)
+        ttl = max(int(exp - time.time()), 1)
+        await redis.setex(token_blacklist_key(token), ttl, "1")
+        return True
+    except Exception as exc:  # noqa: BLE001 - security state cannot silently bypass
+        raise ServiceUnavailableException("Token revocation service is unavailable") from exc
 
 
 async def _is_token_blacklisted(token: str) -> bool:
     """检查 token 是否在黑名单中。"""
     redis = await get_redis()
     if redis is None:
-        return False
-    result = await redis.get(f"{_TOKEN_BLACKLIST_PREFIX}{token}")
-    return result is not None
+        raise ServiceUnavailableException("Token revocation service is unavailable")
+    try:
+        result = await redis.get(token_blacklist_key(token))
+        return result is not None
+    except Exception as exc:  # noqa: BLE001 - security state cannot silently bypass
+        raise ServiceUnavailableException("Token revocation service is unavailable") from exc
 
 
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -218,11 +228,15 @@ def change_password_api(
 async def logout(
     request: Request,
     current_user: CurrentUser,
+    data: LogoutForm | None = None,
 ) -> ResponseBase:
-    # 将 access token 加入黑名单
+    # Access Token 与 Refresh Token 使用不同 jti，退出时都撤销。
     token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-    if token:
-        await _blacklist_token(token)
+    tokens = [token] if token else []
+    if data and data.refresh_token:
+        tokens.append(data.refresh_token)
+    for candidate in tokens:
+        await _blacklist_token(candidate)
 
     return ResponseBase.ok()
 

@@ -13,6 +13,18 @@ from app.models import Permission, Role, Tenant, User
 from app.models.user_role import user_role
 
 
+class _FakeRedis:
+    def __init__(self):
+        self.values = {}
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def setex(self, key, _ttl, value):
+        self.values[key] = value
+        return True
+
+
 @pytest.fixture
 def db():
     engine = create_engine("sqlite:///:memory:")
@@ -156,19 +168,15 @@ def test_unknown_permission_fails_closed(db):
         )
 
 
-def test_positive_permission_cache_is_invalidated_by_authz_version(db):
+def test_sync_permission_path_reads_database_after_role_change(db):
     actor = _create_actor(db)
     service = AuthorizationService(db)
 
     assert service.check_permission(actor, "tenant-a", "agent", "chat").allowed
 
-    # Simulate a stale cache entry from a mutation path that did not bump the
-    # version.  The supported mutation services always bump authz_version.
+    # Synchronous compatibility callers bypass the async Redis cache and read
+    # the database directly, so role removal is immediately visible.
     db.execute(user_role.delete().where(user_role.c.user_id == actor.id))
-    db.commit()
-    assert service.check_permission(actor, "tenant-a", "agent", "chat").allowed
-
-    actor.authz_version += 1
     db.commit()
     decision = service.check_permission(actor, "tenant-a", "agent", "chat")
     assert decision.allowed is False

@@ -1,10 +1,7 @@
 """Centralized tenant-aware authorization decisions."""
 from dataclasses import dataclass
 from contextvars import ContextVar
-from collections import OrderedDict
 import logging
-from threading import RLock
-from time import monotonic
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -13,6 +10,12 @@ from app.core.exceptions import ForbiddenException
 from app.core.config import config
 from app.core.permissions import get_permission_definition
 from app.core.membership import effective_role_ids
+from app.core.redis import (
+    authorization_cache_key,
+    cache_get_json,
+    cache_set_json,
+    get_redis,
+)
 from app.models.permission import Permission
 from app.models.role import Role
 from app.models.role_permission import role_permission
@@ -40,25 +43,13 @@ _authorization_decision_ctx: ContextVar[AuthorizationDecision | None] = ContextV
     "authorization_decision_ctx", default=None
 )
 
-# The authorization service is synchronous because it runs alongside the
-# SQLAlchemy Session.  Keep this cache local and bounded instead of calling the
-# async Redis client from a synchronous request path.  The user authz_version
-# is part of the key, so supported role/member mutations invalidate old
-# entries without requiring a cross-process cache delete.
-_authorization_allow_cache: OrderedDict[
-    tuple[str, str, int, str, str, str, int], tuple[float, AuthorizationDecision]
-] = OrderedDict()
-_authorization_cache_lock = RLock()
-
-
 def clear_authorization_cache() -> None:
-    """Clear local positive authorization decisions.
+    """Compatibility hook retained for tests and lifecycle callers.
 
-    Primarily useful for process lifecycle hooks and deterministic tests.  A
-    normal authorization change relies on ``User.authz_version`` instead.
+    Authorization decisions are now stored in Redis and are versioned by the
+    user's authorization version.  There is no process-local cache to clear.
     """
-    with _authorization_cache_lock:
-        _authorization_allow_cache.clear()
+    return None
 
 
 def _authorization_cache_key(
@@ -67,8 +58,8 @@ def _authorization_cache_key(
     resource: str,
     action: str,
     membership_version: int = 0,
-) -> tuple[str, str, int, str, str, str, int]:
-    return (
+) -> str:
+    return authorization_cache_key(
         str(actor.id),
         str(tenant_id),
         int(actor.authz_version or 1),
@@ -79,35 +70,15 @@ def _authorization_cache_key(
     )
 
 
-def _get_cached_allow(
-    key: tuple[str, str, int, str, str, str, int],
-) -> AuthorizationDecision | None:
-    now = monotonic()
-    with _authorization_cache_lock:
-        cached = _authorization_allow_cache.get(key)
-        if cached is None:
-            return None
-        expires_at, decision = cached
-        if expires_at <= now:
-            _authorization_allow_cache.pop(key, None)
-            return None
-        _authorization_allow_cache.move_to_end(key)
-        return remember_authorization_decision(decision)
-
-
-def _cache_allow(
-    key: tuple[str, str, int, str, str, str, int],
-    decision: AuthorizationDecision,
-) -> None:
-    ttl = float(config.authz_cache_ttl_seconds)
-    if ttl <= 0:
-        return
-    max_entries = max(1, int(config.authz_cache_max_entries))
-    with _authorization_cache_lock:
-        _authorization_allow_cache[key] = (monotonic() + ttl, decision)
-        _authorization_allow_cache.move_to_end(key)
-        while len(_authorization_allow_cache) > max_entries:
-            _authorization_allow_cache.popitem(last=False)
+def _cache_payload(decision: AuthorizationDecision) -> dict[str, Any]:
+    return {
+        "allowed": decision.allowed,
+        "reason": decision.reason,
+        "permission_key": decision.permission_key,
+        "tenant_id": decision.tenant_id,
+        "target_type": decision.target_type,
+        "target_id": decision.target_id,
+    }
 
 
 def remember_authorization_decision(
@@ -179,10 +150,11 @@ class AuthorizationService:
                 return deny("resource_deleted")
 
         # Resource-level policy (ownership/publication/grants) must still be
-        # evaluated against the current object.  Cache only the tenant RBAC
-        # decision for object-free checks; the versioned key prevents stale
-        # grants after supported role/member mutations.
-        cache_key = None
+        # evaluated against the current object.  The asynchronous entry point
+        # adds the versioned Redis cache around this database decision.  This
+        # synchronous compatibility method deliberately stays database-only;
+        # calling an async Redis client from it would block or deadlock the
+        # FastAPI event loop.
         membership_for_read = None
         if membership_read_mode == "membership":
             membership_for_read = (
@@ -194,22 +166,6 @@ class AuthorizationService:
                 )
                 .first()
             )
-        if resource_obj is None and membership_read_mode != "shadow":
-            cache_key = _authorization_cache_key(
-                actor,
-                tenant_id,
-                resource,
-                action,
-                membership_version=(
-                    int(membership_for_read[1] or 1)
-                    if membership_for_read is not None
-                    else 0
-                ),
-            )
-            cached = _get_cached_allow(cache_key)
-            if cached is not None:
-                return cached
-
         permission = (
             self.db.query(Permission)
             .filter(
@@ -327,9 +283,84 @@ class AuthorizationService:
             target_type=target_type,
             target_id=target_id,
         )
-        if cache_key is not None:
-            _cache_allow(cache_key, decision)
         return remember_authorization_decision(decision)
+
+    async def check_permission_async(
+        self,
+        actor: User,
+        tenant_id: str,
+        resource: str,
+        action: str,
+        resource_obj: Any | None = None,
+    ) -> AuthorizationDecision:
+        """Check permission with the shared asynchronous Redis cache.
+
+        The database remains the source of truth.  Redis is only used for the
+        object-free tenant RBAC decision, and cache failures fall back to the
+        synchronous database evaluation above.
+        """
+        membership_read_mode = str(
+            getattr(config, "membership_read_mode", "legacy")
+        ).lower()
+        cache_key = None
+        redis = None
+        if resource_obj is None and membership_read_mode != "shadow":
+            membership_version = 0
+            if membership_read_mode == "membership":
+                membership = (
+                    self.db.query(TenantMembership.authz_version)
+                    .filter(
+                        TenantMembership.user_id == actor.id,
+                        TenantMembership.tenant_id == tenant_id,
+                        TenantMembership.status.is_(True),
+                    )
+                    .first()
+                )
+                membership_version = int(membership[0] or 1) if membership else 0
+            cache_key = _authorization_cache_key(
+                actor,
+                tenant_id,
+                resource,
+                action,
+                membership_version=membership_version,
+            )
+            redis = await get_redis()
+            if redis is not None:
+                try:
+                    cached = await cache_get_json(redis, cache_key)
+                    if isinstance(cached, dict) and cached.get("allowed") is True:
+                        return remember_authorization_decision(
+                            AuthorizationDecision(
+                                allowed=True,
+                                reason=str(cached["reason"]),
+                                permission_key=str(cached["permission_key"]),
+                                tenant_id=cached.get("tenant_id"),
+                                target_type=cached.get("target_type"),
+                                target_id=cached.get("target_id"),
+                            )
+                        )
+                except Exception:  # noqa: BLE001 - fall back to the database
+                    logger.warning("Authorization cache read failed", exc_info=True)
+
+        decision = self.check_permission(
+            actor,
+            tenant_id,
+            resource,
+            action,
+            resource_obj=resource_obj,
+        )
+        if redis is not None and cache_key is not None and decision.allowed:
+            try:
+                await cache_set_json(
+                    redis,
+                    cache_key,
+                    _cache_payload(decision),
+                    float(config.authz_cache_ttl_seconds),
+                    jitter_seconds=2,
+                )
+            except Exception:  # noqa: BLE001 - cache failure must not deny access
+                logger.warning("Authorization cache write failed", exc_info=True)
+        return decision
 
     def require_permission(
         self,
@@ -340,6 +371,25 @@ class AuthorizationService:
         resource_obj: Any | None = None,
     ) -> AuthorizationDecision:
         decision = self.check_permission(
+            actor,
+            tenant_id,
+            resource,
+            action,
+            resource_obj=resource_obj,
+        )
+        if not decision.allowed:
+            raise ForbiddenException(resource, action)
+        return decision
+
+    async def require_permission_async(
+        self,
+        actor: User,
+        tenant_id: str,
+        resource: str,
+        action: str,
+        resource_obj: Any | None = None,
+    ) -> AuthorizationDecision:
+        decision = await self.check_permission_async(
             actor,
             tenant_id,
             resource,

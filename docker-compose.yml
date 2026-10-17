@@ -23,7 +23,9 @@ x-backend-env: &backend-env
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_DB: 0
-  REDIS_PASSWORD: ""
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+  REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-noeviction}
   # RabbitMQ（Celery Broker）
   RABBITMQ_HOST: rabbitmq
   RABBITMQ_PORT: 5672
@@ -85,11 +87,27 @@ services:
     image: redis:7-alpine
     container_name: ai-studio-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-noeviction}
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+          --maxmemory "$$REDIS_MAXMEMORY"
+          --maxmemory-policy "$$REDIS_MAXMEMORY_POLICY";
+        else
+          exec redis-server --appendonly yes
+          --maxmemory "$$REDIS_MAXMEMORY"
+          --maxmemory-policy "$$REDIS_MAXMEMORY_POLICY";
+        fi
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 10

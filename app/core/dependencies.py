@@ -10,8 +10,13 @@ from app.core.vector_db import get_qdrant_client
 if TYPE_CHECKING:
     from qdrant_client import QdrantClient
 from app.core.security import decode_token
-from app.core.exceptions import UnauthorizedException, ForbiddenException
+from app.core.exceptions import (
+    UnauthorizedException,
+    ForbiddenException,
+    ServiceUnavailableException,
+)
 from app.core.config import config
+from app.core.redis import get_redis, token_blacklist_key
 from app.core.tenant_scope import enable_platform_query_context, set_tenant_scope
 from app.core.membership import effective_role_ids, membership_read_mode
 from app.core.authorization import (
@@ -36,18 +41,17 @@ async def get_current_user(
     if token is None:
         raise UnauthorizedException("Not authenticated")
 
-    # 检查 token 黑名单（依赖 Redis，延迟导入避免循环）
+    # Token 撤销是安全控制，Redis 不可用时不能静默放行。
+    redis = await get_redis()
+    if redis is None:
+        raise ServiceUnavailableException("Token revocation service is unavailable")
     try:
-        from app.core.redis import get_redis
-        redis = await get_redis()
-        if redis is not None:
-            key = f"token_blacklist:{token}"
-            if await redis.get(key):
-                raise UnauthorizedException("Token has been revoked")
+        if await redis.get(token_blacklist_key(token)):
+            raise UnauthorizedException("Token has been revoked")
     except UnauthorizedException:
         raise
-    except Exception:
-        pass  # Redis 不可用时跳过黑名单检查
+    except Exception as exc:
+        raise ServiceUnavailableException("Token revocation service is unavailable") from exc
 
     try:
         payload = decode_token(token)
@@ -209,7 +213,7 @@ async def require_tenant_admin(
         raise ForbiddenException("tenant", "admin")
     authorization = AuthorizationService(db)
     for action in ("members_manage", "roles_manage", "settings"):
-        decision = authorization.check_permission(
+        decision = await authorization.check_permission_async(
             current_user,
             current_user.tenant_id,
             "tenant",

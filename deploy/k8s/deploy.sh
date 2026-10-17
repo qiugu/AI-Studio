@@ -107,6 +107,7 @@ if ! kubectl --namespace "${NAMESPACE}" get secret "${SECRET_NAME}" >/dev/null 2
   mysql_password="$(openssl rand -hex 24)"
   jwt_secret_key="$(openssl rand -hex 32)"
   fernet_key="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n')"
+  redis_password="$(openssl rand -hex 32)"
   rabbitmq_password="$(openssl rand -hex 32)"
   printf '%s\n' \
     "MYSQL_ROOT_PASSWORD=${mysql_root_password}" \
@@ -114,6 +115,7 @@ if ! kubectl --namespace "${NAMESPACE}" get secret "${SECRET_NAME}" >/dev/null 2
     "DATABASE_PASSWORD=${mysql_password}" \
     "JWT_SECRET_KEY=${jwt_secret_key}" \
     "FERNET_KEY=${fernet_key}" \
+    "REDIS_PASSWORD=${redis_password}" \
     "RABBITMQ_USERNAME=ai_studio" \
     "RABBITMQ_PASSWORD=${rabbitmq_password}" \
     "RABBITMQ_VHOST=ai-studio" >"${SECRET_FILE}"
@@ -126,7 +128,9 @@ if ! kubectl --namespace "${NAMESPACE}" get secret "${SECRET_NAME}" >/dev/null 2
     --from-env-file="${SECRET_FILE}"
 else
   echo "Reusing existing Kubernetes Secret ${SECRET_NAME}."
-  # 兼容迁移前已存在的 Secret：只补 RabbitMQ 缺失键，不轮换数据库/JWT/Fernet。
+  # 兼容迁移前已存在的 Secret：只补缺失键，不轮换已有凭据。
+  redis_password="$(openssl rand -hex 32)"
+  patch_secret_key_if_missing "REDIS_PASSWORD" "${redis_password}"
   rabbitmq_password="$(openssl rand -hex 32)"
   patch_secret_key_if_missing "RABBITMQ_USERNAME" "ai_studio"
   patch_secret_key_if_missing "RABBITMQ_PASSWORD" "${rabbitmq_password}"

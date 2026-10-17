@@ -1,7 +1,7 @@
+import asyncio
 import logging
-import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -13,6 +13,14 @@ from qdrant_client.models import (
 )
 
 from app.core.config import config
+from app.core.redis import (
+    acquire_lock,
+    get_redis,
+    release_lock,
+    ttl_with_jitter,
+    vector_layout_cache_key,
+    vector_layout_lock_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +33,31 @@ _qdrant_client: QdrantClient | None = None
 NAMED_DENSE_VECTOR = "dense"
 NAMED_SPARSE_VECTOR = "text"
 
-#: 集合布局探测结果的缓存时长（秒）。
-#: 每次检索都调 ``get_collection`` 会平白增加一次元数据往返；但完全不缓存又会让
-#: 「刚回填完就生效」变得不可能。60 秒是「免掉绝大部分往返」与「回填后一分钟内生效」
-#: 之间的折中。
+#: 集合布局探测结果的 Redis 缓存时长（秒）。
 _LAYOUT_CACHE_TTL_SECONDS = 60.0
-#: ``{collection_name: (monotonic_ts, has_sparse)}``
-_layout_cache: Dict[str, Tuple[float, bool]] = {}
+_LAYOUT_NEGATIVE_CACHE_TTL_SECONDS = 10
+_LAYOUT_CACHE_LOCK_TTL_SECONDS = 5
 
 
-def reset_layout_cache() -> None:
-    """清空集合布局缓存（测试与「回填后立即生效」场景需要）"""
-    _layout_cache.clear()
+def reset_layout_cache(collection_name: Optional[str] = None) -> None:
+    """Compatibility hook for synchronous Qdrant/offline callers.
+
+    Redis is async-only now. Web callers should use
+    :func:`reset_layout_cache_async`; the short TTL bounds stale layout
+    visibility for this synchronous legacy boundary.
+    """
+    return None
+
+
+async def reset_layout_cache_async(collection_name: Optional[str] = None) -> None:
+    if not collection_name:
+        return
+    redis = await get_redis()
+    if redis is not None:
+        try:
+            await redis.delete(vector_layout_cache_key(collection_name))
+        except Exception:
+            logger.debug("Unable to reset Redis layout cache", exc_info=True)
 
 
 def collection_name_for(kb_id: str, active: Optional[str] = None) -> str:
@@ -249,12 +270,12 @@ def create_hybrid_collection(
         sparse_vectors_config={NAMED_SPARSE_VECTOR: SparseVectorParams()},
         hnsw_config=HnswConfigDiff(m=16, ef_construct=100),
     )
-    _layout_cache.pop(collection_name, None)
+    reset_layout_cache(collection_name)
     logger.info("Created hybrid collection: %s", collection_name)
     return True
 
 
-def collection_layout(
+async def collection_layout_async(
     collection_name: str,
     client: Optional[QdrantClient] = None,
 ) -> str:
@@ -269,30 +290,99 @@ def collection_layout(
     「缺失」与「旧布局」必须区分开：缺失时应当**创建**目标布局，而旧布局只能
     回填。把两者混为 ``has_sparse=False`` 会导致「新建库意外沿用旧布局」。
 
-    结果带 60 秒缓存（见 :data:`_LAYOUT_CACHE_TTL_SECONDS`）：既避免每次检索都多一次
-    元数据往返，又保证回填完成后一分钟内自动生效。
+    结果进入 Redis 共享缓存（见 :data:`_LAYOUT_CACHE_TTL_SECONDS`）。缓存未命中时
+    使用短时 Redis 锁，并在持锁后再次检查缓存，避免多实例同时探测 Qdrant。
     """
-    now = time.monotonic()
-    cached = _layout_cache.get(collection_name)
-    if cached is not None and now - cached[0] < _LAYOUT_CACHE_TTL_SECONDS:
-        return cached[1]
+    redis = await get_redis()
+    cache_key = vector_layout_cache_key(collection_name)
+    lock_key = vector_layout_lock_key(collection_name)
+    lock_token = None
+    if redis is not None:
+        try:
+            cached = await redis.get(cache_key)
+            if cached in {"missing", "legacy_dense", "hybrid"}:
+                return cached
+            lock_token = await acquire_lock(redis, lock_key, _LAYOUT_CACHE_LOCK_TTL_SECONDS)
+            if lock_token is None:
+                # 让持锁者有机会完成探测；超时后当前请求自行探测，避免把单个
+                # Redis 锁故障变成业务永久阻塞。
+                for _ in range(5):
+                    await asyncio.sleep(0.01)
+                    cached = await redis.get(cache_key)
+                    if cached in {"missing", "legacy_dense", "hybrid"}:
+                        return cached
+        except Exception:
+            logger.warning("Vector layout cache read/lock failed", exc_info=True)
+            lock_token = None
+
+    # 持锁后必须二次检查，避免并发请求在锁等待期间重复访问 Qdrant。
+    if redis is not None and lock_token is not None:
+        try:
+            cached = await redis.get(cache_key)
+            if cached in {"missing", "legacy_dense", "hybrid"}:
+                return cached
+        except Exception:
+            logger.warning("Vector layout cache double-check failed", exc_info=True)
 
     qdrant = client or get_qdrant_client()
     try:
         info = qdrant.get_collection(collection_name)
-    except Exception:  # noqa: BLE001 - 探测本身不应抛错：缺失/不可达都按「不适用」处理
-        # **刻意不缓存**：此分支无法区分「集合确实不存在」与「探测本身瞬时失败」。
-        # 若把结果缓存 60 秒，一次瞬时故障会让混合布局的集合在这 60 秒内被当成
-        # 旧布局，进而发出匿名向量查询并持续收到 400——把一次抖动放大成一分钟的
-        # 持续故障。不缓存则下一次查询自然自愈。代价是集合真不存在时会在错误路径上
-        # 重复探测，而该路径本就以检索失败告终，不值一提。
+    except Exception as exc:  # noqa: BLE001 - 探测失败按「不适用」处理
+        # 瞬时网络错误不得进入缓存，否则会把一次抖动放大成持续故障。只有明确的
+        # 404 才短暂缓存 negative result，用于缓解对不存在集合的重复探测。
+        if redis is not None and lock_token is not None and _is_confirmed_missing(exc):
+            try:
+                await redis.setex(
+                    cache_key,
+                    _LAYOUT_NEGATIVE_CACHE_TTL_SECONDS,
+                    "missing",
+                )
+            except Exception:
+                logger.warning("Vector layout negative cache write failed", exc_info=True)
         return "missing"
     else:
         sparse_config = getattr(info.config.params, "sparse_vectors", None) or {}
         layout = "hybrid" if NAMED_SPARSE_VECTOR in sparse_config else "legacy_dense"
+        if redis is not None and lock_token is not None:
+            try:
+                await redis.setex(
+                    cache_key,
+                    ttl_with_jitter(_LAYOUT_CACHE_TTL_SECONDS, 10),
+                    layout,
+                )
+            except Exception:
+                logger.warning("Vector layout cache write failed", exc_info=True)
+        return layout
+    finally:
+        if redis is not None and lock_token is not None:
+            await release_lock(redis, lock_key, lock_token)
 
-    _layout_cache[collection_name] = (now, layout)
-    return layout
+
+def collection_layout(
+    collection_name: str,
+    client: Optional[QdrantClient] = None,
+) -> str:
+    """Synchronous Qdrant-only probe for legacy/offline callers.
+
+    Synchronous code cannot safely call the shared async Redis client from a
+    running FastAPI event loop.  The async Web path uses
+    :func:`collection_layout_async` and retains the distributed cache.
+    """
+    qdrant = client or get_qdrant_client()
+    try:
+        info = qdrant.get_collection(collection_name)
+    except Exception:
+        return "missing"
+    sparse_config = getattr(info.config.params, "sparse_vectors", None) or {}
+    return "hybrid" if NAMED_SPARSE_VECTOR in sparse_config else "legacy_dense"
+
+
+def _is_confirmed_missing(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 404:
+        return True
+    response = getattr(exc, "response", None)
+    return getattr(response, "status_code", None) == 404
 
 
 def supports_sparse_vectors(
