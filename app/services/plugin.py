@@ -144,6 +144,21 @@ class PluginService:
             .limit(page_size)
             .all()
         )
+        if items:
+            # 列表页需要直接展示能力数量和预览；仅在详情接口加载端点会让
+            # PluginOut 的默认空数组覆盖真实配置，用户看到的就是「0 项能力」。
+            # 批量查询避免对每个插件逐一查询端点。
+            endpoints = (
+                self.db.query(PluginEndpoint)
+                .filter(PluginEndpoint.plugin_id.in_([plugin.id for plugin in items]))
+                .order_by(PluginEndpoint.created_at)
+                .all()
+            )
+            grouped: dict[str, list[PluginEndpoint]] = {}
+            for endpoint in endpoints:
+                grouped.setdefault(endpoint.plugin_id, []).append(endpoint)
+            for plugin in items:
+                plugin._endpoints = grouped.get(plugin.id, [])  # type: ignore[attr-defined]
         return items, total
 
     def get(self, plugin_id: str) -> Plugin:

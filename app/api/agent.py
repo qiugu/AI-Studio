@@ -40,6 +40,43 @@ from app.core.exceptions import AppException
 router = APIRouter(dependencies=[Depends(require_tenant_user)])
 
 
+def _merge_tool_call_traces(
+    current: list[dict] | None,
+    incoming: list[dict] | None,
+) -> list[dict] | None:
+    """合并工具生命周期快照，保留正常调用的完整输入、输出与状态。
+
+    SSE 生命周期事件和 Agent ``done`` 摘要来自两条独立路径。不能用其中一条
+    truthy 的列表覆盖另一条，否则 ``done`` 只带起始状态时会丢掉已完成调用的
+    output/status，仪表盘后续也无法正确统计成功率。
+    """
+    if not current and not incoming:
+        return None
+
+    merged = [dict(item) for item in (current or []) if isinstance(item, dict)]
+    for item in incoming or []:
+        if not isinstance(item, dict):
+            continue
+        candidate = dict(item)
+        call_id = candidate.get("call_id")
+        existing = next(
+            (entry for entry in merged if call_id and entry.get("call_id") == call_id),
+            None,
+        )
+        if existing is None:
+            merged.append(candidate)
+        else:
+            # done 摘要可能比实时 tool_end 更早/更粗，只允许它补充缺失字段，
+            # 不得把已经完成的 success/error 回退成 running。
+            if (
+                existing.get("status") in {"success", "error"}
+                and candidate.get("status") == "running"
+            ):
+                candidate.pop("status", None)
+            existing.update(candidate)
+    return merged
+
+
 def _authorize_agent(
     db: Session,
     current_user: User,
@@ -549,6 +586,21 @@ async def chat_stream(
             """SSE事件生成器"""
             full_content = ""
             tool_calls = None
+            assistant_message_persisted = False
+
+            def persist_partial_tool_trace(error_message: str) -> None:
+                """保留已发生的工具轨迹，避免失败流让工作台看起来像未调用。"""
+                nonlocal assistant_message_persisted
+                if assistant_message_persisted or not tool_calls:
+                    return
+                conv_service.add_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=full_content or error_message,
+                    tool_calls=tool_calls,
+                )
+                assistant_message_persisted = True
+
             try:
                 async for chunk in agent_service.chat_stream(
                     agent_id=agent_id,
@@ -575,38 +627,28 @@ async def chat_stream(
                     elif chunk["type"] in {"tool_start", "tool_end", "tool_error"}:
                         # 工具生命周期事件是独立的 SSE 类型：前端可在助手回复气泡内
                         # 展示实时执行轨迹，同时 done 事件中的摘要可落库供仪表盘聚合。
-                        if chunk["type"] == "tool_start":
-                            tool_calls = tool_calls or []
-                            tool_calls.append({
-                                key: value for key, value in chunk.items() if key != "type"
-                            })
-                        elif tool_calls:
-                            call_id = chunk.get("call_id")
-                            existing = next(
-                                (item for item in tool_calls if item.get("call_id") == call_id),
-                                None,
-                            )
-                            if existing is None:
-                                tool_calls.append({
-                                    key: value for key, value in chunk.items() if key != "type"
-                                })
-                            else:
-                                existing.update({
-                                    key: value for key, value in chunk.items() if key != "type"
-                                })
+                        tool_calls = _merge_tool_call_traces(
+                            tool_calls,
+                            [{key: value for key, value in chunk.items() if key != "type"}],
+                        )
                         yield json_sse_event(
                             chunk["type"],
                             {key: value for key, value in chunk.items() if key != "type"},
                         )
                     elif chunk["type"] == "done":
+                        tool_calls = _merge_tool_call_traces(
+                            tool_calls,
+                            chunk.get("tool_calls"),
+                        )
                         # 添加助手消息（含引用溯源，无引用时 citations 为 None）
                         conv_service.add_message(
                             conversation_id=conversation_id,
                             role="assistant",
                             content=full_content,
-                            tool_calls=chunk.get("tool_calls") or tool_calls,
+                            tool_calls=tool_calls,
                             citations=chunk.get("citations"),
                         )
+                        assistant_message_persisted = True
                         done_data = {"conversation_id": conversation_id}
                         # done 事件冗余携带完整 citations，作为前端丢包的兜底
                         if chunk.get("citations"):
@@ -614,6 +656,9 @@ async def chat_stream(
                         yield json_sse_event("done", done_data)
                     elif chunk["type"] == "error":
                         # 错误事件：直接转发 Service 层的错误信息
+                        persist_partial_tool_trace(
+                            chunk.get("error", "工具调用后执行失败")
+                        )
                         yield json_sse_event(
                             "error",
                             {
@@ -624,6 +669,7 @@ async def chat_stream(
             except Exception as e:
                 # 捕获其他未预期的异常（如数据库错误等）
                 import logging
+                persist_partial_tool_trace("系统内部错误，请稍后重试")
                 logging.error(
                     f"Unexpected error in SSE generator: {e}",
                     exc_info=True,

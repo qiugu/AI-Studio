@@ -54,7 +54,12 @@ def list_plugins(
     )
     return ResponseBase.ok(
         data=PaginatedData(
-            items=[PluginOut.model_validate(p).model_dump() for p in items],
+            items=[
+                PluginOut.from_orm_with_endpoints(
+                    plugin, getattr(plugin, "_endpoints", [])
+                ).model_dump()
+                for plugin in items
+            ],
             total=total,
             page=page,
             page_size=page_size,
