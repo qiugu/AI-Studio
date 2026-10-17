@@ -65,8 +65,10 @@ export async function refreshToken(data: RefreshRequest): Promise<ApiResponse<Re
   return response as unknown as ApiResponse<RefreshResponse>
 }
 
-export async function logout(): Promise<ApiResponse<null>> {
-  const response = await apiClient.post('/auth/logout')
+export async function logout(refreshToken?: string | null): Promise<ApiResponse<null>> {
+  const response = await apiClient.post('/auth/logout', {
+    refresh_token: refreshToken ?? undefined,
+  })
   return response as unknown as ApiResponse<null>
 }
 

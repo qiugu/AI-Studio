@@ -18,6 +18,10 @@ class RefreshForm(BaseModel):
     refresh_token: str
 
 
+class LogoutForm(BaseModel):
+    refresh_token: Optional[str] = None
+
+
 class VerifyEmailForm(BaseModel):
     token: str
 

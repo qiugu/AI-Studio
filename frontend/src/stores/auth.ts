@@ -7,7 +7,7 @@ import {
   getCurrentUser,
 } from '@/api/auth'
 import type { User, VerifyEmailResponse } from '@/types/api'
-import { setToken, setRefreshToken, clearAuth, getToken } from '@/utils/auth'
+import { setToken, setRefreshToken, clearAuth, getToken, getRefreshToken } from '@/utils/auth'
 
 interface PendingVerification {
   email: string
@@ -106,7 +106,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: async () => {
     try {
-      await logoutApi()
+      await logoutApi(getRefreshToken())
     } catch {
       // ignore
     } finally {

@@ -123,12 +123,12 @@ async def list_workflows(
 ):
     """列出工作流"""
     service = WorkflowService(db=db, tenant_id=current_tenant, actor=current_user)
-    can_manage_drafts = AuthorizationService(db).check_permission(
+    can_manage_drafts = (await AuthorizationService(db).check_permission_async(
         current_user,
         current_tenant,
         "workflow",
         "update",
-    ).allowed
+    )).allowed
     if not can_manage_drafts:
         status = "published"
     workflows, total = service.list_workflows(page=page, page_size=page_size, status=status)
