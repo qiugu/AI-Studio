@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { UserOutlined, RobotOutlined } from '@ant-design/icons'
+import { UserOutlined, RobotOutlined, CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined, ToolOutlined } from '@ant-design/icons'
 import MarkdownRenderer from '../MarkdownRenderer'
 import CitationPanel from '../CitationPanel'
 import type { Message } from '@/types/agent'
@@ -30,6 +30,68 @@ const ERROR_TITLES: Record<string, string> = {
   SYSTEM_ERROR: '系统内部错误',
   STREAM_INCOMPLETE: '响应流中断',
   UNKNOWN_ERROR: '执行失败',
+}
+
+function formatToolPayload(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function ToolTrace({ toolCalls }: { toolCalls: Array<Record<string, unknown>> }) {
+  if (toolCalls.length === 0) return null
+
+  return (
+    <details className="tool-trace" open>
+      <summary className="tool-trace__summary">
+        <span className="tool-trace__title"><ToolOutlined /> 工具执行</span>
+        <span className="tool-trace__count">{toolCalls.length} 次调用</span>
+      </summary>
+      <div className="tool-trace__list">
+        {toolCalls.map((call, index) => {
+          const status = call.status === 'error' ? 'error' : call.status === 'running' ? 'running' : 'success'
+          const label = status === 'running' ? '执行中' : status === 'error' ? '失败' : '已完成'
+          const toolName = call.tool || call.name
+          const callInput = call.input ?? call.arguments
+          return (
+            <div className={`tool-trace__item tool-trace__item--${status}`} key={`${String(call.call_id || call.id || toolName)}-${index}`}>
+              <div className="tool-trace__item-head">
+                <span className="tool-trace__status" aria-label={label}>
+                  {status === 'running' && <LoadingOutlined spin />}
+                  {status === 'success' && <CheckCircleOutlined />}
+                  {status === 'error' && <CloseCircleOutlined />}
+                </span>
+                <strong>{String(toolName || '未命名工具')}</strong>
+                <span className="tool-trace__state">{label}</span>
+              </div>
+              {callInput !== undefined && (
+                <div className="tool-trace__detail">
+                  <span>输入</span>
+                  <code>{formatToolPayload(callInput)}</code>
+                </div>
+              )}
+              {call.output !== undefined && (
+                <div className="tool-trace__detail">
+                  <span>结果</span>
+                  <code>{formatToolPayload(call.output)}</code>
+                </div>
+              )}
+              {call.error !== undefined && (
+                <div className="tool-trace__detail tool-trace__detail--error">
+                  <span>错误</span>
+                  <code>{formatToolPayload(call.error)}</code>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </details>
+  )
 }
 
 export default function MessageBubble({ message, isStreaming = false }: MessageBubbleProps) {
@@ -68,6 +130,7 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
         </div>
         <div className="message-content-wrapper">
           <div className="message-meta">Agent</div>
+          <ToolTrace toolCalls={message.tool_calls ?? []} />
           <div className="message-content error">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <span style={{ fontSize: '16px' }}>⚠️</span>
@@ -91,6 +154,7 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
       <div className="message-content-wrapper">
         <div className="message-meta">Agent</div>
         <div className="message-content ai">
+          <ToolTrace toolCalls={message.tool_calls ?? []} />
           {isStreaming && !message.content ? (
             <div className="streaming-indicator">
               <div className="streaming-dots">

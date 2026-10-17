@@ -1,6 +1,7 @@
 """监控审计服务：审计日志查询、模型调用查询、Token 统计、Dashboard 聚合。"""
 from typing import Optional
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -10,6 +11,7 @@ from app.models.model_call_log import ModelCallLog
 from app.models.token_usage import TokenUsage
 from app.models.user import User
 from app.models.agent import Agent
+from app.models.message import Message
 from app.services.token_usage import TokenUsageService
 
 
@@ -156,6 +158,58 @@ class AuditService:
             "by_user": [] if user_id else self._group_by(TokenUsage.user_id),
         }
 
+    def _tool_observability(self, start_time: datetime, end_time: datetime) -> dict:
+        """Aggregate bounded tool summaries persisted on assistant messages."""
+        messages = (
+            self.db.query(Message)
+            .filter(
+                Message.tenant_id == self.tenant_id,
+                Message.role == "assistant",
+                Message.created_at >= start_time,
+                Message.created_at <= end_time,
+            )
+            .order_by(Message.created_at.desc())
+            .all()
+        )
+        by_tool = defaultdict(lambda: {"call_count": 0, "success_count": 0, "error_count": 0})
+        recent = []
+        total = 0
+        success = 0
+        for message in messages:
+            for call in (message.tool_calls or []):
+                if not isinstance(call, dict):
+                    continue
+                tool = str(call.get("tool") or call.get("name") or "unknown")
+                status = str(call.get("status") or "success")
+                stats = by_tool[tool]
+                stats["call_count"] += 1
+                total += 1
+                if status == "success":
+                    stats["success_count"] += 1
+                    success += 1
+                else:
+                    stats["error_count"] += 1
+                if len(recent) < 8:
+                    recent.append({
+                        "call_id": str(call.get("call_id") or ""),
+                        "tool": tool,
+                        "status": status,
+                        "created_at": message.created_at.isoformat() if message.created_at else None,
+                    })
+
+        top_tools = [
+            {"key": tool, **stats}
+            for tool, stats in sorted(
+                by_tool.items(), key=lambda item: item[1]["call_count"], reverse=True
+            )[:8]
+        ]
+        return {
+            "tool_calls_30d": total,
+            "tool_success_rate_30d": round(success / total * 100, 1) if total else 0.0,
+            "top_tools": top_tools,
+            "recent_tool_calls": recent,
+        }
+
     def dashboard(self) -> dict:
         end_time = datetime.now()
         start_time = end_time - timedelta(days=30)
@@ -173,6 +227,7 @@ class AuditService:
         top_models = sorted(
             self._group_by(TokenUsage.model_id), key=lambda x: x["total_tokens"], reverse=True
         )[:5]
+        tool_observability = self._tool_observability(start_time, end_time)
         return {
             "active_users": active_users,
             "total_agents": total_agents,
@@ -180,6 +235,7 @@ class AuditService:
             "total_calls_30d": usage["call_count"],
             "token_trend": self._trend(start_time, end_time),
             "top_models": top_models,
+            **tool_observability,
         }
 
 

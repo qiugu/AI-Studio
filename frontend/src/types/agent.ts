@@ -84,6 +84,7 @@ export interface Agent {
   deleted_at: string | null
   allowed_actions?: string[]
   tools: AgentTool[]
+  default_knowledge_base_count?: number
 }
 
 export interface AgentCreateRequest {
@@ -204,6 +205,15 @@ export interface ChatResponse {
 
 export interface SSEMessageEvent {
   content: string
+}
+
+export interface SSEToolEvent {
+  call_id: string
+  tool: string
+  status: 'running' | 'success' | 'error'
+  input?: unknown
+  output?: unknown
+  error?: unknown
 }
 
 export interface SSEDoneEvent {

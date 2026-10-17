@@ -174,6 +174,24 @@ export interface DashboardStats {
   total_calls_30d: number
   token_trend: TokenTrendPoint[]
   top_models: TokenGroupItem[]
+  tool_calls_30d: number
+  tool_success_rate_30d: number
+  top_tools: ToolUsageItem[]
+  recent_tool_calls: ToolCallObservation[]
+}
+
+export interface ToolUsageItem {
+  key: string
+  call_count: number
+  success_count: number
+  error_count: number
+}
+
+export interface ToolCallObservation {
+  call_id: string
+  tool: string
+  status: string
+  created_at: string | null
 }
 
 // ── 用户管理 ────────────────────────────────────────────────────────────────

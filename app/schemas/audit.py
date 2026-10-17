@@ -64,6 +64,20 @@ class TokenGroupItem(BaseModel):
     call_count: int
 
 
+class ToolCallObservation(BaseModel):
+    call_id: str
+    tool: str
+    status: str
+    created_at: Optional[str] = None
+
+
+class ToolUsageItem(BaseModel):
+    key: str
+    call_count: int
+    success_count: int
+    error_count: int
+
+
 class TokenStatsOut(BaseModel):
     start_time: str
     end_time: str
@@ -82,3 +96,7 @@ class DashboardOut(BaseModel):
     total_calls_30d: int
     token_trend: list[TokenTrendPoint] = []
     top_models: list[TokenGroupItem] = []
+    tool_calls_30d: int = 0
+    tool_success_rate_30d: float = 0.0
+    top_tools: list[ToolUsageItem] = []
+    recent_tool_calls: list[ToolCallObservation] = []

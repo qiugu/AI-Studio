@@ -85,6 +85,7 @@ class AgentResponse(AgentBase):
     deleted_at: Optional[datetime]
     allowed_actions: List[str] = Field(default_factory=list)
     tools: List[AgentToolResponse] = Field(default_factory=list)
+    default_knowledge_base_count: int = Field(0, description="无显式绑定时默认接入的可检索知识库数量")
 
     model_config = {"from_attributes": True}
 

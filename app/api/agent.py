@@ -13,6 +13,7 @@ from app.services.resource_authorization import (
 )
 from app.core.dependencies import get_current_user, require_permission, require_tenant_user, CurrentUser, SessionDep
 from app.models.user import User
+from app.models.knowledge_base import KnowledgeBase
 from app.services.agent import AgentService
 from app.services.conversation import ConversationService
 from app.services.plugin import MAX_BINDABLE_PLUGINS, PluginService
@@ -62,6 +63,20 @@ def _agent_payload(db: Session, current_user: User, agent) -> dict:
         "agent",
         agent,
     )
+    has_explicit_knowledge = any(
+        getattr(tool, "tool_type", None) == "knowledge"
+        for tool in getattr(agent, "tools", None) or []
+    )
+    if not has_explicit_knowledge:
+        payload["default_knowledge_base_count"] = (
+            db.query(KnowledgeBase)
+            .filter(
+                KnowledgeBase.tenant_id == current_user.tenant_id,
+                KnowledgeBase.deleted_at.is_(None),
+                KnowledgeBase.chunk_count > 0,
+            )
+            .count()
+        )
     return payload
 
 
@@ -104,12 +119,12 @@ async def list_agents(
     """列出Agents"""
     try:
         service = AgentService(db=db, tenant_id=current_user.tenant_id, actor=current_user)
-        can_manage_drafts = AuthorizationService(db).check_permission(
+        can_manage_drafts = (await AuthorizationService(db).check_permission_async(
             current_user,
             current_user.tenant_id,
             "agent",
             "update",
-        ).allowed
+        )).allowed
         if not can_manage_drafts:
             status = "published"
         agents, total = service.list_agents(page=page, page_size=page_size, status=status)
@@ -483,6 +498,7 @@ async def chat(
             conversation_id=conversation_id,
             role="assistant",
             content=result["content"],
+            tool_calls=result.get("tool_calls"),
             citations=result.get("citations"),
         )
 
@@ -532,6 +548,7 @@ async def chat_stream(
         async def event_generator():
             """SSE事件生成器"""
             full_content = ""
+            tool_calls = None
             try:
                 async for chunk in agent_service.chat_stream(
                     agent_id=agent_id,
@@ -555,12 +572,39 @@ async def chat_stream(
                                 "citations": chunk.get("citations"),
                             },
                         )
+                    elif chunk["type"] in {"tool_start", "tool_end", "tool_error"}:
+                        # 工具生命周期事件是独立的 SSE 类型：前端可在助手回复气泡内
+                        # 展示实时执行轨迹，同时 done 事件中的摘要可落库供仪表盘聚合。
+                        if chunk["type"] == "tool_start":
+                            tool_calls = tool_calls or []
+                            tool_calls.append({
+                                key: value for key, value in chunk.items() if key != "type"
+                            })
+                        elif tool_calls:
+                            call_id = chunk.get("call_id")
+                            existing = next(
+                                (item for item in tool_calls if item.get("call_id") == call_id),
+                                None,
+                            )
+                            if existing is None:
+                                tool_calls.append({
+                                    key: value for key, value in chunk.items() if key != "type"
+                                })
+                            else:
+                                existing.update({
+                                    key: value for key, value in chunk.items() if key != "type"
+                                })
+                        yield json_sse_event(
+                            chunk["type"],
+                            {key: value for key, value in chunk.items() if key != "type"},
+                        )
                     elif chunk["type"] == "done":
                         # 添加助手消息（含引用溯源，无引用时 citations 为 None）
                         conv_service.add_message(
                             conversation_id=conversation_id,
                             role="assistant",
                             content=full_content,
+                            tool_calls=chunk.get("tool_calls") or tool_calls,
                             citations=chunk.get("citations"),
                         )
                         done_data = {"conversation_id": conversation_id}

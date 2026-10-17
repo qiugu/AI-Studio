@@ -4,7 +4,7 @@
 
 import { getToken } from './auth'
 import { SSEParser, type SSEEvent } from './sseParser'
-import type { Citation } from '@/types/agent'
+import type { Citation, SSEToolEvent } from '@/types/agent'
 import type { SSEToolCompletedEvent, SSEToolStartedEvent } from '@/types/workflow'
 
 /**
@@ -19,6 +19,9 @@ export interface StreamCallbacks {
    * 可能被调用多次（多次工具调用 / done 事件兜底），调用方需按 marker 去重合并。
    */
   onCitations?: (citations: Citation[], tool?: string, query?: string) => void
+  onToolStart?: (event: SSEToolEvent) => void
+  onToolEnd?: (event: SSEToolEvent) => void
+  onToolError?: (event: SSEToolEvent) => void
 }
 
 /**
@@ -33,6 +36,10 @@ interface SSEData {
   citations?: Citation[]
   tool?: string
   query?: string
+  call_id?: string
+  status?: SSEToolEvent['status']
+  input?: unknown
+  output?: unknown
 }
 
 /**
@@ -101,6 +108,11 @@ export function createStreamRequest(
               if (data.citations && data.citations.length > 0) {
                 callbacks.onCitations?.(data.citations, data.tool, data.query)
               }
+            } else if (eventType === 'tool_start' || eventType === 'tool_end' || eventType === 'tool_error') {
+              const toolEvent = data as SSEToolEvent
+              if (eventType === 'tool_start') callbacks.onToolStart?.(toolEvent)
+              if (eventType === 'tool_end') callbacks.onToolEnd?.(toolEvent)
+              if (eventType === 'tool_error') callbacks.onToolError?.(toolEvent)
             } else if (eventType === 'done') {
               if (data.conversation_id) {
                 conversationId = data.conversation_id

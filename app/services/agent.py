@@ -3,6 +3,7 @@ from typing import Optional, List, Dict, Any, AsyncGenerator
 from datetime import datetime
 import logging
 import uuid
+import json
 from types import SimpleNamespace
 
 from pydantic import create_model
@@ -12,6 +13,7 @@ from app.models.agent import Agent
 from app.models.agent_tool import AgentTool
 from app.models.ai_model import AIModel
 from app.models.ai_provider import AIProvider
+from app.models.knowledge_base import KnowledgeBase
 from app.repositories.agent import AgentRepository, AgentToolRepository
 from app.core.exceptions import NotFoundException, ValidationException
 from app.core.authorization import AuthorizationService
@@ -46,6 +48,28 @@ def _exc_message(exc: Exception) -> str:
     ``str(exc)`` 会渲染成 ``400: xxx`` 这类带状态码的字符串，直接回给模型可读性差。
     """
     return str(getattr(exc, "detail", None) or exc)
+
+
+def _bounded_tool_value(value: Any, limit: int = 800) -> Any:
+    """Convert a tool event payload into a bounded, JSON-safe observation."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value if len(value) <= limit else f"{value[:limit]}…"
+    if isinstance(value, dict):
+        return {str(key): _bounded_tool_value(item, limit) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_bounded_tool_value(item, limit) for item in value[:20]]
+    content = getattr(value, "content", None)
+    if content is not None and content is not value:
+        return _bounded_tool_value(content, limit)
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        text = str(value)
+    if len(text) > limit:
+        return f"{text[:limit]}…"
+    return text
 
 
 # JSON Schema 原子类型 -> Python 类型（用于端点入参 schema 生成 args_schema）。
@@ -428,6 +452,48 @@ class AgentService:
 
     # ── Agent工具构建 ───────────────────────────────────────────────────────
 
+    def _effective_agent_tools(self, agent: Agent) -> List[Any]:
+        """Return configured tools plus the tenant's default knowledge tools.
+
+        Knowledge bases are tenant-scoped shared context. To make a newly created
+        Agent useful immediately, indexed knowledge bases are exposed when the
+        Agent has no explicit knowledge binding. An explicit knowledge binding is
+        treated as the user's deliberate scope, including an explicit empty/disabled
+        state, so it always wins over the default.
+        """
+        explicit_tools = list(getattr(agent, "tools", None) or [])
+        if any(getattr(tool, "tool_type", None) == "knowledge" for tool in explicit_tools):
+            return explicit_tools
+
+        try:
+            knowledge_bases = (
+                self.db.query(KnowledgeBase)
+                .filter(
+                    KnowledgeBase.tenant_id == self.tenant_id,
+                    KnowledgeBase.deleted_at.is_(None),
+                    KnowledgeBase.chunk_count > 0,
+                )
+                .order_by(KnowledgeBase.updated_at.desc())
+                .all()
+            )
+        except Exception as exc:
+            logger.warning("Agent 默认知识库工具装配失败：%s", exc)
+            return explicit_tools
+
+        default_tools = [
+            SimpleNamespace(
+                tool_type="knowledge",
+                config={"knowledge_base_id": kb.id, "top_k": 5, "default": True},
+                name=f"knowledge-{str(kb.id)[:8]}",
+                description=f"默认检索知识库：{kb.name}",
+                is_enabled=True,
+            )
+            for kb in knowledge_bases
+            if getattr(kb, "deleted_at", None) is None
+            and int(getattr(kb, "chunk_count", 0) or 0) > 0
+        ]
+        return explicit_tools + default_tools
+
     def _build_langchain_tools(
         self, agent: Agent, collector: Optional[CitationCollector] = None
     ) -> List[Any]:
@@ -450,7 +516,7 @@ class AgentService:
         from langchain_core.tools import StructuredTool
 
         tools = []
-        for agent_tool in agent.tools:
+        for agent_tool in self._effective_agent_tools(agent):
             if not agent_tool.is_enabled:
                 continue
 
@@ -986,7 +1052,7 @@ class AgentService:
         has_kb_tools = any(
             getattr(t, "tool_type", None) == "knowledge"
             and getattr(t, "is_enabled", True)
-            for t in agent.tools
+            for t in self._effective_agent_tools(agent)
         )
         if has_kb_tools:
             system_prompt = system_prompt.rstrip() + "\n\n" + CITATION_INSTRUCTION
@@ -1038,9 +1104,23 @@ class AgentService:
                 if text:
                     yield {"type": "content", "content": text}
             elif kind == "on_tool_start":
-                yield {"type": "tool_start", "tool": event.get("name")}
+                data = event.get("data") or {}
+                yield {
+                    "type": "tool_start",
+                    "call_id": str(event.get("run_id") or event.get("name") or "tool"),
+                    "tool": event.get("name"),
+                    "input": _bounded_tool_value(data.get("input")),
+                    "status": "running",
+                }
             elif kind == "on_tool_end":
-                yield {"type": "tool_end", "tool": event.get("name")}
+                data = event.get("data") or {}
+                yield {
+                    "type": "tool_end",
+                    "call_id": str(event.get("run_id") or event.get("name") or "tool"),
+                    "tool": event.get("name"),
+                    "output": _bounded_tool_value(data.get("output")),
+                    "status": "success",
+                }
                 # 知识库工具在此刻已把命中块登记进 collector；增量推送 citations
                 # 事件（先于最终生成，前端可边生成边展示来源面板）。非知识库工具的
                 # on_tool_end 不产生新引用，take_new_since 返回空，不发事件。
@@ -1052,6 +1132,15 @@ class AgentService:
                             "tool": event.get("name"),
                             "citations": new_citations,
                         }
+            elif kind == "on_tool_error":
+                data = event.get("data") or {}
+                yield {
+                    "type": "tool_error",
+                    "call_id": str(event.get("run_id") or event.get("name") or "tool"),
+                    "tool": event.get("name"),
+                    "error": _bounded_tool_value(data.get("error") or data.get("output")),
+                    "status": "error",
+                }
             elif kind == "on_chat_model_end":
                 meta = getattr(event.get("data", {}).get("output"), "usage_metadata", None) or {}
                 for key in ("input_tokens", "output_tokens", "total_tokens"):
@@ -1160,6 +1249,7 @@ class AgentService:
                 executor = self._build_tool_agent_executor(agent, tools, llm)
 
                 collected: List[str] = []
+                tool_observations: List[Dict[str, Any]] = []
                 prompt_tokens = 0
                 completion_tokens = 0
                 total_tokens = 0
@@ -1169,6 +1259,20 @@ class AgentService:
                 ):
                     if item["type"] == "content":
                         collected.append(item["content"])
+                    elif item["type"] in {"tool_start", "tool_end", "tool_error"}:
+                        call_id = item.get("call_id")
+                        observation = next(
+                            (entry for entry in tool_observations if entry.get("call_id") == call_id),
+                            None,
+                        )
+                        if observation is None:
+                            tool_observations.append({
+                                key: value for key, value in item.items() if key != "type"
+                            })
+                        else:
+                            observation.update({
+                                key: value for key, value in item.items() if key != "type"
+                            })
                     elif item["type"] == "usage":
                         prompt_tokens = item["input_tokens"]
                         completion_tokens = item["output_tokens"]
@@ -1224,6 +1328,7 @@ class AgentService:
                 "total_tokens": total_tokens,
                 # 引用溯源：单轮内命中的知识库来源快照；无引用时为空列表。
                 "citations": collector.snapshot(),
+                "tool_calls": tool_observations or None,
             }
 
         except AuthenticationError as e:
@@ -1514,6 +1619,7 @@ class AgentService:
 
             # 流式生成
             full_content = ""
+            tool_observations: List[Dict[str, Any]] = []
             prompt_tokens = 0
             completion_tokens = 0
             total_tokens = 0
@@ -1536,10 +1642,29 @@ class AgentService:
                     }
                     continue
 
+                if item["type"] in {"tool_start", "tool_end", "tool_error"}:
+                    call_id = item.get("call_id")
+                    observation = next(
+                        (entry for entry in tool_observations if entry.get("call_id") == call_id),
+                        None,
+                    )
+                    if observation is None:
+                        observation = {
+                            key: value
+                            for key, value in item.items()
+                            if key != "type"
+                        }
+                        tool_observations.append(observation)
+                    else:
+                        observation.update({
+                            key: value for key, value in item.items() if key != "type"
+                        })
+                    yield item
+                    continue
+
                 if item["type"] != "content":
-                    # tool_start / tool_end：当前 SSE 契约里没有对应事件类型，
-                    # 前端也无处渲染，先跳过（保留产出便于后续做"正在调用工具"提示）。
-                    # 注意不能直接取 item["content"]——这些事件没有该键。
+                    # 其它非正文事件（例如 usage）只用于服务端记账；工具生命周期
+                    # 已在上方透传给 SSE，并纳入 tool_observations。
                     continue
 
                 content = item["content"]
@@ -1588,6 +1713,7 @@ class AgentService:
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
+                "tool_calls": tool_observations or None,
                 # 携带完整引用：供 API 层落库（messages.citations）与前端兜底
                 # （done 事件冗余携带，防止 citations 事件在网络层丢失）。
                 "citations": collector.snapshot(),

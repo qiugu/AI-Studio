@@ -29,6 +29,10 @@ export default function AgentInfo({ agent }: AgentInfoProps) {
     archived: '已归档',
   }[agent.status]
   const capabilityTypes = Array.from(new Set(agent.tools.map((tool) => tool.tool_type)))
+  const defaultKnowledgeCount = agent.default_knowledge_base_count ?? 0
+  if (defaultKnowledgeCount > 0 && !capabilityTypes.includes('knowledge')) {
+    capabilityTypes.push('knowledge')
+  }
   const runtimeLabel = {
     draft: '配置中',
     published: '可执行',
@@ -54,7 +58,7 @@ export default function AgentInfo({ agent }: AgentInfoProps) {
           </p>
           <div className="agent-info-meta">
             <span><ThunderboltOutlined /> 企业 Agent</span>
-            <span><strong>{agent.tools.length}</strong> 项已授权能力</span>
+            <span><strong>{agent.tools.length + defaultKnowledgeCount}</strong> 项已授权能力</span>
           </div>
         </div>
         <div className="agent-info-runtime" aria-label="Agent 运行状态">
@@ -69,6 +73,9 @@ export default function AgentInfo({ agent }: AgentInfoProps) {
             <span className="agent-capability-chip" key={type}>
               {TOOL_META[type].icon}
               {TOOL_META[type].label}
+              {type === 'knowledge' && defaultKnowledgeCount > 0 && !agent.tools.some((tool) => tool.tool_type === 'knowledge')
+                ? ` · 默认接入 ${defaultKnowledgeCount} 库`
+                : null}
             </span>
           )) : (
             <span className="agent-info-context__empty">当前仅使用模型本身的推理能力</span>

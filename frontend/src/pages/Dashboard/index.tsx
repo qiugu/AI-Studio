@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Card, Row, Col, Statistic, Typography, Spin, Space, Button } from 'antd'
+import { Card, Row, Col, Statistic, Typography, Spin, Space, Button, List, Tag, Progress } from 'antd'
 import {
   TeamOutlined,
   ThunderboltOutlined,
   FundOutlined,
   ApiOutlined,
+  ToolOutlined,
   BarChartOutlined,
   FileTextOutlined,
 } from '@ant-design/icons'
@@ -14,6 +15,7 @@ import { getDashboard } from '@/api/audit'
 import type { DashboardStats } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 import { canManageSystem } from '@/utils/permission'
+import './Dashboard.css'
 
 const { Title, Text } = Typography
 
@@ -42,13 +44,18 @@ export default function Dashboard() {
   }, [fetchDashboard])
 
   return (
-    <div>
-      <Title level={4} style={{ marginTop: 0 }}>
-        欢迎回来，{user?.nickname || user?.email || '用户'} 👋
-      </Title>
+    <div className="dashboard-shell">
+      <header className="dashboard-hero">
+        <div>
+          <span className="dashboard-hero__eyebrow">AI STUDIO / OPERATIONS</span>
+          <Title level={2}>欢迎回来，{user?.nickname || user?.email || '用户'}</Title>
+          <p>把 Agent 的推理、工具与知识调用，收束到一个可读、可追踪的运行面板。</p>
+        </div>
+        <div className="dashboard-hero__status"><span /> 近 30 天运行窗口</div>
+      </header>
 
       <Spin spinning={loading}>
-        <Row gutter={[16, 16]}>
+        <Row gutter={[16, 16]} className="dashboard-metrics">
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
@@ -85,22 +92,79 @@ export default function Dashboard() {
               />
             </Card>
           </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <Card className="dashboard-metric dashboard-metric--tool">
+              <Statistic
+                title="工具调用次数"
+                value={stats?.tool_calls_30d ?? 0}
+                prefix={<ToolOutlined />}
+              />
+              <span className="dashboard-metric__caption">Agent 执行轨迹</span>
+            </Card>
+          </Col>
         </Row>
 
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Row gutter={[16, 16]} className="dashboard-charts">
           <Col xs={24} lg={14}>
-            <Card title="Token 消耗趋势（近 30 天）">
+            <Card title="Token 消耗趋势" extra={<span className="dashboard-card-kicker">MODEL USAGE</span>}>
               <LineChart data={stats?.token_trend ?? []} valueKey="total_tokens" />
             </Card>
           </Col>
           <Col xs={24} lg={10}>
-            <Card title="Top 模型 Token 消耗">
+            <Card title="Top 模型 Token 消耗" extra={<span className="dashboard-card-kicker">TOP MODELS</span>}>
               <BarChart data={stats?.top_models ?? []} valueKey="total_tokens" labelKey="key" />
             </Card>
           </Col>
         </Row>
 
-        <Card title="快捷入口" style={{ marginTop: 16 }}>
+        <Row gutter={[16, 16]} className="dashboard-tools">
+          <Col xs={24} lg={10}>
+            <Card className="dashboard-tool-health" title="工具健康度" extra={<span className="dashboard-card-kicker">TOOL HEALTH</span>}>
+              <div className="dashboard-tool-health__body">
+                <Progress
+                  type="circle"
+                  percent={stats?.tool_success_rate_30d ?? 0}
+                  strokeColor="#52cfc8"
+                  trailColor="#dceceb"
+                  format={(percent) => `${percent}%`}
+                />
+                <div>
+                  <strong>{stats?.tool_success_rate_30d ?? 0}%</strong>
+                  <span>工具调用成功率</span>
+                  <small>把失败也纳入观察，方便定位外部服务或知识检索异常。</small>
+                </div>
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} lg={14}>
+            <Card title="工具调用热度" extra={<span className="dashboard-card-kicker">TOP TOOLS</span>}>
+              <BarChart data={stats?.top_tools ?? []} valueKey="call_count" labelKey="key" color="#52cfc8" />
+            </Card>
+          </Col>
+        </Row>
+
+        <Card className="dashboard-recent" title="最近工具调用" extra={<span className="dashboard-card-kicker">RECENT TRACE</span>}>
+          <List
+            dataSource={stats?.recent_tool_calls ?? []}
+            locale={{ emptyText: '还没有工具调用记录' }}
+            renderItem={(item) => (
+              <List.Item>
+                <div className="dashboard-recent__item">
+                  <span className={`dashboard-recent__dot dashboard-recent__dot--${item.status}`} />
+                  <div>
+                    <strong>{item.tool}</strong>
+                    <span>{item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '刚刚'}</span>
+                  </div>
+                  <Tag color={item.status === 'success' ? 'success' : 'error'}>
+                    {item.status === 'success' ? '成功' : '失败'}
+                  </Tag>
+                </div>
+              </List.Item>
+            )}
+          />
+        </Card>
+
+        <Card className="dashboard-shortcuts" title="快捷入口">
           <Space wrap>
             <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/agents')}>
               我的 Agent
@@ -121,9 +185,7 @@ export default function Dashboard() {
           </Space>
           {canManage && (
             <div style={{ marginTop: 12 }}>
-              <Text type="secondary">
-                审计与监控数据每 30 天为一个统计周期，可在「系统管理 → 审计日志」中查看完整明细。
-              </Text>
+              <Text type="secondary">审计日志保留完整请求链路；当前面板额外聚合 Agent 工具执行轨迹。</Text>
             </div>
           )}
         </Card>

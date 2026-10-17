@@ -7,7 +7,7 @@ import { useParams } from 'react-router-dom'
 import { Spin, Empty, Drawer, Button, message } from 'antd'
 import { CheckCircleOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons'
 import * as agentApi from '@/api/agent'
-import { type Agent, type Citation, type Conversation, type Message } from '@/types/agent'
+import { type Agent, type Citation, type Conversation, type Message, type SSEToolEvent } from '@/types/agent'
 import { createStreamRequest } from '@/utils/streamRequest'
 import {
   AgentInfo,
@@ -28,29 +28,6 @@ export default function AgentChat() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [drawerVisible, setDrawerVisible] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
-
-  /**
-   * 将错误消息作为助手消息添加到聊天记录中
-   */
-  const addErrorToChat = (errorContent: string, errorCode?: string) => {
-    const errorMessage: Message = {
-      id: `${Date.now()}`,
-      conversation_id: currentConversation?.id || '',
-      tenant_id: agent?.tenant_id || '',
-      role: 'assistant',
-      content: errorContent,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: 0,
-      tool_calls: null,
-      tool_call_id: null,
-      tool_name: null,
-      created_at: new Date().toISOString(),
-      is_error: true,
-      error_code: errorCode,
-    }
-    setMessages((prev) => [...prev, errorMessage])
-  }
 
   const loadAgent = useCallback(async () => {
     setLoading(true)
@@ -130,7 +107,7 @@ export default function AgentChat() {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
-      tool_calls: null,
+      tool_calls: [],
       tool_call_id: null,
       tool_name: null,
       created_at: new Date().toISOString(),
@@ -201,6 +178,39 @@ export default function AgentChat() {
             })
           )
         },
+        onToolStart: (event: SSEToolEvent) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, tool_calls: [...(msg.tool_calls ?? []), { ...event }] }
+                : msg,
+            ),
+          )
+        },
+        onToolEnd: (event: SSEToolEvent) => {
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id !== assistantMessageId) return msg
+              const calls = [...(msg.tool_calls ?? [])]
+              const index = calls.findIndex((call) => call.call_id === event.call_id)
+              if (index === -1) calls.push({ ...event })
+              else calls[index] = { ...calls[index], ...event }
+              return { ...msg, tool_calls: calls }
+            }),
+          )
+        },
+        onToolError: (event: SSEToolEvent) => {
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id !== assistantMessageId) return msg
+              const calls = [...(msg.tool_calls ?? [])]
+              const index = calls.findIndex((call) => call.call_id === event.call_id)
+              if (index === -1) calls.push({ ...event })
+              else calls[index] = { ...calls[index], ...event }
+              return { ...msg, tool_calls: calls }
+            }),
+          )
+        },
         onComplete: (fullContent, conversationId) => {
           // 流式完成，更新对话 ID 和消息状态
           if (conversationId && !currentConversation) {
@@ -230,10 +240,15 @@ export default function AgentChat() {
           loadConversations()
         },
         onError: (error, errorCode) => {
-          // 将错误消息按发生位置追加到聊天记录中（不再被抽到会话顶部）
-          addErrorToChat(error, errorCode)
-          // 移除助手消息占位符
-          setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessageId))
+          // 保留占位符的消息槽位：如果错误发生在工具执行之后，工具轨迹不能
+          // 因错误而消失，否则用户看不到 Agent 在哪里失败。
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? { ...msg, content: error, is_error: true, error_code: errorCode }
+                : msg,
+            ),
+          )
           setIsStreaming(false)
           abortControllerRef.current = null
         },

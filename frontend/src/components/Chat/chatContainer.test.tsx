@@ -163,4 +163,31 @@ describe('ChatContainer 错误消息渲染位置', () => {
     expect(screen.getByText('与知识助手描述目标，Agent 会在这里完成推理与执行。')).toBeTruthy()
     expect(screen.getByRole('button', { name: '总结这份文档' })).toBeTruthy()
   })
+
+  it('助手气泡内显示工具执行轨迹', () => {
+    render(
+      <ChatContainer
+        messages={[
+          msg({
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '根据资料，发布流程分为三步。',
+            tool_calls: [
+              {
+                call_id: 'run-1',
+                tool: 'knowledge-kb-1',
+                status: 'success',
+                input: { query: '发布流程' },
+                output: '命中 3 条资料',
+              },
+            ],
+          }),
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('工具执行')).toBeTruthy()
+    expect(screen.getByText('knowledge-kb-1')).toBeTruthy()
+    expect(screen.getByText('命中 3 条资料')).toBeTruthy()
+  })
 })
